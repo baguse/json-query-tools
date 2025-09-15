@@ -1,0 +1,40 @@
+{
+  "name": "json-query-tools",
+  "displayName": "JSON Tools: JavaScript Methods",
+  "description": "VS Code JSON query editor, history, and in-panel results.",
+  "version": "0.0.1",
+  "publisher": "Baguse",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/baguse/json-query-tools"
+  },
+  "engines": {
+    "vscode": "^1.93.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:jsonQueryTools.openHistory"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "jsonQueryTools.openHistory",
+        "title": "JSON Tools: Open Query Editor"
+      }
+    ]
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=out/extension.js --format=cjs --sourcemap",
+    "watch": "npm run build -- --watch",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.93.0",
+    "esbuild": "^0.25.9",
+    "typescript": "^5.4.0",
+    "vsce": "^2.15.0"
+  }
+}
