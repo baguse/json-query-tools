@@ -288,6 +288,19 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       color: var(--vscode-errorForeground, #f48771);
       background: rgba(244, 135, 113, 0.1);
     }
+    #resultTable {
+      max-height: 50vh;
+      overflow: auto;
+      display: none;
+    }
+    #resultTable thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+    #resultTable tbody tr:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
     .loading {
       opacity: 0.6;
       pointer-events: none;
@@ -401,10 +414,28 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
 
   <div id="result">
     <div class="result-header">
-      <h4>Result</h4>
-      <button id="copy-result-to-clipboard" class="secondary">📋 Copy</button>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <h4 style="margin: 0;">Result</h4>
+        <span id="resultInfo" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585);"></span>
+      </div>
+      <div style="display: flex; gap: 8px;">
+        <select id="resultFormat" style="padding: 6px 12px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 12px; cursor: pointer; font-family: inherit;">
+          <option value="json">JSON</option>
+          <option value="raw">Raw</option>
+          <option value="table">Table</option>
+        </select>
+        <button id="copy-result-to-clipboard" class="secondary">📋 Copy</button>
+      </div>
     </div>
-    <pre id="resultPre" class="empty">(no result yet)</pre>
+    <div id="resultContainer">
+      <pre id="resultPre" class="empty">(no result yet)</pre>
+      <table id="resultTable" style="display: none; width: 100%; border-collapse: collapse; background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 6px; overflow: hidden; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; font-size: 12px;">
+        <thead id="resultTableHead" style="background: var(--vscode-titleBar-activeBackground, #2d2d30); color: var(--vscode-titleBar-activeForeground, #ffffff);">
+        </thead>
+        <tbody id="resultTableBody" style="color: var(--vscode-textPreformat-foreground, #d4d4d4);">
+        </tbody>
+      </table>
+    </div>
   </div>
 
   <div id="history">
@@ -419,6 +450,13 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     const resultPre = document.getElementById('resultPre');
     const rebindBtn = document.getElementById('rebind');
     const copyResultBtn = document.getElementById('copy-result-to-clipboard');
+    const resultFormat = document.getElementById('resultFormat');
+    const resultInfo = document.getElementById('resultInfo');
+    const resultTable = document.getElementById('resultTable');
+    const resultTableHead = document.getElementById('resultTableHead');
+    const resultTableBody = document.getElementById('resultTableBody');
+    
+    let currentResultData = null;
     let editor;
     let codeMirrorLoaded = false;
     
@@ -644,7 +682,22 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     };
     rebindBtn.onclick = () => vscode.postMessage({ type: 'rebind' });
     copyResultBtn.onclick = () => {
-      const text = resultPre.textContent || '';
+      let text = '';
+      if (resultTable.style.display === 'table') {
+        // Copy table as CSV
+        const rows = [];
+        const headerRow = Array.from(resultTableHead.querySelectorAll('th')).map(th => th.textContent);
+        rows.push(headerRow.join(','));
+        Array.from(resultTableBody.querySelectorAll('tr')).forEach(tr => {
+          const cells = Array.from(tr.querySelectorAll('td')).map(td => td.textContent);
+          rows.push(cells.join(','));
+        });
+        const newlineChar = String.fromCharCode(10);
+        text = rows.join(newlineChar);
+      } else {
+        text = resultPre.textContent || '';
+      }
+      
       if (text && !text.includes('(no result yet)') && !text.includes('Running...')) {
         vscode.postMessage({ type: 'copyToClipboard', text });
         const originalText = copyResultBtn.textContent;
@@ -701,9 +754,133 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         if (msg.error) {
           resultPre.textContent = 'Error: ' + String(msg.error);
           resultPre.className = 'error';
+          resultPre.style.display = 'block';
+          resultTable.style.display = 'none';
+          resultInfo.textContent = '';
+          currentResultData = null;
         } else {
-          resultPre.textContent = msg.text ?? '';
-          resultPre.className = msg.text ? '' : 'empty';
+          currentResultData = msg.data || null;
+          updateResultDisplay(msg.text ?? '', msg.data);
+        }
+      }
+    });
+
+    function updateResultDisplay(text, data) {
+      const format = resultFormat.value;
+      
+      // Update result info
+      if (text && !text.includes('(no result yet)') && !text.includes('Running...')) {
+        const newlineChar = String.fromCharCode(10);
+        const lines = text.split(newlineChar).length;
+        const chars = text.length;
+        const isArray = data && Array.isArray(data);
+        const isObject = data && typeof data === 'object' && !Array.isArray(data);
+        let info = lines + ' line' + (lines !== 1 ? 's' : '') + ', ' + chars + ' char' + (chars !== 1 ? 's' : '');
+        if (isArray) info += ', ' + data.length + ' item' + (data.length !== 1 ? 's' : '');
+        if (isObject) info += ', ' + Object.keys(data).length + ' key' + (Object.keys(data).length !== 1 ? 's' : '');
+        resultInfo.textContent = info;
+      } else {
+        resultInfo.textContent = '';
+      }
+      
+      // Display based on format
+      if (format === 'table' && data && Array.isArray(data) && data.length > 0) {
+        // Show table view
+        resultPre.style.display = 'none';
+        resultTable.style.display = 'table';
+        
+        // Check if array contains objects or primitives
+        var hasObjects = false;
+        var allKeys = new Set();
+        for (var checkIdx = 0; checkIdx < data.length; checkIdx++) {
+          var checkItem = data[checkIdx];
+          if (typeof checkItem === 'object' && checkItem !== null && !Array.isArray(checkItem)) {
+            hasObjects = true;
+            var itemKeys = Object.keys(checkItem);
+            for (var keyIdx = 0; keyIdx < itemKeys.length; keyIdx++) {
+              allKeys.add(itemKeys[keyIdx]);
+            }
+          }
+        }
+        
+        if (hasObjects && allKeys.size > 0) {
+          // Array of objects - use object keys as columns
+          var keys = Array.from(allKeys);
+          
+          // Build table header
+          var headerCells = [];
+          for (var i = 0; i < keys.length; i++) {
+            var key = keys[i];
+            headerCells.push('<th style="padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(String(key)) + '</th>');
+          }
+          resultTableHead.innerHTML = '<tr>' + headerCells.join('') + '</tr>';
+          
+          // Build table body
+          var bodyRows = [];
+          for (var j = 0; j < data.length; j++) {
+            var item = data[j];
+            var cells = [];
+            for (var k = 0; k < keys.length; k++) {
+              var key = keys[k];
+              var value = item && typeof item === 'object' && item !== null ? item[key] : undefined;
+              var displayValue = value === null ? 'null' : value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+              cells.push('<td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td>');
+            }
+            bodyRows.push('<tr>' + cells.join('') + '</tr>');
+          }
+          resultTableBody.innerHTML = bodyRows.join('');
+        } else {
+          // Array of primitives - single column table
+          resultTableHead.innerHTML = '<tr><th style="padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">Value</th></tr>';
+          
+          // Build table body
+          var bodyRows = [];
+          for (var j = 0; j < data.length; j++) {
+            var item = data[j];
+            var displayValue = item === null ? 'null' : item === undefined ? 'undefined' : typeof item === 'object' ? JSON.stringify(item) : String(item);
+            bodyRows.push('<tr><td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td></tr>');
+          }
+          resultTableBody.innerHTML = bodyRows.join('');
+        }
+      } else {
+        // Show text view
+        resultTable.style.display = 'none';
+        resultPre.style.display = 'block';
+        
+        if (format === 'raw' && data !== null && data !== undefined) {
+          resultPre.textContent = String(data);
+        } else {
+          resultPre.textContent = text;
+        }
+        resultPre.className = text ? '' : 'empty';
+      }
+    }
+    
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+    
+    resultFormat.addEventListener('change', () => {
+      if (currentResultData !== null && currentResultData !== undefined) {
+        const format = resultFormat.value;
+        if (format === 'table' && Array.isArray(currentResultData) && currentResultData.length > 0) {
+          updateResultDisplay('', currentResultData);
+        } else if (format === 'raw') {
+          resultPre.textContent = String(currentResultData);
+          resultPre.style.display = 'block';
+          resultTable.style.display = 'none';
+        } else {
+          try {
+            resultPre.textContent = JSON.stringify(currentResultData, null, 2);
+            resultPre.style.display = 'block';
+            resultTable.style.display = 'none';
+          } catch {
+            resultPre.textContent = String(currentResultData);
+            resultPre.style.display = 'block';
+            resultTable.style.display = 'none';
+          }
         }
       }
     });
@@ -786,7 +963,7 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
   panel.webview.html = getQueryEditorHtml(panel.webview, { fileLabel: label(targetUri), scriptNonce });
 
   const sendHistory = () => panel.webview.postMessage({ type: 'hydrate', history: getHistory(context) });
-  const sendResult = (text: string) => panel.webview.postMessage({ type: 'result', text });
+  const sendResult = (text: string, data?: unknown) => panel.webview.postMessage({ type: 'result', text, data });
 
   panel.webview.onDidReceiveMessage(async (msg) => {
     try {
@@ -804,7 +981,7 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         const expr = String(msg.expr || '');
         const result = evaluateExpression(data, expr);
         if (msg.save) { pushHistory(context, expr); sendHistory(); }
-        sendResult(stringify(result));
+        sendResult(stringify(result), result);
       } else if (msg.type === 'save') {
         pushHistory(context, String(msg.expr || ''));
         sendHistory();
