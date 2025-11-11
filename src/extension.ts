@@ -745,9 +745,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           vscode.postMessage({ type: 'run', expr, save: true });
         };
         delBtn.onclick = () => {
-          if (confirm('Delete this expression from history?')) {
-            vscode.postMessage({ type: 'delete', indexFromEnd: idx });
-          }
+          vscode.postMessage({ type: 'confirmDelete', indexFromEnd: idx, expr: expr.substring(0, 50) + (expr.length > 50 ? '...' : '') });
         };
         actions.append(useBtn, runBtn, delBtn);
         div.append(pre, actions);
@@ -810,14 +808,22 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
       } else if (msg.type === 'save') {
         pushHistory(context, String(msg.expr || ''));
         sendHistory();
-      } else if (msg.type === 'delete') {
-        const hist = getHistory(context);
+      } else if (msg.type === 'confirmDelete') {
         const idxFromEnd: number = Number(msg.indexFromEnd || 0);
+        const hist = getHistory(context);
         const idx = hist.length - 1 - idxFromEnd;
         if (idx >= 0 && idx < hist.length) {
-          hist.splice(idx, 1);
-          await context.globalState.update(HISTORY_KEY, hist);
-          sendHistory();
+          const expr = hist[idx];
+          const confirm = await vscode.window.showWarningMessage(
+            `Delete expression from history?\n\n${msg.expr || expr.substring(0, 50)}${expr.length > 50 ? '...' : ''}`,
+            { modal: true },
+            'Delete'
+          );
+          if (confirm === 'Delete') {
+            hist.splice(idx, 1);
+            await context.globalState.update(HISTORY_KEY, hist);
+            sendHistory();
+          }
         }
       } else if (msg.type === 'copyToClipboard') {
         await copyToClipBoard(String(msg.text || ''));
