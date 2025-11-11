@@ -80,15 +80,21 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${webview.cspSource}; script-src 'nonce-${n}';"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${webview.cspSource} https://cdnjs.cloudflare.com; script-src 'nonce-${n}' https://cdnjs.cloudflare.com;"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>JSON Tools — Query Editor</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css">
   <style>
     body{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0;}
     header{padding:10px 12px; border-bottom:1px solid #ddd; display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
     .muted{opacity:.7}
     .row{display:flex; gap:8px; padding:8px 12px; align-items:center; flex-wrap:wrap;}
-    #expr{width:100%; height:180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12.5px; box-sizing:border-box; padding:10px;}
+    .row:has(#expr){flex-direction:column; align-items:stretch;}
+    #expr{width:100%; height:180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12.5px; box-sizing:border-box;}
+    .CodeMirror{height:180px; width:100% !important; border:1px solid #ddd; border-radius:4px; box-sizing:border-box;}
+    .CodeMirror-wrapper{width:100% !important;}
+    .CodeMirror-scroll{width:100% !important;}
     button{padding:6px 10px; cursor:pointer}
     #history{border-top:1px solid #eee; padding:8px 12px;}
     .item{border:1px solid #e5e7eb; border-radius:6px; padding:8px; margin:8px 0; background:#fafafa}
@@ -129,25 +135,67 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     <div id="list"></div>
   </div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" nonce="${n}"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js" nonce="${n}"></script>
   <script nonce="${n}">
     const vscode = acquireVsCodeApi();
-    const exprEl = document.getElementById('expr');
+    const exprTextarea = document.getElementById('expr');
     const listEl = document.getElementById('list');
     const resultPre = document.getElementById('resultPre');
     const rebindBtn = document.getElementById('rebind');
     const copyResultBtn = document.getElementById('copy-result-to-clipboard');
 
+    let editor;
+    
+    function initEditor() {
+      if (typeof CodeMirror !== 'undefined' && exprTextarea && !editor) {
+        editor = CodeMirror.fromTextArea(exprTextarea, {
+          lineNumbers: true,
+          mode: 'javascript',
+          theme: 'monokai',
+          lineWrapping: true,
+          indentUnit: 2,
+          tabSize: 2
+        });
+        // Force refresh to ensure proper sizing
+        setTimeout(() => {
+          if (editor) {
+            editor.refresh();
+            editor.setSize('100%', '180px');
+          }
+        }, 50);
+      } else if (!editor) {
+        setTimeout(initEditor, 100);
+      }
+    }
+
+    // Initialize editor after scripts load
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', initEditor);
+    } else {
+      setTimeout(initEditor, 100);
+    }
+
+    const getEditorValue = () => editor ? editor.getValue().trim() : (exprTextarea ? exprTextarea.value.trim() : '');
+    const setEditorValue = (value) => {
+      if (editor) {
+        editor.setValue(value || '');
+      } else if (exprTextarea) {
+        exprTextarea.value = value || '';
+      }
+    };
+
     document.getElementById('run').onclick = () => {
-      const expr = (exprEl.value || '').trim();
+      const expr = getEditorValue();
       if (!expr) { return; }
       vscode.postMessage({ type: 'run', expr, save: true }); // save on run
     };
     document.getElementById('save').onclick = () => {
-      const expr = (exprEl.value || '').trim();
+      const expr = getEditorValue();
       if (!expr) { return; }
       vscode.postMessage({ type: 'save', expr });
     };
-    document.getElementById('clear').onclick = () => { exprEl.value=''; };
+    document.getElementById('clear').onclick = () => { setEditorValue(''); };
     rebindBtn.onclick = () => vscode.postMessage({ type: 'rebind' });
     copyResultBtn.onclick = () => {
       const text = resultPre.textContent || '';
@@ -159,7 +207,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       if (msg.type === 'hydrate') {
         renderList(msg.history || []);
       } else if (msg.type === 'insert') {
-        exprEl.value = msg.expr || '';
+        setEditorValue(msg.expr || '');
       } else if (msg.type === 'status') {
         // could show status text
       } else if (msg.type === 'result') {
