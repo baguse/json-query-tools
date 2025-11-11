@@ -80,54 +80,331 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${webview.cspSource} https://cdnjs.cloudflare.com; script-src 'nonce-${n}' https://cdnjs.cloudflare.com;"/>
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline' ${webview.cspSource} https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com; script-src 'nonce-${n}' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://unpkg.com;"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>JSON Tools — Query Editor</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" nonce="${n}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css" nonce="${n}">
   <style>
-    body{font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin:0;}
-    header{padding:10px 12px; border-bottom:1px solid #ddd; display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
-    .muted{opacity:.7}
-    .row{display:flex; gap:8px; padding:8px 12px; align-items:center; flex-wrap:wrap;}
-    .row:has(#expr){flex-direction:column; align-items:stretch;}
-    #expr{width:100%; height:180px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:12.5px; box-sizing:border-box;}
-    .CodeMirror{height:180px; width:100% !important; border:1px solid #ddd; border-radius:4px; box-sizing:border-box;}
-    .CodeMirror-wrapper{width:100% !important;}
-    .CodeMirror-scroll{width:100% !important;}
-    button{padding:6px 10px; cursor:pointer}
-    #history{border-top:1px solid #eee; padding:8px 12px;}
-    .item{border:1px solid #e5e7eb; border-radius:6px; padding:8px; margin:8px 0; background:#fafafa}
-    .item pre{white-space:pre-wrap; word-break:break-word; margin:4px 0 8px}
-    .actions{display:flex; gap:6px; flex-wrap:wrap;}
-    #result{border-top:1px solid #ddd; margin-top:8px; padding:8px 12px;}
-    #result pre{white-space:pre-wrap; word-break:break-word; background:#0b1020; color:#e6edf3; padding:10px; border-radius:6px; overflow:auto; max-height:40vh;}
-    .flex{display:flex;}
-    .justify-between{justify-content:space-between;}
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      margin: 0;
+      background: var(--vscode-editor-background, #1e1e1e);
+      color: var(--vscode-foreground, #cccccc);
+      line-height: 1.5;
+    }
+    header {
+      padding: 16px 20px;
+      background: var(--vscode-titleBar-activeBackground, #2d2d30);
+      border-bottom: 1px solid var(--vscode-panel-border, #3e3e42);
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    header strong {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--vscode-titleBar-activeForeground, #ffffff);
+    }
+    .muted {
+      opacity: 0.7;
+      font-size: 13px;
+      color: var(--vscode-descriptionForeground, #cccccc);
+    }
+    .row {
+      display: flex;
+      gap: 10px;
+      padding: 12px 20px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .row:has(#expr) {
+      flex-direction: column;
+      align-items: stretch;
+      padding: 16px 20px;
+      background: var(--vscode-editor-background, #1e1e1e);
+    }
+    .editor-container {
+      position: relative;
+      margin-bottom: 4px;
+    }
+    .editor-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--vscode-descriptionForeground, #858585);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .editor-label::before {
+      content: '📝';
+      font-size: 14px;
+    }
+    #expr {
+      width: 100%;
+      height: 200px;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+      font-size: 13px;
+      box-sizing: border-box;
+      background: #272822;
+      color: #f8f8f2;
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 6px;
+      padding: 12px;
+      resize: vertical;
+      line-height: 1.5;
+      tab-size: 2;
+    }
+    #expr:focus {
+      outline: 1px solid var(--vscode-focusBorder, #007acc);
+      outline-offset: -1px;
+      border-color: var(--vscode-focusBorder, #007acc);
+    }
+    #expr::placeholder {
+      color: #75715e;
+      opacity: 0.7;
+    }
+    /* Hide textarea when CodeMirror is active */
+    .CodeMirror ~ #expr,
+    .editor-container:has(.CodeMirror) #expr {
+      display: none !important;
+      visibility: hidden !important;
+      position: absolute !important;
+      opacity: 0 !important;
+    }
+    .CodeMirror {
+      height: 200px !important;
+      width: 100% !important;
+      border: 1px solid var(--vscode-input-border, #3e3e42) !important;
+      border-radius: 6px !important;
+      box-sizing: border-box !important;
+      font-size: 13px !important;
+    }
+    .CodeMirror-wrapper {
+      width: 100% !important;
+    }
+    .CodeMirror-scroll {
+      width: 100% !important;
+    }
+    .button-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    button {
+      padding: 8px 16px;
+      cursor: pointer;
+      border: 1px solid var(--vscode-button-border, transparent);
+      border-radius: 4px;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: inherit;
+    }
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    button:active {
+      transform: translateY(0);
+    }
+    button.primary {
+      background: var(--vscode-button-background, #0e639c);
+      color: var(--vscode-button-foreground, #ffffff);
+    }
+    button.primary:hover {
+      background: var(--vscode-button-hoverBackground, #1177bb);
+    }
+    button.secondary {
+      background: var(--vscode-button-secondaryBackground, #3e3e42);
+      color: var(--vscode-button-secondaryForeground, #cccccc);
+    }
+    button.secondary:hover {
+      background: var(--vscode-button-secondaryHoverBackground, #4e4e52);
+    }
+    button.danger {
+      background: var(--vscode-errorForeground, #f48771);
+      color: #ffffff;
+    }
+    button.danger:hover {
+      background: #ff6b5a;
+    }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+    #result {
+      border-top: 1px solid var(--vscode-panel-border, #3e3e42);
+      padding: 16px 20px;
+      background: var(--vscode-editor-background, #1e1e1e);
+    }
+    .result-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .result-header h4 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--vscode-foreground, #cccccc);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .result-header h4::before {
+      content: '📊';
+      font-size: 16px;
+    }
+    #resultPre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: var(--vscode-textCodeBlock-background, #252526);
+      color: var(--vscode-textPreformat-foreground, #d4d4d4);
+      padding: 16px;
+      border-radius: 6px;
+      overflow: auto;
+      max-height: 50vh;
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      margin: 0;
+    }
+    #resultPre.empty {
+      color: var(--vscode-descriptionForeground, #858585);
+      font-style: italic;
+    }
+    #resultPre.error {
+      color: var(--vscode-errorForeground, #f48771);
+      background: rgba(244, 135, 113, 0.1);
+    }
+    .loading {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+    .loading::after {
+      content: ' ⏳';
+    }
+    #history {
+      border-top: 1px solid var(--vscode-panel-border, #3e3e42);
+      padding: 16px 20px;
+      background: var(--vscode-editor-background, #1e1e1e);
+    }
+    #history h4 {
+      margin: 0 0 12px 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--vscode-foreground, #cccccc);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    #history h4::before {
+      content: '🕒';
+      font-size: 16px;
+    }
+    #list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .item {
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 6px;
+      padding: 12px;
+      background: var(--vscode-input-background, #3c3c3c);
+      transition: all 0.2s ease;
+    }
+    .item:hover {
+      border-color: var(--vscode-focusBorder, #007acc);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .item pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      margin: 0 0 10px 0;
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
+      font-size: 12px;
+      color: var(--vscode-foreground, #cccccc);
+      line-height: 1.5;
+    }
+    .actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .actions button {
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--vscode-descriptionForeground, #858585);
+      font-style: italic;
+    }
+    .empty-state::before {
+      content: '📝';
+      display: block;
+      font-size: 32px;
+      margin-bottom: 8px;
+      opacity: 0.5;
+    }
+    .keyboard-hint {
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground, #858585);
+      margin-top: 8px;
+      font-style: italic;
+    }
+    .keyboard-hint kbd {
+      background: var(--vscode-keybindingLabel-background, #3c3c3c);
+      border: 1px solid var(--vscode-keybindingLabel-border, #555);
+      border-radius: 3px;
+      padding: 2px 6px;
+      font-family: monospace;
+      font-size: 11px;
+      margin: 0 2px;
+    }
   </style>
 </head>
 <body>
   <header>
     <strong>JSON Tools — Query Editor</strong>
     <span class="muted">Target: ${params.fileLabel}</span>
-    <button id="rebind">Rebind to Current Editor</button>
+    <button id="rebind" class="secondary">🔄 Rebind to Current Editor</button>
   </header>
 
   <div class="row">
-    <textarea id="expr" placeholder="e.g. .filter(x=>x.active).sort((a,b)=>a.age-b.age).map(x=>x.name)"></textarea>
+    <div class="editor-container">
+      <div class="editor-label">JavaScript Expression</div>
+      <textarea id="expr" placeholder="e.g. .filter(x=>x.active).sort((a,b)=>a.age-b.age).map(x=>x.name)"></textarea>
+      <div class="keyboard-hint">Press <kbd>Ctrl+Enter</kbd> to run, <kbd>Ctrl+S</kbd> to save</div>
+    </div>
   </div>
   <div class="row">
-    <button id="run">Run ▶</button>
-    <button id="save">Save to History ★</button>
-    <button id="clear">Clear Editor</button>
+    <div class="button-group">
+      <button id="run" class="primary">▶ Run</button>
+      <button id="save" class="secondary">★ Save to History</button>
+      <button id="clear" class="secondary">🗑️ Clear</button>
+    </div>
   </div>
 
   <div id="result">
-    <div class="flex justify-between row">
+    <div class="result-header">
       <h4>Result</h4>
-      <button id="copy-result-to-clipboard">Copy Result to Clipboard</button>
+      <button id="copy-result-to-clipboard" class="secondary">📋 Copy</button>
     </div>
-    <pre id="resultPre">(no result yet)</pre>
+    <pre id="resultPre" class="empty">(no result yet)</pre>
   </div>
 
   <div id="history">
@@ -135,8 +412,6 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     <div id="list"></div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js" nonce="${n}"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js" nonce="${n}"></script>
   <script nonce="${n}">
     const vscode = acquireVsCodeApi();
     const exprTextarea = document.getElementById('expr');
@@ -144,63 +419,274 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     const resultPre = document.getElementById('resultPre');
     const rebindBtn = document.getElementById('rebind');
     const copyResultBtn = document.getElementById('copy-result-to-clipboard');
-
     let editor;
+    let codeMirrorLoaded = false;
+    
+    function loadCodeMirror() {
+      return new Promise((resolve, reject) => {
+        if (typeof CodeMirror !== 'undefined') {
+          codeMirrorLoaded = true;
+          resolve();
+          return;
+        }
+        
+        // Try multiple CDNs in order
+        const cdns = [
+          { base: 'https://cdn.jsdelivr.net/npm/codemirror@5.65.16' },
+          { base: 'https://unpkg.com/codemirror@5.65.16' },
+          { base: 'https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16' }
+        ];
+        
+        let cdnIndex = 0;
+        
+        function tryLoadFromCDN() {
+          if (cdnIndex >= cdns.length) {
+            reject(new Error('All CDNs failed to load'));
+            return;
+          }
+          
+          const cdn = cdns[cdnIndex];
+          console.log('Trying to load CodeMirror from:', cdn.base);
+          
+          // Load CSS if not already loaded
+          if (!document.querySelector('link[href*="codemirror"]')) {
+            const cmCSS = document.createElement('link');
+            cmCSS.rel = 'stylesheet';
+            cmCSS.href = cdn.base + '/lib/codemirror.css';
+            cmCSS.onerror = () => console.warn('Failed to load CodeMirror CSS from', cdn.base);
+            document.head.appendChild(cmCSS);
+            
+            const themeCSS = document.createElement('link');
+            themeCSS.rel = 'stylesheet';
+            themeCSS.href = cdn.base + '/theme/monokai.css';
+            themeCSS.onerror = () => console.warn('Failed to load theme CSS from', cdn.base);
+            document.head.appendChild(themeCSS);
+          }
+          
+          const cmScript = document.createElement('script');
+          cmScript.src = cdn.base + '/lib/codemirror.js';
+          cmScript.setAttribute('nonce', '${n}');
+          cmScript.onload = () => {
+            console.log('CodeMirror core loaded from', cdn.base);
+            // Wait a bit for CodeMirror to be fully available
+            setTimeout(() => {
+              const jsModeScript = document.createElement('script');
+              jsModeScript.src = cdn.base + '/mode/javascript/javascript.js';
+              jsModeScript.setAttribute('nonce', '${n}');
+              jsModeScript.onload = () => {
+                console.log('CodeMirror JavaScript mode loaded from', cdn.base);
+                codeMirrorLoaded = true;
+                resolve();
+              };
+              jsModeScript.onerror = () => {
+                console.warn('Failed to load JavaScript mode from', cdn.base);
+                cdnIndex++;
+                tryLoadFromCDN();
+              };
+              document.head.appendChild(jsModeScript);
+            }, 50);
+          };
+          cmScript.onerror = () => {
+            console.warn('Failed to load CodeMirror from', cdn.base);
+            cdnIndex++;
+            tryLoadFromCDN();
+          };
+          document.head.appendChild(cmScript);
+        }
+        
+        tryLoadFromCDN();
+      });
+    }
     
     function initEditor() {
-      if (typeof CodeMirror !== 'undefined' && exprTextarea && !editor) {
-        editor = CodeMirror.fromTextArea(exprTextarea, {
-          lineNumbers: true,
-          mode: 'javascript',
-          theme: 'monokai',
-          lineWrapping: true,
-          indentUnit: 2,
-          tabSize: 2
-        });
-        // Force refresh to ensure proper sizing
-        setTimeout(() => {
-          if (editor) {
-            editor.refresh();
-            editor.setSize('100%', '180px');
-          }
-        }, 50);
-      } else if (!editor) {
-        setTimeout(initEditor, 100);
+      if (codeMirrorLoaded && typeof CodeMirror !== 'undefined' && exprTextarea && !editor) {
+        try {
+          console.log('Initializing CodeMirror editor...');
+          editor = CodeMirror.fromTextArea(exprTextarea, {
+            lineNumbers: true,
+            mode: 'javascript',
+            theme: 'monokai',
+            lineWrapping: true,
+            indentUnit: 2,
+            tabSize: 2,
+            autofocus: true
+          });
+          
+          console.log('CodeMirror editor created:', editor);
+          
+          // Immediately hide textarea
+          exprTextarea.style.display = 'none';
+          exprTextarea.style.visibility = 'hidden';
+          exprTextarea.style.position = 'absolute';
+          exprTextarea.style.opacity = '0';
+          exprTextarea.style.height = '0';
+          exprTextarea.style.width = '0';
+          
+          // Force refresh to ensure proper sizing
+          setTimeout(() => {
+            if (editor) {
+              editor.refresh();
+              editor.setSize('100%', '200px');
+              setupKeyboardShortcuts();
+              console.log('CodeMirror editor initialized successfully');
+              
+              // Final check - ensure textarea is completely hidden
+              const cmElement = exprTextarea.nextElementSibling;
+              if (cmElement && cmElement.classList.contains('CodeMirror')) {
+                exprTextarea.style.display = 'none';
+                console.log('CodeMirror element found, textarea hidden');
+              }
+            }
+          }, 150);
+        } catch (err) {
+          console.error('Failed to initialize CodeMirror:', err);
+          // Show error in result area
+          resultPre.textContent = 'Warning: CodeMirror failed to load. Using textarea fallback.';
+          resultPre.className = 'error';
+        }
+      } else if (!codeMirrorLoaded && !editor) {
+        // Retry initialization
+        setTimeout(initEditor, 200);
+      } else if (!exprTextarea) {
+        console.error('Textarea element not found');
+      } else if (editor) {
+        console.log('Editor already initialized');
+      } else {
+        console.log('Waiting for CodeMirror to load...', { codeMirrorLoaded, hasCodeMirror: typeof CodeMirror !== 'undefined' });
       }
     }
 
-    // Initialize editor after scripts load
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initEditor);
-    } else {
-      setTimeout(initEditor, 100);
-    }
+    // Load CodeMirror and initialize editor
+    loadCodeMirror()
+      .then(() => {
+        console.log('CodeMirror loaded successfully');
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', () => {
+            setTimeout(initEditor, 100);
+          });
+        } else {
+          setTimeout(initEditor, 100);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load CodeMirror:', err);
+        const errorMsg = 'CodeMirror failed to load. Check console for details. Using textarea fallback.';
+        resultPre.textContent = errorMsg + ' Error: ' + (err.message || 'Unknown error');
+        resultPre.className = 'error';
+        // Fallback: keep using textarea and setup keyboard shortcuts
+        setupKeyboardShortcuts();
+        // Show textarea since CodeMirror failed
+        if (exprTextarea) {
+          exprTextarea.style.display = 'block';
+          exprTextarea.style.visibility = 'visible';
+          exprTextarea.style.position = 'static';
+          exprTextarea.style.opacity = '1';
+          exprTextarea.style.height = '200px';
+          exprTextarea.style.width = '100%';
+        }
+      });
 
     const getEditorValue = () => editor ? editor.getValue().trim() : (exprTextarea ? exprTextarea.value.trim() : '');
     const setEditorValue = (value) => {
       if (editor) {
         editor.setValue(value || '');
+        editor.focus();
       } else if (exprTextarea) {
         exprTextarea.value = value || '';
+        exprTextarea.focus();
       }
     };
 
-    document.getElementById('run').onclick = () => {
+    function setLoading(isLoading) {
+      const runBtn = document.getElementById('run');
+      if (isLoading) {
+        runBtn.classList.add('loading');
+        runBtn.disabled = true;
+      } else {
+        runBtn.classList.remove('loading');
+        runBtn.disabled = false;
+      }
+    }
+
+    function runExpression() {
       const expr = getEditorValue();
-      if (!expr) { return; }
-      vscode.postMessage({ type: 'run', expr, save: true }); // save on run
-    };
-    document.getElementById('save').onclick = () => {
+      if (!expr) {
+        resultPre.textContent = 'Error: Expression is empty';
+        resultPre.className = 'error';
+        return;
+      }
+      setLoading(true);
+      resultPre.textContent = 'Running...';
+      resultPre.className = '';
+      vscode.postMessage({ type: 'run', expr, save: true });
+    }
+
+    function saveExpression() {
       const expr = getEditorValue();
-      if (!expr) { return; }
+      if (!expr) {
+        return;
+      }
       vscode.postMessage({ type: 'save', expr });
+      // Visual feedback
+      const saveBtn = document.getElementById('save');
+      const originalText = saveBtn.textContent;
+      saveBtn.textContent = '✓ Saved';
+      setTimeout(() => {
+        saveBtn.textContent = originalText;
+      }, 1500);
+    }
+
+    document.getElementById('run').onclick = runExpression;
+    document.getElementById('save').onclick = saveExpression;
+    document.getElementById('clear').onclick = () => {
+      setEditorValue('');
+      if (editor) editor.focus();
     };
-    document.getElementById('clear').onclick = () => { setEditorValue(''); };
     rebindBtn.onclick = () => vscode.postMessage({ type: 'rebind' });
     copyResultBtn.onclick = () => {
       const text = resultPre.textContent || '';
-      vscode.postMessage({ type: 'copyToClipboard', text });
+      if (text && !text.includes('(no result yet)') && !text.includes('Running...')) {
+        vscode.postMessage({ type: 'copyToClipboard', text });
+        const originalText = copyResultBtn.textContent;
+        copyResultBtn.textContent = '✓ Copied';
+        setTimeout(() => {
+          copyResultBtn.textContent = originalText;
+        }, 1500);
+      }
     };
+
+    // Setup keyboard shortcuts after editor is initialized
+    function setupKeyboardShortcuts() {
+      if (editor) {
+        editor.setOption('extraKeys', {
+          'Ctrl-Enter': () => { runExpression(); return false; },
+          'Cmd-Enter': () => { runExpression(); return false; },
+          'Ctrl-S': (cm) => { saveExpression(); return false; },
+          'Cmd-S': (cm) => { saveExpression(); return false; }
+        });
+      } else if (exprTextarea) {
+        // Also add keyboard shortcuts for textarea fallback
+        exprTextarea.addEventListener('keydown', (e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            runExpression();
+          } else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+            e.preventDefault();
+            saveExpression();
+          }
+        });
+      }
+    }
+    
+    // Focus editor on load
+    setTimeout(() => {
+      if (editor) {
+        editor.focus();
+      } else if (exprTextarea) {
+        exprTextarea.focus();
+        setupKeyboardShortcuts();
+      }
+    }, 400);
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
@@ -211,24 +697,58 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       } else if (msg.type === 'status') {
         // could show status text
       } else if (msg.type === 'result') {
-        resultPre.textContent = msg.text ?? String(msg.error ?? '');
+        setLoading(false);
+        if (msg.error) {
+          resultPre.textContent = 'Error: ' + String(msg.error);
+          resultPre.className = 'error';
+        } else {
+          resultPre.textContent = msg.text ?? '';
+          resultPre.className = msg.text ? '' : 'empty';
+        }
       }
     });
 
     function renderList(items) {
       listEl.innerHTML = '';
+      if (items.length === 0) {
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'empty-state';
+        emptyDiv.textContent = 'No history yet. Save expressions to see them here.';
+        listEl.appendChild(emptyDiv);
+        return;
+      }
       const frag = document.createDocumentFragment();
       items.slice().reverse().forEach((expr, idx) => {
         const div = document.createElement('div');
         div.className = 'item';
-        const pre = document.createElement('pre'); pre.textContent = expr;
-        const actions = document.createElement('div'); actions.className = 'actions';
-        const useBtn = document.createElement('button'); useBtn.textContent = 'Use';
-        const runBtn = document.createElement('button'); runBtn.textContent = 'Run';
-        const delBtn = document.createElement('button'); delBtn.textContent = 'Delete';
-        useBtn.onclick = () => vscode.postMessage({ type: 'use', expr });
-        runBtn.onclick = () => vscode.postMessage({ type: 'run', expr, save: true });
-        delBtn.onclick = () => vscode.postMessage({ type: 'delete', indexFromEnd: idx });
+        const pre = document.createElement('pre');
+        pre.textContent = expr;
+        const actions = document.createElement('div');
+        actions.className = 'actions';
+        const useBtn = document.createElement('button');
+        useBtn.className = 'secondary';
+        useBtn.textContent = '📝 Use';
+        const runBtn = document.createElement('button');
+        runBtn.className = 'primary';
+        runBtn.textContent = '▶ Run';
+        const delBtn = document.createElement('button');
+        delBtn.className = 'danger';
+        delBtn.textContent = '🗑️ Delete';
+        useBtn.onclick = () => {
+          setEditorValue(expr);
+          if (editor) editor.focus();
+        };
+        runBtn.onclick = () => {
+          setLoading(true);
+          resultPre.textContent = 'Running...';
+          resultPre.className = '';
+          vscode.postMessage({ type: 'run', expr, save: true });
+        };
+        delBtn.onclick = () => {
+          if (confirm('Delete this expression from history?')) {
+            vscode.postMessage({ type: 'delete', indexFromEnd: idx });
+          }
+        };
         actions.append(useBtn, runBtn, delBtn);
         div.append(pre, actions);
         frag.append(div);
