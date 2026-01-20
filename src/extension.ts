@@ -340,6 +340,12 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       overflow: auto;
       display: none;
     }
+    #resultChartContainer {
+      height: 400px;
+      width: 100%;
+      display: none;
+      position: relative;
+    }
     #resultTable thead th {
       position: sticky;
       top: 0;
@@ -478,7 +484,14 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           <option value="json">JSON</option>
           <option value="raw">Raw</option>
           <option value="table">Table</option>
+          <option value="chart">Chart</option>
         </select>
+        <select id="chartType" style="display: none; padding: 6px 12px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 12px; cursor: pointer; font-family: inherit;">
+          <option value="bar">Bar</option>
+          <option value="line">Line</option>
+          <option value="pie">Pie</option>
+        </select>
+        <button id="downloadChart" class="secondary" style="display: none;">💾 png</button>
         <button id="copy-result-to-clipboard" class="secondary">📋 Copy</button>
       </div>
     </div>
@@ -490,6 +503,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         <tbody id="resultTableBody" style="color: var(--vscode-textPreformat-foreground, #d4d4d4);">
         </tbody>
       </table>
+      <div id="resultChartContainer">
+        <canvas id="resultChart"></canvas>
+      </div>
     </div>
   </div>
 
@@ -506,14 +522,44 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     const rebindBtn = document.getElementById('rebind');
     const copyResultBtn = document.getElementById('copy-result-to-clipboard');
     const resultFormat = document.getElementById('resultFormat');
+    const chartType = document.getElementById('chartType');
+    const downloadChartBtn = document.getElementById('downloadChart');
     const resultInfo = document.getElementById('resultInfo');
     const resultTable = document.getElementById('resultTable');
     const resultTableHead = document.getElementById('resultTableHead');
     const resultTableBody = document.getElementById('resultTableBody');
+    const resultChartContainer = document.getElementById('resultChartContainer');
+    const chartCanvas = document.getElementById('resultChart');
     
     let currentResultData = null;
     let editor;
     let codeMirrorLoaded = false;
+    let chartJsLoaded = false;
+    let currentChart = null;
+
+    function loadChartJs() {
+      return new Promise((resolve, reject) => {
+        if (typeof Chart !== 'undefined') {
+          chartJsLoaded = true;
+          resolve();
+          return;
+        }
+        
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+        script.setAttribute('nonce', '${n}');
+        script.onload = () => {
+          console.log('Chart.js loaded');
+          chartJsLoaded = true;
+          resolve();
+        };
+        script.onerror = () => {
+          console.warn('Failed to load Chart.js');
+          reject(new Error('Failed to load Chart.js'));
+        };
+        document.head.appendChild(script);
+      });
+    }
     
     function loadCodeMirror() {
       return new Promise((resolve, reject) => {
@@ -811,6 +857,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           resultPre.className = 'error';
           resultPre.style.display = 'block';
           resultTable.style.display = 'none';
+          resultChartContainer.style.display = 'none';
           resultInfo.textContent = '';
           currentResultData = null;
         } else {
@@ -897,9 +944,20 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           }
           resultTableBody.innerHTML = bodyRows.join('');
         }
+      } else if (format === 'chart') {
+         // Show chart view
+         resultPre.style.display = 'none';
+         resultTable.style.display = 'none';
+         resultChartContainer.style.display = 'block';
+         chartType.style.display = 'inline-block';
+         downloadChartBtn.style.display = 'inline-block';
+         renderChart(data);
       } else {
         // Show text view
         resultTable.style.display = 'none';
+        resultChartContainer.style.display = 'none';
+        chartType.style.display = 'none';
+        downloadChartBtn.style.display = 'none';
         resultPre.style.display = 'block';
         
         if (format === 'raw' && data !== null && data !== undefined) {
@@ -910,6 +968,119 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         resultPre.className = text ? '' : 'empty';
       }
     }
+
+    function renderChart(data) {
+      if (!data || !Array.isArray(data)) {
+         resultChartContainer.innerHTML = '<div style="padding: 20px; color: var(--vscode-descriptionForeground, #858585);">Data must be an array to render a chart.</div>';
+         return;
+      }
+      
+      // Ensure canvas exists (might have been overwritten by error message)
+      if (!resultChartContainer.querySelector('canvas')) {
+          resultChartContainer.innerHTML = '<canvas id="resultChart"></canvas>';
+      }
+      const ctx = document.getElementById('resultChart').getContext('2d');
+      
+      if (currentChart) {
+          currentChart.destroy();
+          currentChart = null;
+      }
+      
+      
+      // Heuristics for labels and datasets
+      let labels = [];
+      let datasets = [];
+
+      if (data.length > 0) {
+          const first = data[0];
+          if (typeof first === 'object' && first !== null) {
+              const keys = Object.keys(first);
+              const labelKey = keys.find(k => typeof first[k] === 'string') || keys[0];
+              const valueKeys = keys.filter(k => typeof first[k] === 'number');
+              
+              labels = data.map(d => String(d[labelKey]));
+              
+              if (valueKeys.length > 0) {
+                  datasets = valueKeys.map((key, i) => {
+                      const color = 'hsl(' + (i * 360 / valueKeys.length) + ', 70%, 60%)';
+                      return {
+                          label: key,
+                          data: data.map(d => Number(d[key]) || 0),
+                          backgroundColor: color.replace('60%)', '50%)').replace('hsl', 'hsla').replace(')', ', 0.5)'),
+                          borderColor: color,
+                          borderWidth: 1
+                      };
+                  });
+              } else {
+                 // Fallback: use second key as value
+                 const valueKey = keys[1] || keys[0];
+                 datasets = [{
+                     label: valueKey,
+                     data: data.map(d => Number(d[valueKey]) || 0),
+                     backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                     borderColor: 'rgba(54, 162, 235, 1)',
+                     borderWidth: 1
+                 }];
+              }
+          } else {
+              // Primitive values
+              labels = data.map((_, i) => String(i));
+              datasets = [{
+                  label: 'Value',
+                  data: data.map(d => Number(d) || 0),
+                  backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                  borderColor: 'rgba(54, 162, 235, 1)',
+                  borderWidth: 1
+              }];
+          }
+      }
+
+      loadChartJs().then(() => {
+          const type = chartType.value;
+          
+          // For Pie charts, we want colorful segments for specific labels, not dataset-based colors
+          if (type === 'pie') {
+             const sliceColors = labels.map((_, i) => 'hsl(' + (i * 360 / labels.length) + ', 70%, 60%)');
+             datasets.forEach(ds => {
+                 ds.backgroundColor = sliceColors;
+                 ds.borderColor = '#ffffff';
+             });
+          }
+          
+          // Apply special handling for specific chart types if needed
+          datasets.forEach(ds => {
+              if (type === 'line') ds.fill = false;
+          });
+            
+          currentChart = new Chart(ctx, {
+            type: type,
+            data: {
+              labels: labels,
+              datasets: datasets
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              scales: type === 'pie' ? undefined : {
+                y: {
+                  beginAtZero: true,
+                  grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                  ticks: { color: '#cccccc' }
+                },
+                x: {
+                  grid: { color: 'rgba(255, 255, 255, 0.1)' },
+                  ticks: { color: '#cccccc' }
+                }
+              },
+              plugins: {
+                legend: { labels: { color: '#cccccc' } }
+              }
+            }
+          });
+      }).catch(err => {
+          resultChartContainer.textContent = 'Failed to load Chart.js: ' + err.message;
+      });
+    }
     
     function escapeHtml(text) {
       const div = document.createElement('div');
@@ -917,6 +1088,21 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       return div.innerHTML;
     }
     
+    chartType.addEventListener('change', () => {
+       if (resultFormat.value === 'chart' && currentResultData) {
+         renderChart(currentResultData);
+       }
+    });
+
+    downloadChartBtn.addEventListener('click', () => {
+      const canvas = document.getElementById('resultChart');
+      if (canvas) {
+        const dataUrl = canvas.toDataURL('image/png');
+        const base64 = dataUrl.replace(/^data:image\\/png;base64,/, '');
+        vscode.postMessage({ type: 'saveImage', data: base64 });
+      }
+    });
+
     resultFormat.addEventListener('change', () => {
       if (currentResultData !== null && currentResultData !== undefined) {
         const format = resultFormat.value;
@@ -926,15 +1112,26 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           resultPre.textContent = String(currentResultData);
           resultPre.style.display = 'block';
           resultTable.style.display = 'none';
+          resultChartContainer.style.display = 'none';
+          chartType.style.display = 'none';
+          downloadChartBtn.style.display = 'none';
+        } else if (format === 'chart') {
+           updateResultDisplay('', currentResultData);
         } else {
           try {
             resultPre.textContent = JSON.stringify(currentResultData, null, 2);
             resultPre.style.display = 'block';
             resultTable.style.display = 'none';
+            resultChartContainer.style.display = 'none';
+            chartType.style.display = 'none';
+            downloadChartBtn.style.display = 'none';
           } catch {
             resultPre.textContent = String(currentResultData);
             resultPre.style.display = 'block';
             resultTable.style.display = 'none';
+            resultChartContainer.style.display = 'none';
+            chartType.style.display = 'none';
+            downloadChartBtn.style.display = 'none';
           }
         }
       }
@@ -1109,6 +1306,18 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         }
       } else if (msg.type === 'copyToClipboard') {
         await copyToClipBoard(String(msg.text || ''));
+      } else if (msg.type === 'saveImage') {
+        const base64 = msg.data;
+        const buf = Buffer.from(base64, 'base64');
+        const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + '.png';
+        const uri = await vscode.window.showSaveDialog({
+          defaultUri: vscode.Uri.file(defaultName),
+          filters: { 'Images': ['png'] }
+        });
+        if (uri) {
+          await vscode.workspace.fs.writeFile(uri, buf);
+          vscode.window.showInformationMessage('Chart saved: ' + uri.fsPath);
+        }
       }
     } catch (err: any) {
       panel.webview.postMessage({ type: 'result', error: err?.message ?? String(err) });
