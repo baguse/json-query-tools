@@ -26,10 +26,8 @@ function stringify(value: unknown): string {
 }
 
 function evaluateExpression(data: unknown, expr: string): unknown {
-  const source = expr.trim().startsWith('.') ? `(data${expr})` : `(${expr})`;
-  // eslint-disable-next-line no-new-func
-  const fn = new Function('data', 'Array', 'Object', 'Number', 'String', 'Boolean', `return ${source};`);
-  return fn(data, Array, Object, Number, String, Boolean);
+  const fn = new Function('data', `${expr}`);
+  return fn(data);
 }
 
 // --- Helpers to read JSON document by URI (works even when webview focused)
