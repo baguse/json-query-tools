@@ -1,5 +1,6 @@
 
 import * as vscode from 'vscode';
+import { createRequire } from 'module';
 
 const HISTORY_KEY = 'jsonQueryTools.history';
 const HISTORY_LIMIT = 200;
@@ -68,9 +69,10 @@ function stringify(value: unknown): string {
   catch { return String(value); }
 }
 
-function evaluateExpression(data: unknown, expr: string): unknown {
-  const fn = new Function('data', `${expr}`);
-  const result = fn(data);
+function evaluateExpression(data: unknown, expr: string, targetUri?: vscode.Uri): unknown {
+  const req = targetUri ? createRequire(targetUri.fsPath) : require;
+  const fn = new Function('data', 'require', `${expr}`);
+  const result = fn(data, req);
   if (typeof result === 'undefined') {
     vscode.window.showWarningMessage('Expression returned void (undefined). You must include a `return` statement to provide a result.');
   }
@@ -109,7 +111,7 @@ async function commandTransformWithExpression(context: vscode.ExtensionContext) 
   });
   if (!expr) return;
   const data = await readJsonFromUri(target);
-  const result = evaluateExpression(data, expr);
+  const result = evaluateExpression(data, expr, target);
   pushHistory(context, expr);
   // For this command we still open a new tab (handy for diffs)
   const doc = await vscode.workspace.openTextDocument({ content: stringify(result) + '\n', language: 'json' });
@@ -1071,7 +1073,7 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         if (!targetUri) throw new Error('No target JSON file is bound. Click "Rebind to Current Editor".');
         const data = await readJsonFromUri(targetUri);
         const expr = String(msg.expr || '');
-        const result = evaluateExpression(data, expr);
+        const result = evaluateExpression(data, expr, targetUri);
         if (msg.save) { pushHistory(context, expr); sendHistory(); }
         sendResult(stringify(result), result);
       } else if (msg.type === 'save') {

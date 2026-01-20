@@ -33,6 +33,7 @@
     "package": "vsce package"
   },
   "devDependencies": {
+    "@types/node": "^25.0.9",
     "@types/vscode": "^1.93.0",
     "esbuild": "^0.25.9",
     "typescript": "^5.4.0",
