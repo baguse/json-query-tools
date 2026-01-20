@@ -4,20 +4,63 @@ import * as vscode from 'vscode';
 const HISTORY_KEY = 'jsonQueryTools.history';
 const HISTORY_LIMIT = 200;
 
-type History = string[];
+interface HistoryItem {
+  expr: string;
+  isFavorite: boolean;
+}
+
+type StoredHistory = (string | HistoryItem)[];
+type History = HistoryItem[];
+
+function normalizeHistory(raw: StoredHistory): History {
+  return raw.map(item => {
+    if (typeof item === 'string') {
+      return { expr: item, isFavorite: false };
+    }
+    return item;
+  });
+}
 
 function pushHistory(context: vscode.ExtensionContext, expr: string) {
-  const arr = (context.globalState.get<History>(HISTORY_KEY) ?? []);
+  let list = normalizeHistory(context.globalState.get<StoredHistory>(HISTORY_KEY) ?? []);
 
-  const existingIdx = arr.findIndex(e => e === expr);
+  const existingIdx = list.findIndex(e => e.expr === expr);
+  let isFav = false;
   if (existingIdx !== -1) {
-    arr.splice(existingIdx, 1);
+    isFav = list[existingIdx].isFavorite;
+    list.splice(existingIdx, 1);
   }
-  arr.push(expr);
-  context.globalState.update(HISTORY_KEY, arr.slice(-HISTORY_LIMIT));
+  
+  list.push({ expr, isFavorite: isFav });
+  
+  // Enforce limit
+  if (list.length > HISTORY_LIMIT) {
+    const toDelete = new Set<number>();
+    let deleted = 0;
+    const needed = list.length - HISTORY_LIMIT;
+    
+    // First pass: delete oldest non-favorites
+    for (let i = 0; i < list.length && deleted < needed; i++) {
+        if (!list[i].isFavorite) {
+            toDelete.add(i);
+            deleted++;
+        }
+    }
+    // Second pass: delete oldest favorites if absolutely necessary
+    for (let i = 0; i < list.length && deleted < needed; i++) {
+        if (list[i].isFavorite) {
+            toDelete.add(i);
+            deleted++;
+        }
+    }
+    list = list.filter((_, i) => !toDelete.has(i));
+  }
+
+  context.globalState.update(HISTORY_KEY, list);
 }
+
 function getHistory(context: vscode.ExtensionContext): History {
-  return (context.globalState.get<History>(HISTORY_KEY) ?? []);
+  return normalizeHistory(context.globalState.get<StoredHistory>(HISTORY_KEY) ?? []);
 }
 
 function stringify(value: unknown): string {
@@ -343,6 +386,14 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     .item:hover {
       border-color: var(--vscode-focusBorder, #007acc);
       box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .item.favorite {
+      border-color: var(--vscode-charts-yellow, #D7BA7D);
+      background: rgba(215, 186, 125, 0.05);
+    }
+    .item.favorite:hover {
+      border-color: var(--vscode-charts-yellow, #D7BA7D);
+      box-shadow: 0 2px 8px rgba(215, 186, 125, 0.2);
     }
     .item pre {
       white-space: pre-wrap;
@@ -897,22 +948,61 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         return;
       }
       const frag = document.createDocumentFragment();
-      items.slice().reverse().forEach((expr, idx) => {
+      items.slice()
+      .sort((a, b) => {
+        const aFav = typeof a === 'object' ? a.isFavorite : false;
+        const bFav = typeof b === 'object' ? b.isFavorite : false;
+        if (aFav === bFav) return 0; // maintain relative chrono order
+        return aFav ? 1 : -1; // favorites go to end
+      })
+      .reverse()
+      .forEach((item, idx) => {
+        const expr = typeof item === 'object' ? item.expr : item;
+        const isFav = typeof item === 'object' ? !!item.isFavorite : false;
+        
         const div = document.createElement('div');
-        div.className = 'item';
+        div.className = 'item' + (isFav ? ' favorite' : '');
+        
         const pre = document.createElement('pre');
         pre.textContent = expr;
+        
         const actions = document.createElement('div');
         actions.className = 'actions';
+        
+        const favBtn = document.createElement('button');
+        favBtn.className = 'secondary';
+        favBtn.textContent = isFav ? '★' : '☆';
+        favBtn.title = isFav ? 'Unfavorite' : 'Favorite';
+        favBtn.style.color = isFav ? 'var(--vscode-charts-yellow, #D7BA7D)' : '';
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'secondary';
+        copyBtn.textContent = '📋';
+        copyBtn.title = 'Copy to Clipboard';
+        
         const useBtn = document.createElement('button');
         useBtn.className = 'secondary';
         useBtn.textContent = '📝 Use';
+        
         const runBtn = document.createElement('button');
         runBtn.className = 'primary';
         runBtn.textContent = '▶ Run';
+        
         const delBtn = document.createElement('button');
         delBtn.className = 'danger';
         delBtn.textContent = '🗑️ Delete';
+
+        favBtn.onclick = () => {
+             vscode.postMessage({ type: 'toggleFavorite', expr: expr });
+        };
+
+        copyBtn.onclick = () => {
+             vscode.postMessage({ type: 'copyToClipboard', text: expr });
+             const originalText = copyBtn.textContent;
+             copyBtn.textContent = '✓';
+             setTimeout(() => copyBtn.textContent = originalText, 1500);
+        };
+        
         useBtn.onclick = () => {
           setEditorValue(expr);
           if (editor) editor.focus();
@@ -924,9 +1014,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           vscode.postMessage({ type: 'run', expr, save: true });
         };
         delBtn.onclick = () => {
-          vscode.postMessage({ type: 'confirmDelete', indexFromEnd: idx, expr: expr.substring(0, 50) + (expr.length > 50 ? '...' : '') });
+          vscode.postMessage({ type: 'confirmDelete', fullExpr: expr });
         };
-        actions.append(useBtn, runBtn, delBtn);
+        actions.append(favBtn, copyBtn, useBtn, runBtn, delBtn);
         div.append(pre, actions);
         frag.append(div);
       });
@@ -987,14 +1077,25 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
       } else if (msg.type === 'save') {
         pushHistory(context, String(msg.expr || ''));
         sendHistory();
+      } else if (msg.type === 'toggleFavorite') {
+        const history = getHistory(context);
+        const targetExpr = msg.expr;
+        const item = history.find(h => h.expr === targetExpr);
+        if (item) {
+          item.isFavorite = !item.isFavorite;
+          await context.globalState.update(HISTORY_KEY, history);
+          sendHistory();
+        }
       } else if (msg.type === 'confirmDelete') {
-        const idxFromEnd: number = Number(msg.indexFromEnd || 0);
+        // Use fullExpr to identify the item accurately irrespective of sort order
+        const targetExpr = msg.fullExpr;
         const hist = getHistory(context);
-        const idx = hist.length - 1 - idxFromEnd;
-        if (idx >= 0 && idx < hist.length) {
-          const expr = hist[idx];
+        const idx = hist.findIndex(h => h.expr === targetExpr);
+        
+        if (idx !== -1) {
+          const expr = hist[idx].expr;
           const confirm = await vscode.window.showWarningMessage(
-            `Delete expression from history?\n\n${msg.expr || expr.substring(0, 50)}${expr.length > 50 ? '...' : ''}`,
+            `Delete expression from history?\n\n${expr.substring(0, 100)}${expr.length > 100 ? '...' : ''}`,
             { modal: true },
             'Delete'
           );
