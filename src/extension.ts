@@ -492,6 +492,8 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           <option value="pie">Pie</option>
         </select>
         <button id="downloadChart" class="secondary" style="display: none;">💾 png</button>
+        <button id="saveJson" class="secondary" style="display: none;">💾 json</button>
+        <button id="saveCsv" class="secondary" style="display: none;">💾 csv</button>
         <button id="copy-result-to-clipboard" class="secondary">📋 Copy</button>
       </div>
     </div>
@@ -524,6 +526,8 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     const resultFormat = document.getElementById('resultFormat');
     const chartType = document.getElementById('chartType');
     const downloadChartBtn = document.getElementById('downloadChart');
+    const saveJsonBtn = document.getElementById('saveJson');
+    const saveCsvBtn = document.getElementById('saveCsv');
     const resultInfo = document.getElementById('resultInfo');
     const resultTable = document.getElementById('resultTable');
     const resultTableHead = document.getElementById('resultTableHead');
@@ -890,6 +894,8 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         // Show table view
         resultPre.style.display = 'none';
         resultTable.style.display = 'table';
+        saveJsonBtn.style.display = 'none';
+        saveCsvBtn.style.display = 'inline-block';
         
         // Check if array contains objects or primitives
         var hasObjects = false;
@@ -951,6 +957,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
          resultChartContainer.style.display = 'block';
          chartType.style.display = 'inline-block';
          downloadChartBtn.style.display = 'inline-block';
+         saveJsonBtn.style.display = 'none';
+         saveCsvBtn.style.display = 'none';
+         copyResultBtn.style.display = 'none';
          renderChart(data);
       } else {
         // Show text view
@@ -958,6 +967,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         resultChartContainer.style.display = 'none';
         chartType.style.display = 'none';
         downloadChartBtn.style.display = 'none';
+        saveJsonBtn.style.display = 'inline-block';
+        saveCsvBtn.style.display = 'none';
+        copyResultBtn.style.display = 'inline-block';
         resultPre.style.display = 'block';
         
         if (format === 'raw' && data !== null && data !== undefined) {
@@ -1103,11 +1115,71 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       }
     });
 
+    saveJsonBtn.addEventListener('click', () => {
+      if (currentResultData !== undefined) {
+        vscode.postMessage({ type: 'saveData', fileType: 'json', data: currentResultData });
+      }
+    });
+
+    saveCsvBtn.addEventListener('click', () => {
+      if (currentResultData !== undefined && Array.isArray(currentResultData)) {
+         // Reuse table generation logic or similar for CSV
+         // For simplicity, let's regenerate the CSV content here
+         // This logic is duplicated from copy functionality, ideally refuted
+         const data = currentResultData;
+         var hasObjects = false;
+         var allKeys = new Set();
+         for (var checkIdx = 0; checkIdx < data.length; checkIdx++) {
+            var checkItem = data[checkIdx];
+            if (typeof checkItem === 'object' && checkItem !== null && !Array.isArray(checkItem)) {
+               hasObjects = true;
+               var itemKeys = Object.keys(checkItem);
+               for (var keyIdx = 0; keyIdx < itemKeys.length; keyIdx++) {
+                  allKeys.add(itemKeys[keyIdx]);
+               }
+            }
+         }
+         
+         let csvContent = '';
+         if (hasObjects && allKeys.size > 0) {
+            const keys = Array.from(allKeys);
+            csvContent += keys.join(',') + '\\n';
+            for (var j = 0; j < data.length; j++) {
+               var item = data[j];
+               var row = [];
+               for (var k = 0; k < keys.length; k++) {
+                  var val = item && typeof item === 'object' ? item[keys[k]] : '';
+                  // Basic CSV escaping
+                  val = val === null ? 'null' : val === undefined ? '' : String(val);
+                  if (val.includes(',') || val.includes('\\n') || val.includes('"')) {
+                      val = '"' + val.replace(/"/g, '""') + '"';
+                  }
+                  row.push(val);
+               }
+               csvContent += row.join(',') + '\\n';
+            }
+         } else {
+             // Array of primitives
+             csvContent += 'Value\\n';
+             for (var j = 0; j < data.length; j++) {
+                 let val = String(data[j]);
+                 if (val.includes(',') || val.includes('\\n') || val.includes('"')) {
+                      val = '"' + val.replace(/"/g, '""') + '"';
+                  }
+                 csvContent += val + '\\n';
+             }
+         }
+         vscode.postMessage({ type: 'saveData', fileType: 'csv', text: csvContent });
+      }
+    });
+
     resultFormat.addEventListener('change', () => {
       if (currentResultData !== null && currentResultData !== undefined) {
         const format = resultFormat.value;
         if (format === 'table' && Array.isArray(currentResultData) && currentResultData.length > 0) {
           updateResultDisplay('', currentResultData);
+          saveJsonBtn.style.display = 'none'; 
+          saveCsvBtn.style.display = 'inline-block';
         } else if (format === 'raw') {
           resultPre.textContent = String(currentResultData);
           resultPre.style.display = 'block';
@@ -1115,8 +1187,13 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           resultChartContainer.style.display = 'none';
           chartType.style.display = 'none';
           downloadChartBtn.style.display = 'none';
+          saveJsonBtn.style.display = 'inline-block';
+          saveCsvBtn.style.display = 'none';
+          copyResultBtn.style.display = 'inline-block';
         } else if (format === 'chart') {
            updateResultDisplay('', currentResultData);
+           saveJsonBtn.style.display = 'none';
+           saveCsvBtn.style.display = 'none';
         } else {
           try {
             resultPre.textContent = JSON.stringify(currentResultData, null, 2);
@@ -1125,6 +1202,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
             resultChartContainer.style.display = 'none';
             chartType.style.display = 'none';
             downloadChartBtn.style.display = 'none';
+            saveJsonBtn.style.display = 'inline-block';
+            saveCsvBtn.style.display = 'none';
+            copyResultBtn.style.display = 'inline-block';
           } catch {
             resultPre.textContent = String(currentResultData);
             resultPre.style.display = 'block';
@@ -1132,6 +1212,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
             resultChartContainer.style.display = 'none';
             chartType.style.display = 'none';
             downloadChartBtn.style.display = 'none';
+            saveJsonBtn.style.display = 'inline-block';
+            saveCsvBtn.style.display = 'none';
+            copyResultBtn.style.display = 'inline-block';
           }
         }
       }
@@ -1317,6 +1400,27 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         if (uri) {
           await vscode.workspace.fs.writeFile(uri, buf);
           vscode.window.showInformationMessage('Chart saved: ' + uri.fsPath);
+        }
+      } else if (msg.type === 'saveData') {
+        const isJson = msg.fileType === 'json';
+        const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + (isJson ? '.json' : '.csv');
+        const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(defaultName),
+            filters: isJson ? { 'JSON': ['json'] } : { 'CSV': ['csv'] }
+        });
+        if (uri) {
+            let content = '';
+            if (isJson) {
+                try {
+                    content = JSON.stringify(msg.data, null, 2);
+                } catch {
+                    content = String(msg.data);
+                }
+            } else {
+                content = String(msg.text || '');
+            }
+            await vscode.workspace.fs.writeFile(uri, Buffer.from(content));
+            vscode.window.showInformationMessage('File saved: ' + uri.fsPath);
         }
       }
     } catch (err: any) {
