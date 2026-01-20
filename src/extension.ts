@@ -27,7 +27,11 @@ function stringify(value: unknown): string {
 
 function evaluateExpression(data: unknown, expr: string): unknown {
   const fn = new Function('data', `${expr}`);
-  return fn(data);
+  const result = fn(data);
+  if (typeof result === 'undefined') {
+    vscode.window.showWarningMessage('Expression returned void (undefined). You must include a `return` statement to provide a result.');
+  }
+  return result;
 }
 
 // --- Helpers to read JSON document by URI (works even when webview focused)
