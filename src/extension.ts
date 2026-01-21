@@ -1294,15 +1294,29 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         return;
       }
       const frag = document.createDocumentFragment();
-      filteredItems.slice()
-      .sort((a, b) => {
-        const aFav = typeof a === 'object' ? a.isFavorite : false;
-        const bFav = typeof b === 'object' ? b.isFavorite : false;
-        if (aFav === bFav) return 0; // maintain relative chrono order
-        return aFav ? 1 : -1; // favorites go to end
-      })
-      .reverse()
-      .forEach((item, idx) => {
+      
+      const favorites = [];
+      const others = [];
+      
+      filteredItems.forEach(item => {
+        const isFav = typeof item === 'object' && item.isFavorite;
+        if (isFav) favorites.push(item);
+        else others.push(item);
+      });
+
+      favorites.sort((a, b) => {
+         const nameA = (a.name || '').trim();
+         const nameB = (b.name || '').trim();
+         
+         if (nameA && nameB) return nameA.localeCompare(nameB);
+         if (nameA) return -1; // Named first
+         if (nameB) return 1;
+         return 0;
+      });
+
+      // Others: maintain original order (Newest at bottom)
+
+      [...favorites, ...others].forEach((item, idx) => {
         const expr = typeof item === 'object' ? item.expr : item;
         const isFav = typeof item === 'object' ? !!item.isFavorite : false;
         const name = typeof item === 'object' ? item.name : undefined;
