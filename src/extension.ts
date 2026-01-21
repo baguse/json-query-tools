@@ -1414,7 +1414,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
 
       // Others: maintain original order (Newest at bottom)
 
-      [...favorites, ...others].forEach((item, idx) => {
+      [...favorites, ...others.reverse()].forEach((item, idx) => {
         const expr = typeof item === 'object' ? item.expr : item;
         const isFav = typeof item === 'object' ? !!item.isFavorite : false;
         const name = typeof item === 'object' ? item.name : undefined;
