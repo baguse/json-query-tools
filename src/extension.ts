@@ -498,6 +498,25 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     <button id="rebind" class="secondary">🔄 Rebind to Current Editor</button>
   </header>
 
+  <div class="row" style="background: var(--vscode-sideBar-background); border-bottom: 1px solid var(--vscode-panel-border); padding: 12px 20px;">
+    <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
+        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <span style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px;">✨ AI Query</span>
+            <input id="ollamaEndpoint" type="text" placeholder="http://localhost:11434" style="flex: 1; min-width: 150px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
+            <div style="display: flex; gap: 4px;">
+                <select id="ollamaModel" style="width: 120px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
+                    <option value="" disabled selected>Select Model...</option>
+                </select>
+                <button id="refreshModels" class="secondary" title="Refresh Models" style="padding: 4px 8px;">🔄</button>
+            </div>
+        </div>
+        <div style="display: flex; gap: 8px;">
+            <textarea id="aiPrompt" placeholder="Describe what you want to filter/map in English..." style="flex: 1; height: 36px; padding: 6px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; resize: none; font-family: inherit;"></textarea>
+            <button id="aiGenerate" class="primary">Generate</button>
+        </div>
+    </div>
+  </div>
+
   <div class="row">
     <div class="editor-container">
       <div class="editor-label">JavaScript Expression</div>
@@ -584,6 +603,24 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     let codeMirrorLoaded = false;
     let chartJsLoaded = false;
     let currentChart = null;
+
+    // AI Elements
+    const ollamaEndpoint = document.getElementById('ollamaEndpoint');
+    const ollamaModel = document.getElementById('ollamaModel');
+    const refreshModelsBtn = document.getElementById('refreshModels');
+    const aiPrompt = document.getElementById('aiPrompt');
+    const aiGenerateBtn = document.getElementById('aiGenerate');
+
+    // Initialize AI Config from storage if available
+    const savedEndpoint = localStorage.getItem('jsonQueryTools.ollamaEndpoint');
+    if (savedEndpoint) ollamaEndpoint.value = savedEndpoint;
+    
+    // Auto-fetch models on load if endpoint exists
+    if (ollamaEndpoint.value) {
+        setTimeout(() => {
+            vscode.postMessage({ type: 'getOllamaModels', endpoint: ollamaEndpoint.value });
+        }, 500);
+    }
 
     function loadChartJs() {
       return new Promise((resolve, reject) => {
@@ -911,6 +948,29 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         } else {
           currentResultData = msg.data || null;
           updateResultDisplay(msg.text ?? '', msg.data);
+        }
+      } else if (msg.type === 'updateModels') {
+        ollamaModel.innerHTML = '<option value="" disabled selected>Select Model...</option>';
+        if (msg.models && msg.models.length > 0) {
+            msg.models.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m;
+                opt.textContent = m;
+                ollamaModel.appendChild(opt);
+            });
+            // Try to restore selection
+            const savedModel = localStorage.getItem('jsonQueryTools.ollamaModel');
+            if (savedModel && msg.models.includes(savedModel)) {
+                ollamaModel.value = savedModel;
+            } else {
+                // Default to a sane choice if available
+                const defaultModel = msg.models.find(m => m.includes('llama3') || m.includes('mistral')) || msg.models[0];
+                ollamaModel.value = defaultModel;
+            }
+        }
+        if (msg.error) {
+            // Visualize error on the refreshing button or input?
+            console.error(msg.error);
         }
       }
     });
@@ -1405,10 +1465,115 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     }
 
     vscode.postMessage({ type: 'ready' });
+
+    // AI Event Listeners
+    refreshModelsBtn.onclick = () => {
+        const ep = ollamaEndpoint.value || 'http://localhost:11434';
+        localStorage.setItem('jsonQueryTools.ollamaEndpoint', ep);
+        vscode.postMessage({ type: 'getOllamaModels', endpoint: ep });
+    };
+
+    ollamaModel.onchange = () => {
+        localStorage.setItem('jsonQueryTools.ollamaModel', ollamaModel.value);
+    };
+
+    aiGenerateBtn.onclick = () => {
+        const ep = ollamaEndpoint.value;
+        const model = ollamaModel.value;
+        const prompt = aiPrompt.value;
+        
+        if (!ep) {
+            throw new Error('Please check the Ollama Endpoint.');
+        }
+        if (!model) {
+            throw new Error('Please select a model.');
+        }
+        if (!prompt) return;
+
+        aiGenerateBtn.disabled = true;
+        aiGenerateBtn.textContent = 'Generating...';
+        
+        vscode.postMessage({ type: 'generateQuery', endpoint: ep, model, prompt });
+        
+
+    };
+    // Also re-enable on message receive (could interpret 'insert' as 'generation success')
+
+    window.addEventListener('message', e => {
+        const msg = e.data;
+        if (msg.type === 'insert') {
+            aiGenerateBtn.disabled = false;
+            aiGenerateBtn.textContent = 'Generate';
+        } else if (msg.type === 'aiError') {
+             aiGenerateBtn.disabled = false;
+             aiGenerateBtn.textContent = 'Generate';
+             alert('Generation failed: ' + msg.error);
+        }
+    });
+
   </script>
 </body>
 </html>`;
+
 }
+
+async function fetchOllamaModels(endpoint: string): Promise<string[]> {
+  try {
+    // Basic timeout implementation
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
+    
+    const res = await fetch(`${endpoint}/api/tags`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+    
+    if (!res.ok) throw new Error(`Ollama API Error: ${res.status} ${res.statusText}`);
+    const json = await res.json() as any;
+    return (json.models || []).map((m: any) => m.name);
+  } catch (e) {
+    console.error('Failed to fetch models:', e);
+    return [];
+  }
+}
+
+async function callOllama(endpoint: string, model: string, prompt: string, dataSample: string): Promise<string> {
+  const systemPrompt = `You are a JavaScript expert. Write JavaScript expression to filter/map the \`data\` variable based on the user request.
+Input data structure sample: ${dataSample}
+
+Rules:
+1. Return ONLY the JavaScript code. NO markdown, NO explanations.
+2. The input \`data\` variable contains the JSON context.
+3. INTELLIGENTLY DETECT THE ARRAY: If \`data\` is an object wrapping the target array (e.g. \`data.rows\`, \`data.items\`, \`data.data\`), your code MUST access that property. If \`data\` is the array, use it directly.
+4. Ensure the expression returns the result (e.g. \`return data.items.filter(...)\`).
+`;
+
+  console.log({
+    file: "extension.ts",
+    line: 1541,
+    systemPrompt,
+    model
+   });
+  const res = await fetch(`${endpoint}/api/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      prompt: `Request: ${prompt}`,
+      system: systemPrompt,
+      stream: false,
+      options: { temperature: 0.2 }
+    })
+  });
+
+  if (!res.ok) throw new Error(`Ollama API Error: ${res.status} ${res.statusText}`);
+  const json = await res.json() as any;
+  let code = json.response.trim();
+  // Strip markdown code blocks if present
+  code = code.replace(/^```(javascript|js)?\s*/i, '').replace(/\s*```$/, '');
+  return code;
+}
+
+
+
 
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
@@ -1543,6 +1708,42 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
             }
             await vscode.workspace.fs.writeFile(uri, Buffer.from(content));
             vscode.window.showInformationMessage('File saved: ' + uri.fsPath);
+        }
+      }
+      else if (msg.type === 'getOllamaModels') {
+        const config = vscode.workspace.getConfiguration('jsonQueryTools');
+        const endpoint = msg.endpoint || config.get<string>('ollamaEndpoint') || 'http://localhost:11434';
+        try {
+          const models = await fetchOllamaModels(endpoint);
+          panel.webview.postMessage({ type: 'updateModels', models, endpoint });
+        } catch (err: any) {
+           vscode.window.showErrorMessage('Failed to fetch Ollama models: ' + err.message);
+           panel.webview.postMessage({ type: 'updateModels', models: [], error: err.message });
+        }
+      } else if (msg.type === 'generateQuery') {
+        const config = vscode.workspace.getConfiguration('jsonQueryTools');
+        const endpoint = msg.endpoint || config.get<string>('ollamaEndpoint') || 'http://localhost:11434';
+        const model = msg.model || 'llama3';
+        
+        let dataSample = 'unknown';
+        if (targetUri) {
+            try {
+                const fullData = await readJsonFromUri(targetUri);
+                // Create a small sample
+                let sample: any = fullData;
+                if (Array.isArray(fullData)) {
+                    sample = fullData.slice(0, 2);
+                }
+                dataSample = JSON.stringify(sample).substring(0, 1000); // Limit size
+            } catch (e) { /* ignore */ }
+        }
+
+        try {
+            const code = await callOllama(endpoint, model, msg.prompt, dataSample);
+            panel.webview.postMessage({ type: 'insert', expr: code });
+        } catch (err: any) {
+            vscode.window.showErrorMessage('Ollama generation failed: ' + err.message);
+            panel.webview.postMessage({ type: 'aiError', error: err.message });
         }
       }
     } catch (err: any) {

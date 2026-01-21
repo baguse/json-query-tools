@@ -25,7 +25,17 @@
         "command": "jsonQueryTools.openHistory",
         "title": "JSON Tools: Open Query Editor"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "JSON Tools",
+      "properties": {
+        "jsonQueryTools.ollamaEndpoint": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "URL of the Ollama API"
+        }
+      }
+    }
   },
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=out/extension.js --format=cjs --sourcemap",
