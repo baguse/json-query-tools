@@ -33,6 +33,17 @@
           "type": "string",
           "default": "http://localhost:11434",
           "description": "URL of the Ollama API"
+        },
+        "jsonQueryTools.aiProvider": {
+          "type": "string",
+          "enum": ["ollama", "gemini"],
+          "default": "ollama",
+          "description": "AI Provider to use for query generation"
+        },
+        "jsonQueryTools.aiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API Key for cloud AI providers (e.g. Gemini)"
         }
       }
     }

@@ -502,9 +502,18 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
         <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <span style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px;">✨ AI Query</span>
-            <input id="ollamaEndpoint" type="text" placeholder="http://localhost:11434" style="flex: 1; min-width: 150px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
+            <select id="aiProvider" style="width: 100px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
+                <option value="ollama">Ollama</option>
+                <option value="gemini">Gemini</option>
+            </select>
+            <div id="ollamaConfig" style="display: flex; gap: 8px; flex: 1; align-items: center;">
+                <input id="ollamaEndpoint" type="text" placeholder="http://localhost:11434" style="flex: 1; min-width: 150px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
+            </div>
+            <div id="geminiConfig" style="display: none; gap: 8px; flex: 1; align-items: center;">
+                <input id="aiApiKey" type="password" placeholder="API Key" style="flex: 1; min-width: 150px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
+            </div>
             <div style="display: flex; gap: 4px;">
-                <select id="ollamaModel" style="width: 120px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
+                <select id="aiModel" style="width: 150px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
                     <option value="" disabled selected>Select Model...</option>
                 </select>
                 <button id="refreshModels" class="secondary" title="Refresh Models" style="padding: 4px 8px;">🔄</button>
@@ -605,22 +614,53 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     let currentChart = null;
 
     // AI Elements
+    const aiProvider = document.getElementById('aiProvider');
+    const ollamaConfig = document.getElementById('ollamaConfig');
+    const geminiConfig = document.getElementById('geminiConfig');
     const ollamaEndpoint = document.getElementById('ollamaEndpoint');
-    const ollamaModel = document.getElementById('ollamaModel');
+    const aiApiKey = document.getElementById('aiApiKey');
+    const aiModel = document.getElementById('aiModel');
     const refreshModelsBtn = document.getElementById('refreshModels');
     const aiPrompt = document.getElementById('aiPrompt');
     const aiGenerateBtn = document.getElementById('aiGenerate');
 
-    // Initialize AI Config from storage if available
+    // Initialize Config
+    const savedProvider = localStorage.getItem('jsonQueryTools.aiProvider') || 'ollama';
+    aiProvider.value = savedProvider;
+    updateProviderUI();
+
     const savedEndpoint = localStorage.getItem('jsonQueryTools.ollamaEndpoint');
     if (savedEndpoint) ollamaEndpoint.value = savedEndpoint;
     
-    // Auto-fetch models on load if endpoint exists
-    if (ollamaEndpoint.value) {
-        setTimeout(() => {
-            vscode.postMessage({ type: 'getOllamaModels', endpoint: ollamaEndpoint.value });
-        }, 500);
+    // Attempt to load API key from stash if possible, but usually we don't store secrets in localstorage for security if extension host handles it better.
+    // However, for webview convenience:
+    const savedApiKey = localStorage.getItem('jsonQueryTools.aiApiKey');
+    if (savedApiKey) aiApiKey.value = savedApiKey;
+
+    function updateProviderUI() {
+        const provider = aiProvider.value;
+        if (provider === 'gemini') {
+            ollamaConfig.style.display = 'none';
+            geminiConfig.style.display = 'flex';
+        } else {
+            ollamaConfig.style.display = 'flex';
+            geminiConfig.style.display = 'none';
+        }
     }
+
+    aiProvider.onchange = () => {
+        localStorage.setItem('jsonQueryTools.aiProvider', aiProvider.value);
+        updateProviderUI();
+        // Clear models when switching?
+        aiModel.innerHTML = '<option value="" disabled selected>Select Model...</option>';
+    };
+
+    // Auto-fetch if possible
+    setTimeout(() => {
+        if (aiProvider.value === 'ollama' && ollamaEndpoint.value) {
+           vscode.postMessage({ type: 'getModels', provider: 'ollama', endpoint: ollamaEndpoint.value });
+        }
+    }, 500);
 
     function loadChartJs() {
       return new Promise((resolve, reject) => {
@@ -950,27 +990,25 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           updateResultDisplay(msg.text ?? '', msg.data);
         }
       } else if (msg.type === 'updateModels') {
-        ollamaModel.innerHTML = '<option value="" disabled selected>Select Model...</option>';
+        aiModel.innerHTML = '<option value="" disabled selected>Select Model...</option>';
         if (msg.models && msg.models.length > 0) {
             msg.models.forEach(m => {
                 const opt = document.createElement('option');
                 opt.value = m;
                 opt.textContent = m;
-                ollamaModel.appendChild(opt);
+                aiModel.appendChild(opt);
             });
             // Try to restore selection
-            const savedModel = localStorage.getItem('jsonQueryTools.ollamaModel');
+            const savedModel = localStorage.getItem('jsonQueryTools.aiModel');
             if (savedModel && msg.models.includes(savedModel)) {
-                ollamaModel.value = savedModel;
+                aiModel.value = savedModel;
             } else {
-                // Default to a sane choice if available
-                const defaultModel = msg.models.find(m => m.includes('llama3') || m.includes('mistral')) || msg.models[0];
-                ollamaModel.value = defaultModel;
+                aiModel.value = msg.models[0];
             }
         }
         if (msg.error) {
-            // Visualize error on the refreshing button or input?
             console.error(msg.error);
+            alert('Failed to fetch models: ' + msg.error);
         }
       }
     });
@@ -1468,22 +1506,33 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
 
     // AI Event Listeners
     refreshModelsBtn.onclick = () => {
+        const provider = aiProvider.value;
         const ep = ollamaEndpoint.value || 'http://localhost:11434';
+        const key = aiApiKey.value;
+        
         localStorage.setItem('jsonQueryTools.ollamaEndpoint', ep);
-        vscode.postMessage({ type: 'getOllamaModels', endpoint: ep });
+        if (key) localStorage.setItem('jsonQueryTools.aiApiKey', key);
+
+        vscode.postMessage({ type: 'getModels', provider, endpoint: ep, apiKey: key });
     };
 
-    ollamaModel.onchange = () => {
-        localStorage.setItem('jsonQueryTools.ollamaModel', ollamaModel.value);
+    aiModel.onchange = () => {
+        localStorage.setItem('jsonQueryTools.aiModel', aiModel.value);
     };
 
     aiGenerateBtn.onclick = () => {
+        const provider = aiProvider.value;
         const ep = ollamaEndpoint.value;
-        const model = ollamaModel.value;
+        const model = aiModel.value;
         const prompt = aiPrompt.value;
+        const key = aiApiKey.value;
         
-        if (!ep) {
+        if (provider === 'ollama' && !ep) {
             throw new Error('Please check the Ollama Endpoint.');
+        }
+        if (provider === 'gemini' && !key) {
+             alert('Please enter a Gemini API Key.');
+             return;
         }
         if (!model) {
             throw new Error('Please select a model.');
@@ -1493,7 +1542,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         aiGenerateBtn.disabled = true;
         aiGenerateBtn.textContent = 'Generating...';
         
-        vscode.postMessage({ type: 'generateQuery', endpoint: ep, model, prompt });
+        vscode.postMessage({ type: 'generateQuery', provider, endpoint: ep, apiKey: key, model, prompt });
         
 
     };
@@ -1546,12 +1595,6 @@ Rules:
 4. Ensure the expression returns the result (e.g. \`return data.items.filter(...)\`).
 `;
 
-  console.log({
-    file: "extension.ts",
-    line: 1541,
-    systemPrompt,
-    model
-   });
   const res = await fetch(`${endpoint}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1572,7 +1615,64 @@ Rules:
   return code;
 }
 
+async function fetchGeminiModels(apiKey: string): Promise<string[]> {
+    try {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+        if (!res.ok) throw new Error(`Gemini API Error: ${res.status}`);
+        const data = await res.json() as any;
+        // Filter for generateContent supported models
+        return (data.models || [])
+            .filter((m: any) => m.supportedGenerationMethods?.includes('generateContent'))
+            .map((m: any) => m.name.replace('models/', ''));
+    } catch (e: any) {
+        console.error('Failed to fetch Gemini models:', e);
+        throw e;
+    }
+}
 
+async function callGemini(apiKey: string, model: string, prompt: string, dataSample: string): Promise<string> {
+    const systemInstruction = `You are a JavaScript expert. Write JavaScript expression to filter/map the \`data\` variable based on the user request.
+Input data structure sample: ${dataSample}
+Rules:
+1. Return ONLY the JavaScript code. NO markdown, NO explanations.
+2. The input \`data\` variable contains the JSON context.
+3. INTELLIGENTLY DETECT THE ARRAY: If \`data\` is an object wrapping the target array (e.g. \`data.rows\`, \`data.items\`, \`data.data\`), your code MUST access that property. If \`data\` is the array, use it directly.
+4. Ensure the expression returns the result (e.g. \`return data.items.filter(...)\`).
+`;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
+    const body = {
+        contents: [{
+            parts: [{ text: `Request: ${prompt}` }]
+        }],
+        systemInstruction: {
+            parts: [{ text: systemInstruction }]
+        },
+        generationConfig: {
+            temperature: 0.2
+        }
+    };
+
+    const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`Gemini API Error: ${res.status} ${errText}`);
+    }
+
+    const json = await res.json() as any;
+    const candidate = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!candidate) throw new Error('No content generated');
+    
+    let code = candidate.trim();
+    code = code.replace(/^```(javascript|js)?\s*/i, '').replace(/\s*```$/, '');
+    return code;
+}
 
 
 export function activate(context: vscode.ExtensionContext) {
@@ -1709,21 +1809,32 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
             await vscode.workspace.fs.writeFile(uri, Buffer.from(content));
             vscode.window.showInformationMessage('File saved: ' + uri.fsPath);
         }
-      }
-      else if (msg.type === 'getOllamaModels') {
-        const config = vscode.workspace.getConfiguration('jsonQueryTools');
-        const endpoint = msg.endpoint || config.get<string>('ollamaEndpoint') || 'http://localhost:11434';
+      } else if (msg.type === 'getModels') {
+        const provider = msg.provider;
         try {
-          const models = await fetchOllamaModels(endpoint);
-          panel.webview.postMessage({ type: 'updateModels', models, endpoint });
+            let models: string[] = [];
+            if (provider === 'ollama') {
+                 const config = vscode.workspace.getConfiguration('jsonQueryTools');
+                 const endpoint = msg.endpoint || config.get<string>('ollamaEndpoint') || 'http://localhost:11434';
+                 models = await fetchOllamaModels(endpoint);
+            } else if (provider === 'gemini') {
+                 const config = vscode.workspace.getConfiguration('jsonQueryTools');
+                 const apiKey = msg.apiKey || config.get<string>('aiApiKey') || config.get<string>('geminiApiKey'); // Fallback
+                 if (!apiKey) throw new Error('API Key required for Gemini');
+                 models = await fetchGeminiModels(apiKey);
+            }
+            panel.webview.postMessage({ type: 'updateModels', models });
         } catch (err: any) {
-           vscode.window.showErrorMessage('Failed to fetch Ollama models: ' + err.message);
+           vscode.window.showErrorMessage('Failed to fetch models: ' + err.message);
            panel.webview.postMessage({ type: 'updateModels', models: [], error: err.message });
         }
       } else if (msg.type === 'generateQuery') {
         const config = vscode.workspace.getConfiguration('jsonQueryTools');
+        const provider = msg.provider || config.get<string>('aiProvider') || 'ollama';
+        
         const endpoint = msg.endpoint || config.get<string>('ollamaEndpoint') || 'http://localhost:11434';
-        const model = msg.model || 'llama3';
+        const apiKey = msg.apiKey || config.get<string>('aiApiKey') || config.get<string>('geminiApiKey');
+        const model = msg.model || (provider === 'ollama' ? 'llama3' : 'gemini-1.5-flash');
         
         let dataSample = 'unknown';
         if (targetUri) {
@@ -1739,10 +1850,16 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         }
 
         try {
-            const code = await callOllama(endpoint, model, msg.prompt, dataSample);
+            let code = '';
+            if (provider === 'gemini') {
+                if (!apiKey) throw new Error('API Key required for Gemini');
+                code = await callGemini(apiKey, model, msg.prompt, dataSample);
+            } else {
+                code = await callOllama(endpoint, model, msg.prompt, dataSample);
+            }
             panel.webview.postMessage({ type: 'insert', expr: code });
         } catch (err: any) {
-            vscode.window.showErrorMessage('Ollama generation failed: ' + err.message);
+            vscode.window.showErrorMessage('AI generation failed: ' + err.message);
             panel.webview.postMessage({ type: 'aiError', error: err.message });
         }
       }
