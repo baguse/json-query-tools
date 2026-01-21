@@ -8,6 +8,7 @@ const HISTORY_LIMIT = 200;
 interface HistoryItem {
   expr: string;
   isFavorite: boolean;
+  name?: string;
 }
 
 type StoredHistory = (string | HistoryItem)[];
@@ -449,6 +450,45 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       font-size: 11px;
       margin: 0 2px;
     }
+    .search-box {
+      margin-bottom: 12px;
+      position: relative;
+    }
+    .search-input {
+      width: 100%;
+      padding: 8px 12px;
+      padding-left: 32px;
+      background: var(--vscode-input-background, #3c3c3c);
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      color: var(--vscode-input-foreground, #cccccc);
+      border-radius: 4px;
+      font-size: 13px;
+    }
+    .search-input:focus {
+      outline: 1px solid var(--vscode-focusBorder, #007acc);
+      border-color: var(--vscode-focusBorder, #007acc);
+    }
+    .search-icon {
+      position: absolute;
+      left: 10px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 14px;
+      opacity: 0.7;
+      pointer-events: none;
+    }
+    .item-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+    }
+    .item-name {
+        font-weight: 600;
+        color: var(--vscode-textLink-foreground, #3794ff);
+        font-size: 13px;
+    }
+
   </style>
 </head>
 <body>
@@ -513,6 +553,10 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
 
   <div id="history">
     <h4>History</h4>
+    <div class="search-box">
+      <span class="search-icon">🔍</span>
+      <input type="text" id="historySearch" class="search-input" placeholder="Search history..." />
+    </div>
     <div id="list"></div>
   </div>
 
@@ -1220,17 +1264,37 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       }
     });
 
+    const historySearch = document.getElementById('historySearch');
+    let currentHistoryItems = [];
+
+    historySearch.addEventListener('input', () => {
+      renderList(currentHistoryItems);
+    });
+
     function renderList(items) {
+      if (items) currentHistoryItems = items;
+      else items = currentHistoryItems;
+
       listEl.innerHTML = '';
-      if (items.length === 0) {
+      
+      const searchTerm = historySearch.value.toLowerCase().trim();
+      
+      const filteredItems = items.filter(item => {
+        const expr = typeof item === 'object' ? item.expr : item;
+        const name = typeof item === 'object' ? item.name : '';
+        if (!searchTerm) return true;
+        return expr.toLowerCase().includes(searchTerm) || (name && name.toLowerCase().includes(searchTerm));
+      });
+
+      if (filteredItems.length === 0) {
         const emptyDiv = document.createElement('div');
         emptyDiv.className = 'empty-state';
-        emptyDiv.textContent = 'No history yet. Save expressions to see them here.';
+        emptyDiv.textContent = searchTerm ? 'No matching history found.' : 'No history yet. Save expressions to see them here.';
         listEl.appendChild(emptyDiv);
         return;
       }
       const frag = document.createDocumentFragment();
-      items.slice()
+      filteredItems.slice()
       .sort((a, b) => {
         const aFav = typeof a === 'object' ? a.isFavorite : false;
         const bFav = typeof b === 'object' ? b.isFavorite : false;
@@ -1241,9 +1305,20 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       .forEach((item, idx) => {
         const expr = typeof item === 'object' ? item.expr : item;
         const isFav = typeof item === 'object' ? !!item.isFavorite : false;
+        const name = typeof item === 'object' ? item.name : undefined;
         
         const div = document.createElement('div');
         div.className = 'item' + (isFav ? ' favorite' : '');
+        
+        if (name) {
+            const header = document.createElement('div');
+            header.className = 'item-header';
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'item-name';
+            nameSpan.textContent = name;
+            header.appendChild(nameSpan);
+            div.appendChild(header);
+        }
         
         const pre = document.createElement('pre');
         pre.textContent = expr;
@@ -1273,6 +1348,12 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         const delBtn = document.createElement('button');
         delBtn.className = 'danger';
         delBtn.textContent = '🗑️ Delete';
+        
+        const renameBtn = document.createElement('button');
+        renameBtn.className = 'secondary';
+        renameBtn.textContent = '✏️';
+        renameBtn.title = 'Rename';
+
 
         favBtn.onclick = () => {
              vscode.postMessage({ type: 'toggleFavorite', expr: expr });
@@ -1298,7 +1379,11 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         delBtn.onclick = () => {
           vscode.postMessage({ type: 'confirmDelete', fullExpr: expr });
         };
-        actions.append(favBtn, copyBtn, useBtn, runBtn, delBtn);
+        renameBtn.onclick = () => {
+            vscode.postMessage({ type: 'renameHistoryItem', fullExpr: expr, currentName: name });
+        };
+
+        actions.append(favBtn, renameBtn, copyBtn, useBtn, runBtn, delBtn);
         div.append(pre, actions);
         frag.append(div);
       });
@@ -1400,6 +1485,29 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         if (uri) {
           await vscode.workspace.fs.writeFile(uri, buf);
           vscode.window.showInformationMessage('Chart saved: ' + uri.fsPath);
+        }
+      } else if (msg.type === 'renameHistoryItem') {
+        const targetExpr = msg.fullExpr;
+        const currentName = msg.currentName;
+        const hist = getHistory(context);
+        const itemIdx = hist.findIndex(h => h.expr === targetExpr);
+        
+        if (itemIdx !== -1) {
+            const newName = await vscode.window.showInputBox({
+                prompt: 'Enter a name for this history item',
+                value: currentName || '',
+                placeHolder: 'e.g. Filter Active Users'
+            });
+            
+            if (newName !== undefined) {
+                hist[itemIdx].name = newName;
+                if (newName.trim() !== '') {
+                    hist[itemIdx].isFavorite = true;
+                }
+                
+                await context.globalState.update(HISTORY_KEY, hist);
+                sendHistory();
+            }
         }
       } else if (msg.type === 'saveData') {
         const isJson = msg.fileType === 'json';
