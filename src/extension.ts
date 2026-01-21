@@ -141,31 +141,35 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       background: var(--vscode-editor-background, #1e1e1e);
       color: var(--vscode-foreground, #cccccc);
       line-height: 1.5;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
     }
     header {
-      padding: 16px 20px;
+      padding: 12px 20px;
       background: var(--vscode-titleBar-activeBackground, #2d2d30);
-      border-bottom: 1px solid var(--vscode-panel-border, #3e3e42);
+      border-bottom: 2px solid var(--vscode-focusBorder, #007acc);
       display: flex;
-      gap: 16px;
+      gap: 12px;
       align-items: center;
       flex-wrap: wrap;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     }
     header strong {
-      font-size: 16px;
-      font-weight: 600;
+      font-size: 15px;
+      font-weight: 700;
       color: var(--vscode-titleBar-activeForeground, #ffffff);
+      letter-spacing: 0.3px;
     }
     .muted {
-      opacity: 0.7;
-      font-size: 13px;
+      opacity: 0.65;
+      font-size: 12px;
       color: var(--vscode-descriptionForeground, #cccccc);
     }
     .row {
       display: flex;
       gap: 10px;
-      padding: 12px 20px;
+      padding: 14px 20px;
       align-items: center;
       flex-wrap: wrap;
     }
@@ -174,47 +178,52 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       align-items: stretch;
       padding: 16px 20px;
       background: var(--vscode-editor-background, #1e1e1e);
+      border-bottom: 1px solid var(--vscode-panel-border, #3e3e42);
     }
     .editor-container {
       position: relative;
-      margin-bottom: 4px;
+      margin-bottom: 2px;
     }
     .editor-label {
-      font-size: 12px;
-      font-weight: 500;
+      font-size: 11px;
+      font-weight: 600;
       color: var(--vscode-descriptionForeground, #858585);
-      margin-bottom: 8px;
+      margin-bottom: 10px;
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
     }
     .editor-label::before {
-      content: '📝';
-      font-size: 14px;
+      content: '✎';
+      font-size: 13px;
+      opacity: 0.8;
     }
     #expr {
       width: 100%;
-      height: 200px;
+      height: 180px;
       font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
       font-size: 13px;
       box-sizing: border-box;
-      background: #272822;
-      color: #f8f8f2;
-      border: 1px solid var(--vscode-input-border, #3e3e42);
-      border-radius: 6px;
+      background: var(--vscode-input-background, #3c3c3c);
+      color: var(--vscode-input-foreground, #cccccc);
+      border: 1.5px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 5px;
       padding: 12px;
       resize: vertical;
-      line-height: 1.5;
+      line-height: 1.6;
       tab-size: 2;
+      transition: all 0.2s ease;
     }
     #expr:focus {
-      outline: 1px solid var(--vscode-focusBorder, #007acc);
-      outline-offset: -1px;
+      outline: none;
       border-color: var(--vscode-focusBorder, #007acc);
+      box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.1);
     }
     #expr::placeholder {
-      color: #75715e;
-      opacity: 0.7;
+      color: var(--vscode-input-placeholderForeground, #75715e);
+      opacity: 0.6;
     }
     /* Hide textarea when CodeMirror is active */
     .CodeMirror ~ #expr,
@@ -225,12 +234,18 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       opacity: 0 !important;
     }
     .CodeMirror {
-      height: 200px !important;
+      height: 180px !important;
       width: 100% !important;
-      border: 1px solid var(--vscode-input-border, #3e3e42) !important;
-      border-radius: 6px !important;
+      border: 1.5px solid var(--vscode-input-border, #3e3e42) !important;
+      border-radius: 5px !important;
       box-sizing: border-box !important;
       font-size: 13px !important;
+      transition: all 0.2s ease !important;
+    }
+    .CodeMirror:focus,
+    .CodeMirror-focused {
+      border-color: var(--vscode-focusBorder, #007acc) !important;
+      box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.1) !important;
     }
     .CodeMirror-wrapper {
       width: 100% !important;
@@ -242,47 +257,51 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
+      padding: 2px 0;
     }
     button {
-      padding: 8px 16px;
+      padding: 8px 14px;
       cursor: pointer;
       border: 1px solid var(--vscode-button-border, transparent);
       border-radius: 4px;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
       display: inline-flex;
       align-items: center;
       gap: 6px;
       font-family: inherit;
+      white-space: nowrap;
+      user-select: none;
     }
-    button:hover {
+    button:hover:not(:disabled) {
       transform: translateY(-1px);
-      box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+      box-shadow: 0 3px 8px rgba(0,0,0,0.25);
     }
-    button:active {
+    button:active:not(:disabled) {
       transform: translateY(0);
     }
     button.primary {
       background: var(--vscode-button-background, #0e639c);
       color: var(--vscode-button-foreground, #ffffff);
+      font-weight: 600;
     }
-    button.primary:hover {
+    button.primary:hover:not(:disabled) {
       background: var(--vscode-button-hoverBackground, #1177bb);
     }
     button.secondary {
       background: var(--vscode-button-secondaryBackground, #3e3e42);
       color: var(--vscode-button-secondaryForeground, #cccccc);
     }
-    button.secondary:hover {
+    button.secondary:hover:not(:disabled) {
       background: var(--vscode-button-secondaryHoverBackground, #4e4e52);
     }
     button.danger {
-      background: var(--vscode-errorForeground, #f48771);
+      background: rgba(244, 135, 113, 0.85);
       color: #ffffff;
     }
-    button.danger:hover {
-      background: #ff6b5a;
+    button.danger:hover:not(:disabled) {
+      background: var(--vscode-errorForeground, #f48771);
     }
     button:disabled {
       opacity: 0.5;
@@ -293,67 +312,91 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       border-top: 1px solid var(--vscode-panel-border, #3e3e42);
       padding: 16px 20px;
       background: var(--vscode-editor-background, #1e1e1e);
+      flex: 1.5;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      min-height: 300px;
     }
     .result-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 12px;
+      margin-bottom: 14px;
+      gap: 12px;
+      flex-wrap: wrap;
     }
     .result-header h4 {
       margin: 0;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       color: var(--vscode-foreground, #cccccc);
       display: flex;
       align-items: center;
       gap: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
     }
     .result-header h4::before {
-      content: '📊';
-      font-size: 16px;
+      content: '▶';
+      font-size: 12px;
+      opacity: 0.7;
     }
     #resultPre {
       white-space: pre-wrap;
       word-break: break-word;
       background: var(--vscode-textCodeBlock-background, #252526);
       color: var(--vscode-textPreformat-foreground, #d4d4d4);
-      padding: 16px;
-      border-radius: 6px;
+      padding: 14px;
+      border-radius: 4px;
       overflow: auto;
-      max-height: 50vh;
+      flex: 1;
+      min-height: 200px;
       border: 1px solid var(--vscode-input-border, #3e3e42);
       font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
       font-size: 12px;
-      line-height: 1.6;
+      line-height: 1.5;
       margin: 0;
     }
     #resultPre.empty {
       color: var(--vscode-descriptionForeground, #858585);
       font-style: italic;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 120px;
     }
     #resultPre.error {
       color: var(--vscode-errorForeground, #f48771);
-      background: rgba(244, 135, 113, 0.1);
+      background: rgba(244, 135, 113, 0.08);
     }
     #resultTable {
-      max-height: 50vh;
+      flex: 1;
+      min-height: 200px;
       overflow: auto;
       display: none;
     }
     #resultChartContainer {
-      height: 400px;
+      height: 100%;
+      min-height: 300px;
       width: 100%;
       display: none;
       position: relative;
+      flex: 1;
     }
     #resultTable thead th {
       position: sticky;
       top: 0;
       z-index: 1;
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 2px solid var(--vscode-input-border, #3e3e42);
+    }
+    #resultTable tbody td {
+      padding: 8px 12px;
     }
     #resultTable tbody tr:hover {
-      background: rgba(255, 255, 255, 0.05);
+      background: rgba(255, 255, 255, 0.04);
     }
     .loading {
       opacity: 0.6;
@@ -366,50 +409,57 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       border-top: 1px solid var(--vscode-panel-border, #3e3e42);
       padding: 16px 20px;
       background: var(--vscode-editor-background, #1e1e1e);
+      max-height: 40vh;
+      overflow-y: auto;
+      flex-shrink: 0;
     }
     #history h4 {
       margin: 0 0 12px 0;
-      font-size: 14px;
+      font-size: 13px;
       font-weight: 600;
       color: var(--vscode-foreground, #cccccc);
       display: flex;
       align-items: center;
       gap: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
     }
     #history h4::before {
-      content: '🕒';
-      font-size: 16px;
+      content: '🕐';
+      font-size: 14px;
     }
     #list {
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
     }
     .item {
       border: 1px solid var(--vscode-input-border, #3e3e42);
-      border-radius: 6px;
-      padding: 12px;
+      border-radius: 4px;
+      padding: 10px;
       background: var(--vscode-input-background, #3c3c3c);
-      transition: all 0.2s ease;
+      transition: all 0.15s ease;
     }
     .item:hover {
       border-color: var(--vscode-focusBorder, #007acc);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.25);
+      background: var(--vscode-list-hoverBackground, #2d2d30);
     }
     .item.favorite {
       border-color: var(--vscode-charts-yellow, #D7BA7D);
-      background: rgba(215, 186, 125, 0.05);
+      background: rgba(215, 186, 125, 0.08);
     }
     .item.favorite:hover {
       border-color: var(--vscode-charts-yellow, #D7BA7D);
-      box-shadow: 0 2px 8px rgba(215, 186, 125, 0.2);
+      box-shadow: 0 2px 6px rgba(215, 186, 125, 0.15);
+      background: rgba(215, 186, 125, 0.12);
     }
     .item pre {
       white-space: pre-wrap;
       word-break: break-word;
-      margin: 0 0 10px 0;
+      margin: 0 0 8px 0;
       font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace;
-      font-size: 12px;
+      font-size: 11px;
       color: var(--vscode-foreground, #cccccc);
       line-height: 1.5;
     }
@@ -419,39 +469,41 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       flex-wrap: wrap;
     }
     .actions button {
-      padding: 6px 12px;
-      font-size: 12px;
+      padding: 5px 10px;
+      font-size: 11px;
     }
     .empty-state {
       text-align: center;
-      padding: 40px 20px;
+      padding: 36px 20px;
       color: var(--vscode-descriptionForeground, #858585);
       font-style: italic;
+      font-size: 13px;
     }
     .empty-state::before {
-      content: '📝';
+      content: '📋';
       display: block;
-      font-size: 32px;
-      margin-bottom: 8px;
+      font-size: 28px;
+      margin-bottom: 10px;
       opacity: 0.5;
     }
     .keyboard-hint {
-      font-size: 11px;
+      font-size: 10px;
       color: var(--vscode-descriptionForeground, #858585);
-      margin-top: 8px;
+      margin-top: 6px;
       font-style: italic;
     }
     .keyboard-hint kbd {
       background: var(--vscode-keybindingLabel-background, #3c3c3c);
       border: 1px solid var(--vscode-keybindingLabel-border, #555);
-      border-radius: 3px;
-      padding: 2px 6px;
+      border-radius: 2px;
+      padding: 2px 5px;
       font-family: monospace;
-      font-size: 11px;
+      font-size: 10px;
       margin: 0 2px;
+      display: inline-block;
     }
     .search-box {
-      margin-bottom: 12px;
+      margin-bottom: 10px;
       position: relative;
     }
     .search-input {
@@ -462,31 +514,33 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       border: 1px solid var(--vscode-input-border, #3e3e42);
       color: var(--vscode-input-foreground, #cccccc);
       border-radius: 4px;
-      font-size: 13px;
+      font-size: 12px;
+      transition: all 0.15s ease;
     }
     .search-input:focus {
-      outline: 1px solid var(--vscode-focusBorder, #007acc);
+      outline: none;
       border-color: var(--vscode-focusBorder, #007acc);
+      box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.1);
     }
     .search-icon {
       position: absolute;
       left: 10px;
       top: 50%;
       transform: translateY(-50%);
-      font-size: 14px;
-      opacity: 0.7;
+      font-size: 13px;
+      opacity: 0.6;
       pointer-events: none;
     }
     .item-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
     }
     .item-name {
-        font-weight: 600;
-        color: var(--vscode-textLink-foreground, #3794ff);
-        font-size: 13px;
+      font-weight: 600;
+      color: var(--vscode-textLink-foreground, #3794ff);
+      font-size: 12px;
     }
 
   </style>
@@ -495,79 +549,73 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
   <header>
     <strong>JSON Tools — Query Editor</strong>
     <span class="muted">Target: ${params.fileLabel}</span>
-    <button id="rebind" class="secondary">🔄 Rebind to Current Editor</button>
+    <button id="rebind" class="secondary" style="margin-left: auto;">🔄 Rebind</button>
   </header>
 
-  <div class="row" style="background: var(--vscode-sideBar-background); border-bottom: 1px solid var(--vscode-panel-border); padding: 12px 20px;">
-    <div style="width: 100%; display: flex; flex-direction: column; gap: 8px;">
-        <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
-            <span style="font-weight: 600; font-size: 13px; display: flex; align-items: center; gap: 6px;">✨ AI Query</span>
-            <select id="aiProvider" style="width: 100px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
-                <option value="ollama">Ollama</option>
-                <option value="gemini">Gemini</option>
-            </select>
-            <div id="ollamaConfig" style="display: flex; gap: 8px; flex: 1; align-items: center;">
-                <input id="ollamaEndpoint" type="text" placeholder="http://localhost:11434" style="flex: 1; min-width: 150px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
-            </div>
-            <div id="geminiConfig" style="display: none; gap: 8px; flex: 1; align-items: center;">
-                <input id="aiApiKey" type="password" placeholder="API Key" style="flex: 1; min-width: 150px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
-            </div>
-            <div style="display: flex; gap: 4px;">
-                <select id="aiModel" style="width: 150px; padding: 4px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px;">
-                    <option value="" disabled selected>Select Model...</option>
-                </select>
-                <button id="refreshModels" class="secondary" title="Refresh Models" style="padding: 4px 8px;">🔄</button>
-            </div>
-        </div>
-        <div style="display: flex; gap: 8px;">
-            <textarea id="aiPrompt" placeholder="Describe what you want to filter/map in English..." style="flex: 1; height: 36px; padding: 6px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 4px; resize: none; font-family: inherit;"></textarea>
-            <button id="aiGenerate" class="primary">Generate</button>
-        </div>
+  <div class="row" style="background: var(--vscode-sideBar-background); border-bottom: 1px solid var(--vscode-panel-border); padding: 14px 20px; flex-direction: column; gap: 10px;">
+    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 2px;">
+      <span style="font-weight: 600; font-size: 12px; display: flex; align-items: center; gap: 6px; color: var(--vscode-descriptionForeground, #858585); text-transform: uppercase; letter-spacing: 0.3px;">🤖 AI Query</span>
+      <select id="aiProvider" style="padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;">
+        <option value="ollama">Ollama</option>
+        <option value="gemini">Gemini</option>
+      </select>
+      <div id="ollamaConfig" style="display: flex; gap: 8px; flex: 1; align-items: center;">
+        <input id="ollamaEndpoint" type="text" placeholder="http://localhost:11434" style="flex: 1; min-width: 140px; padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;">
+      </div>
+      <div id="geminiConfig" style="display: none; gap: 8px; flex: 1; align-items: center;">
+        <input id="aiApiKey" type="password" placeholder="API Key" style="flex: 1; min-width: 140px; padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;">
+      </div>
+      <select id="aiModel" style="padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;">
+        <option value="" disabled selected>Select Model...</option>
+      </select>
+      <button id="refreshModels" class="secondary" title="Refresh Models" style="padding: 6px 10px;">🔄</button>
+    </div>
+    <div style="display: flex; gap: 8px; width: 100%;">
+      <textarea id="aiPrompt" placeholder="e.g. Filter active users older than 25, return just their names" style="flex: 1; height: 32px; padding: 6px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; resize: none; font-family: inherit; font-size: 11px;"></textarea>
+      <button id="aiGenerate" class="primary" style="padding: 6px 12px;">Generate</button>
     </div>
   </div>
 
   <div class="row">
     <div class="editor-container">
       <div class="editor-label">JavaScript Expression</div>
-      <textarea id="expr" placeholder="e.g. .filter(x=>x.active).sort((a,b)=>a.age-b.age).map(x=>x.name)"></textarea>
-      <div class="keyboard-hint">Press <kbd>Ctrl+Enter</kbd> to run, <kbd>Ctrl+S</kbd> to save</div>
+      <textarea id="expr" placeholder=".filter(x=>x.active).map(x=>({name:x.name, age:x.age}))"></textarea>
+      <div class="keyboard-hint">Press <kbd>Ctrl+Enter</kbd> to run | <kbd>Ctrl+S</kbd> to save</div>
     </div>
   </div>
-  <div class="row">
-    <div class="button-group">
-      <button id="run" class="primary">▶ Run</button>
-      <button id="save" class="secondary">★ Save to History</button>
-      <button id="clear" class="secondary">🗑️ Clear</button>
-    </div>
+  <div class="row" style="gap: 12px;">
+    <button id="run" class="primary">▶ Run</button>
+    <button id="save" class="secondary">★ Save</button>
+    <button id="clear" class="secondary">🗑 Clear</button>
   </div>
 
   <div id="result">
     <div class="result-header">
-      <div style="display: flex; align-items: center; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
         <h4 style="margin: 0;">Result</h4>
-        <span id="resultInfo" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585);"></span>
+        <span id="resultInfo" style="font-size: 10px; color: var(--vscode-descriptionForeground, #858585);"></span>
       </div>
-      <div style="display: flex; gap: 8px;">
-        <select id="resultFormat" style="padding: 6px 12px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 12px; cursor: pointer; font-family: inherit;">
+      <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+        <select id="resultFormat" style="padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;">
           <option value="json">JSON</option>
           <option value="raw">Raw</option>
           <option value="table">Table</option>
           <option value="chart">Chart</option>
         </select>
-        <select id="chartType" style="display: none; padding: 6px 12px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 12px; cursor: pointer; font-family: inherit;">
+        <select id="chartType" style="display: none; padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;">
           <option value="bar">Bar</option>
           <option value="line">Line</option>
           <option value="pie">Pie</option>
         </select>
-        <button id="downloadChart" class="secondary" style="display: none;">💾 png</button>
-        <button id="saveJson" class="secondary" style="display: none;">💾 json</button>
-        <button id="saveCsv" class="secondary" style="display: none;">💾 csv</button>
-        <button id="copy-result-to-clipboard" class="secondary">📋 Copy</button>
+        <button id="downloadChart" class="secondary" style="display: none; padding: 6px 10px;">📥 png</button>
+        <button id="saveJson" class="secondary" style="display: none; padding: 6px 10px;">📥 json</button>
+        <button id="saveCsv" class="secondary" style="display: none; padding: 6px 10px;">📥 csv</button>
+        <button id="copy-result-to-clipboard" class="secondary" style="padding: 6px 10px;">📋 Copy</button>
       </div>
     </div>
     <div id="resultContainer">
       <pre id="resultPre" class="empty">(no result yet)</pre>
-      <table id="resultTable" style="display: none; width: 100%; border-collapse: collapse; background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 6px; overflow: hidden; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; font-size: 12px;">
+      <table id="resultTable" style="display: none; width: 100%; border-collapse: collapse; background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; overflow: hidden; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; font-size: 11px;">
         <thead id="resultTableHead" style="background: var(--vscode-titleBar-activeBackground, #2d2d30); color: var(--vscode-titleBar-activeForeground, #ffffff);">
         </thead>
         <tbody id="resultTableBody" style="color: var(--vscode-textPreformat-foreground, #d4d4d4);">
@@ -582,8 +630,8 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
   <div id="history">
     <h4>History</h4>
     <div class="search-box">
-      <span class="search-icon">🔍</span>
-      <input type="text" id="historySearch" class="search-input" placeholder="Search history..." />
+      <span class="search-icon">�</span>
+      <input type="text" id="historySearch" class="search-input" placeholder="Search saved queries..." />
     </div>
     <div id="list"></div>
   </div>
