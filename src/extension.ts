@@ -571,8 +571,10 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       <button id="refreshModels" class="secondary" title="Refresh Models" style="padding: 6px 10px;">🔄</button>
     </div>
     <div style="display: flex; gap: 8px; width: 100%;">
-      <textarea id="aiPrompt" placeholder="e.g. Filter active users older than 25, return just their names" style="flex: 1; height: 32px; padding: 6px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; resize: none; font-family: inherit; font-size: 11px;"></textarea>
-      <button id="aiGenerate" class="primary" style="padding: 6px 12px;">Generate</button>
+      <textarea id="aiPrompt" placeholder="e.g. Filter active users older than 25, return just their names" style="flex: 1; height: 128px; padding: 6px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; resize: none; font-family: inherit; font-size: 14px;"></textarea>
+      <div style="display: flex; align-items: center;">
+        <button id="aiGenerate" class="primary" style="padding: 6px 12px; height: fit-content;">Generate</button>
+      </div>
     </div>
   </div>
 
@@ -1247,6 +1249,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         // Show table view
         resultPre.style.display = 'none';
         resultTable.style.display = 'table';
+        resultChartContainer.style.display = 'none';
         saveJsonBtn.style.display = 'none';
         saveCsvBtn.style.display = 'inline-block';
         
