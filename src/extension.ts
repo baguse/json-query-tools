@@ -1219,7 +1219,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         }
         if (msg.error) {
             console.error(msg.error);
-            alert('Failed to fetch models: ' + msg.error);
+            throw new Error('Failed to fetch models: ' + msg.error);
         }
       }
     });
@@ -1742,7 +1742,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
             throw new Error('Please check the Ollama Endpoint.');
         }
         if (provider === 'gemini' && !key) {
-             alert('Please enter a Gemini API Key.');
+             throw new Error('Please enter a Gemini API Key.');
              return;
         }
         if (!model) {
@@ -1767,7 +1767,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         } else if (msg.type === 'aiError') {
              aiGenerateBtn.disabled = false;
              aiGenerateBtn.textContent = 'Generate';
-             alert('Generation failed: ' + msg.error);
+             throw new Error('Generation failed: ' + msg.error);
         }
     });
 
