@@ -586,6 +586,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
   <div class="row" style="gap: 12px;">
     <button id="run" class="primary">▶ Run</button>
     <button id="save" class="secondary">★ Save</button>
+    <button id="beautify" class="secondary">✨ Beautify</button>
     <button id="clear" class="secondary">🗑 Clear</button>
   </div>
 
@@ -637,6 +638,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
   </div>
 
   <script nonce="${n}">
+    let beautifyReady = false;
     const vscode = acquireVsCodeApi();
     const exprTextarea = document.getElementById('expr');
     const listEl = document.getElementById('list');
@@ -810,6 +812,53 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       });
     }
     
+    function loadJsBeautify() {
+      return new Promise((resolve, reject) => {
+        if (typeof js_beautify !== 'undefined') {
+          beautifyReady = true;
+          console.log('js-beautify already loaded');
+          resolve();
+          return;
+        }
+        
+        // Try multiple CDNs in order
+        const cdns = [
+          'https://cdn.jsdelivr.net/npm/js-beautify@1.14.9/js/beautify.min.js',
+          'https://unpkg.com/js-beautify@1.14.9/js/beautify.min.js',
+          'https://cdnjs.cloudflare.com/ajax/libs/js-beautify/1.14.9/beautify.min.js'
+        ];
+        
+        let cdnIndex = 0;
+        
+        function tryLoadFromCDN() {
+          if (cdnIndex >= cdns.length) {
+            reject(new Error('All CDNs failed to load js-beautify'));
+            return;
+          }
+          
+          const cdnUrl = cdns[cdnIndex];
+          console.log('Trying to load js-beautify from:', cdnUrl);
+          
+          const script = document.createElement('script');
+          script.src = cdnUrl;
+          script.setAttribute('nonce', '${n}');
+          script.onload = () => {
+            console.log('js-beautify loaded successfully from', cdnUrl);
+            beautifyReady = true;
+            resolve();
+          };
+          script.onerror = () => {
+            console.warn('Failed to load js-beautify from', cdnUrl);
+            cdnIndex++;
+            tryLoadFromCDN();
+          };
+          document.head.appendChild(script);
+        }
+        
+        tryLoadFromCDN();
+      });
+    }
+    
     function initEditor() {
       if (codeMirrorLoaded && typeof CodeMirror !== 'undefined' && exprTextarea && !editor) {
         try {
@@ -898,6 +947,15 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         }
       });
 
+    // Load js-beautify in parallel (optional, beautifier will fallback if not available)
+    loadJsBeautify()
+      .then(() => {
+        console.log('js-beautify loaded successfully');
+      })
+      .catch((err) => {
+        console.warn('Failed to load js-beautify, will use simple beautifier:', err.message);
+      });
+
     const getEditorValue = () => editor ? editor.getValue().trim() : (exprTextarea ? exprTextarea.value.trim() : '');
     const setEditorValue = (value) => {
       if (editor) {
@@ -948,11 +1006,116 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       }, 1500);
     }
 
+    function beautifyExpression() {
+      const expr = getEditorValue();
+      if (!expr) return;
+      
+      try {
+        let formatted;
+        
+        // Use js-beautify if available, otherwise fallback to simple beautifier
+        if (beautifyReady && typeof js_beautify !== 'undefined') {
+          formatted = js_beautify(expr, {
+            indent_size: 2,
+            indent_char: ' ',
+            preserve_newlines: true,
+            max_preserve_newlines: 2,
+            jslint_happy: false,
+            space_after_anon_function: false,
+            space_before_conditional: true,
+            unescape_strings: false,
+            wrap_line_length: 0,
+            e4x: false
+          });
+          console.log('Formatted with js-beautify');
+        } else {
+          console.warn('js-beautify not available, using simple beautifier');
+          formatted = simpleBeautify(expr);
+        }
+        
+        setEditorValue(formatted);
+        if (editor) editor.focus();
+        
+        const beautifyBtn = document.getElementById('beautify');
+        const originalText = beautifyBtn.textContent;
+        beautifyBtn.textContent = '✓ Beautified';
+        setTimeout(() => {
+          beautifyBtn.textContent = originalText;
+        }, 1500);
+      } catch (e) {
+        console.error('Beautify error:', e);
+        throw new Error('Beautify failed: ' + String(e));
+      }
+    }
+
+    function simpleBeautify(code) {
+      let indent = 0;
+      let result = '';
+      let i = 0;
+      const indentStr = '  ';
+      
+      while (i < code.length) {
+        const char = code[i];
+        const nextChar = code[i + 1];
+        
+        if (char === '{' || char === '[') {
+          result += char + '\\n';
+          indent++;
+          result += indentStr.repeat(indent);
+          i++;
+          // Skip whitespace after bracket
+          while (code[i] === ' ' || code[i] === '\\t') i++;
+          continue;
+        } else if (char === '}' || char === ']') {
+          if (result.endsWith(' ') || result.endsWith('\\t')) {
+            result = result.trimEnd();
+          }
+          if (!result.endsWith('\\n')) result += '\\n';
+          indent = Math.max(0, indent - 1);
+          result += indentStr.repeat(indent);
+          result += char;
+          i++;
+          // Check for comma after bracket
+          if (code[i] === ',') {
+            result += ',';
+            i++;
+          }
+          if (i < code.length && code[i] !== '}' && code[i] !== ']') {
+            result += '\\n';
+            if (i < code.length && code[i] !== ' ' && code[i] !== '\\t') {
+              result += indentStr.repeat(indent);
+            }
+          }
+          continue;
+        } else if (char === ',') {
+          result += char + '\\n' + indentStr.repeat(indent);
+          i++;
+          // Skip whitespace after comma
+          while (code[i] === ' ' || code[i] === '\\t') i++;
+          continue;
+        } else if (char === ':' && (result.includes('{') || result.includes('['))) {
+          result += ': ';
+          i++;
+          // Skip whitespace after colon
+          while (code[i] === ' ' || code[i] === '\\t') i++;
+          continue;
+        }
+        
+        result += char;
+        i++;
+      }
+      
+      return result;
+    }
+
     document.getElementById('run').onclick = runExpression;
     document.getElementById('save').onclick = saveExpression;
     document.getElementById('clear').onclick = () => {
       setEditorValue('');
       if (editor) editor.focus();
+    };
+    document.getElementById('beautify').onclick = () => {
+      beautifyExpression();
     };
     rebindBtn.onclick = () => vscode.postMessage({ type: 'rebind' });
     copyResultBtn.onclick = () => {
