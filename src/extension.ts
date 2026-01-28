@@ -73,11 +73,24 @@ function stringify(value: unknown): string {
 function evaluateExpression(data: unknown, expr: string, targetUri?: vscode.Uri): unknown {
   const req = targetUri ? createRequire(targetUri.fsPath) : require;
   const fn = new Function('data', 'require', `${expr}`);
-  const result = fn(data, req);
-  if (typeof result === 'undefined') {
-    vscode.window.showWarningMessage('Expression returned void (undefined). You must include a `return` statement to provide a result.');
+
+  // First evaluation: run the expression against (data, require)
+  const firstResult = fn(data, req) as unknown;
+
+  // If the expression itself evaluates to a function (e.g. (data) => { ... }),
+  // treat that as the "query function" and invoke it with the same arguments.
+  const finalResult =
+    typeof firstResult === 'function'
+      ? (firstResult as (data: unknown, requireFn: NodeRequire) => unknown)(data, req)
+      : firstResult;
+
+  if (typeof finalResult === 'undefined') {
+    vscode.window.showWarningMessage(
+      'Expression returned void (undefined). Ensure your expression or query function includes a `return` statement to provide a result.'
+    );
   }
-  return result;
+
+  return finalResult;
 }
 
 // --- Helpers to read JSON document by URI (works even when webview focused)
@@ -252,6 +265,23 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     }
     .CodeMirror-scroll {
       width: 100% !important;
+    }
+    .cm-s-monokai .cm-syntax-error {
+      background-color: rgba(244, 135, 113, 0.18);
+      border-bottom: 1px dotted var(--vscode-errorForeground, #f48771);
+    }
+    .syntax-error-message {
+      position: absolute;
+      right: 8px;
+      bottom: -18px;
+      font-size: 11px;
+      color: var(--vscode-errorForeground, #f48771);
+      background: rgba(30, 30, 30, 0.95);
+      padding: 2px 6px;
+      border-radius: 3px;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 5;
     }
     .button-group {
       display: flex;
@@ -664,6 +694,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     let codeMirrorLoaded = false;
     let chartJsLoaded = false;
     let currentChart = null;
+    let syntaxErrorMarker = null;
+    let syntaxErrorWidget = null;
+    let syntaxValidationTimer = null;
 
     // AI Elements
     const aiProvider = document.getElementById('aiProvider');
@@ -869,6 +902,42 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       });
     }
     
+    function loadAcorn() {
+      return new Promise((resolve, reject) => {
+        if (typeof acorn !== 'undefined') {
+          resolve(null);
+          return;
+        }
+        
+        const cdns = [
+          'https://cdn.jsdelivr.net/npm/acorn@8.11.3/dist/acorn.min.js',
+          'https://unpkg.com/acorn@8.11.3/dist/acorn.min.js',
+          'https://cdnjs.cloudflare.com/ajax/libs/acorn/8.11.3/acorn.min.js'
+        ];
+        
+        let cdnIndex = 0;
+        
+        function tryLoad() {
+          if (cdnIndex >= cdns.length) {
+            reject(new Error('All CDNs failed to load acorn'));
+            return;
+          }
+          
+          const script = document.createElement('script');
+          script.src = cdns[cdnIndex];
+          script.setAttribute('nonce', '${n}');
+          script.onload = () => resolve(null);
+          script.onerror = () => {
+            cdnIndex++;
+            tryLoad();
+          };
+          document.head.appendChild(script);
+        }
+        
+        tryLoad();
+      });
+    }
+    
     function initEditor() {
       if (codeMirrorLoaded && typeof CodeMirror !== 'undefined' && exprTextarea && !editor) {
         try {
@@ -904,6 +973,14 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
               editor.setSize('100%', '200px');
               setupKeyboardShortcuts();
               console.log('CodeMirror editor initialized successfully');
+              
+              // Attach syntax validation on changes (debounced)
+              editor.on('change', () => {
+                scheduleSyntaxValidation(200);
+              });
+              editor.on('blur', () => {
+                scheduleSyntaxValidation(0); // immediate check on blur
+              });
               
               // Final check - ensure textarea is completely hidden
               const cmElement = exprTextarea.nextElementSibling;
@@ -969,6 +1046,19 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       .catch((err) => {
         console.warn('Failed to load js-beautify, will use simple beautifier:', err.message);
       });
+    
+    // Load acorn in parallel (best-effort; syntax validation will be skipped if it fails)
+    loadAcorn()
+      .then(() => {
+        console.log('acorn loaded successfully');
+        // Run an initial validation on whatever is in the editor once the parser is ready
+        if (editor) {
+          validateExpressionSyntax();
+        }
+      })
+      .catch((err) => {
+        console.warn('Failed to load acorn, syntax validation disabled:', err.message);
+      });
 
     const getEditorValue = () => editor ? editor.getValue().trim() : (exprTextarea ? exprTextarea.value.trim() : '');
     const setEditorValue = (value) => {
@@ -991,7 +1081,64 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         runBtn.disabled = false;
       }
     }
-
+    
+    function clearSyntaxError() {
+      if (syntaxErrorMarker && editor) {
+        syntaxErrorMarker.clear();
+      }
+      if (syntaxErrorWidget && editor) {
+        editor.removeLineWidget(syntaxErrorWidget);
+      }
+      syntaxErrorMarker = null;
+      syntaxErrorWidget = null;
+    }
+    
+    function scheduleSyntaxValidation(delayMs) {
+      if (!editor) return;
+      const delay = typeof delayMs === 'number' ? delayMs : 200;
+      if (syntaxValidationTimer) {
+        clearTimeout(syntaxValidationTimer);
+      }
+      syntaxValidationTimer = setTimeout(() => {
+        validateExpressionSyntax();
+      }, delay);
+    }
+    
+    function showSyntaxError(message, line, column) {
+      if (!editor) return;
+      clearSyntaxError();
+      const lineIndex = Math.max(0, (line || 1) - 1);
+      const ch = Math.max(0, column || 0);
+      const from = { line: lineIndex, ch };
+      const to = { line: lineIndex, ch: ch + 1 };
+      syntaxErrorMarker = editor.markText(from, to, { className: 'cm-syntax-error' });
+      const widgetNode = document.createElement('div');
+      widgetNode.className = 'syntax-error-message';
+      widgetNode.textContent = message + ' (' + (line || 1) + ':' + (ch + 1) + ')';
+      syntaxErrorWidget = editor.addLineWidget(lineIndex, widgetNode, { above: false });
+    }
+    
+    function validateExpressionSyntax() {
+      const expr = getEditorValue();
+      clearSyntaxError();
+      if (!expr) return;
+      if (typeof acorn === 'undefined' || !editor) return;
+      try {
+        acorn.parse(expr, {
+          ecmaVersion: 'latest',
+          locations: true,
+          allowReturnOutsideFunction: true
+        });
+      } catch (e) {
+        const anyErr = e;
+        const loc = anyErr && anyErr.loc;
+        const msg = anyErr && anyErr.message ? String(anyErr.message) : 'Syntax error';
+        const line = loc && typeof loc.line === 'number' ? loc.line : 1;
+        const column = loc && typeof loc.column === 'number' ? loc.column : 0;
+        showSyntaxError(msg, line, column);
+      }
+    }
+    
     function runExpression() {
       const expr = getEditorValue();
       if (!expr) {
@@ -999,6 +1146,29 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         resultPre.className = 'error';
         return;
       }
+      
+      // Re-validate syntax before running; if there's a syntax error, surface it instead of sending to host
+      if (typeof acorn !== 'undefined') {
+        clearSyntaxError();
+        try {
+          acorn.parse(expr, {
+            ecmaVersion: 'latest',
+            locations: true,
+            allowReturnOutsideFunction: true
+          });
+        } catch (e) {
+          const anyErr = e;
+          const loc = anyErr && anyErr.loc;
+          const msg = anyErr && anyErr.message ? String(anyErr.message) : 'Syntax error';
+          const line = loc && typeof loc.line === 'number' ? loc.line : 1;
+          const column = loc && typeof loc.column === 'number' ? loc.column : 0;
+          showSyntaxError(msg, line, column);
+          resultPre.textContent = 'Syntax error: ' + msg + ' (' + line + ':' + (column + 1) + ')';
+          resultPre.className = 'error';
+          return;
+        }
+      }
+      
       setLoading(true);
       resultPre.textContent = 'Running...';
       resultPre.className = '';
