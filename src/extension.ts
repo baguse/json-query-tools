@@ -790,12 +790,20 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
               jsModeScript.src = cdn.base + '/mode/javascript/javascript.js';
               jsModeScript.setAttribute('nonce', '${n}');
               jsModeScript.onload = () => {
-                console.log('CodeMirror JavaScript mode loaded from', cdn.base);
-                codeMirrorLoaded = true;
-                resolve();
+                const commentAddonScript = document.createElement('script');
+                commentAddonScript.src = cdn.base + '/addon/comment/comment.js';
+                commentAddonScript.setAttribute('nonce', '${n}');
+                commentAddonScript.onload = () => {
+                  codeMirrorLoaded = true;
+                  resolve();
+                };
+                commentAddonScript.onerror = () => {
+                  codeMirrorLoaded = true;
+                  resolve();
+                };
+                document.head.appendChild(commentAddonScript);
               };
               jsModeScript.onerror = () => {
-                console.warn('Failed to load JavaScript mode from', cdn.base);
                 cdnIndex++;
                 tryLoadFromCDN();
               };
@@ -872,7 +880,11 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
             lineWrapping: true,
             indentUnit: 2,
             tabSize: 2,
-            autofocus: true
+            autofocus: true,
+            extraKeys: {
+              'Ctrl-/': 'toggleComment',
+              'Cmd-/': 'toggleComment'
+            }
           });
           
           console.log('CodeMirror editor created:', editor);
@@ -1154,7 +1166,10 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           'Ctrl-Enter': () => { runExpression(); return false; },
           'Cmd-Enter': () => { runExpression(); return false; },
           'Ctrl-S': (cm) => { saveExpression(); return false; },
-          'Cmd-S': (cm) => { saveExpression(); return false; }
+          'Cmd-S': (cm) => { saveExpression(); return false; },
+          // Toggle line comments in the embedded CodeMirror editor
+          'Ctrl-/': (cm) => { cm.execCommand('toggleComment'); return false; },
+          'Cmd-/': (cm) => { cm.execCommand('toggleComment'); return false; }
         });
       } else if (exprTextarea) {
         // Also add keyboard shortcuts for textarea fallback
