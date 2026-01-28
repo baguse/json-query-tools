@@ -146,6 +146,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
   <title>JSON Tools — Query Editor</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css" nonce="${n}">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css" nonce="${n}">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.css" nonce="${n}">
   <style>
     * { box-sizing: border-box; }
     body {
@@ -647,6 +648,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       </div>
     </div>
     <div id="resultContainer">
+      <textarea id="resultJsonEditor" style="display: none;"></textarea>
       <pre id="resultPre" class="empty">(no result yet)</pre>
       <table id="resultTable" style="display: none; width: 100%; border-collapse: collapse; background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; overflow: hidden; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; font-size: 11px;">
         <thead id="resultTableHead" style="background: var(--vscode-titleBar-activeBackground, #2d2d30); color: var(--vscode-titleBar-activeForeground, #ffffff);">
@@ -688,10 +690,13 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     const resultTableBody = document.getElementById('resultTableBody');
     const resultChartContainer = document.getElementById('resultChartContainer');
     const chartCanvas = document.getElementById('resultChart');
+    const resultJsonEditorTextarea = document.getElementById('resultJsonEditor');
     
     let currentResultData = null;
     let editor;
     let codeMirrorLoaded = false;
+    let resultJsonEditor = null;
+    let resultJsonEditorWrapper = null;
     let chartJsLoaded = false;
     let currentChart = null;
     let syntaxErrorMarker = null;
@@ -827,8 +832,41 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
                 commentAddonScript.src = cdn.base + '/addon/comment/comment.js';
                 commentAddonScript.setAttribute('nonce', '${n}');
                 commentAddonScript.onload = () => {
-                  codeMirrorLoaded = true;
-                  resolve();
+                  // Load folding addons and CSS
+                  if (!document.querySelector('link[href*="foldgutter"]')) {
+                    const foldCSS = document.createElement('link');
+                    foldCSS.rel = 'stylesheet';
+                    foldCSS.href = cdn.base + '/addon/fold/foldgutter.css';
+                    foldCSS.onerror = () => console.warn('Failed to load foldgutter CSS from', cdn.base);
+                    document.head.appendChild(foldCSS);
+                  }
+                  const foldScripts = [
+                    cdn.base + '/addon/fold/foldcode.js',
+                    cdn.base + '/addon/fold/brace-fold.js',
+                    cdn.base + '/addon/fold/foldgutter.js'
+                  ];
+                  let foldIndex = 0;
+                  function loadNextFoldScript() {
+                    if (foldIndex >= foldScripts.length) {
+                      codeMirrorLoaded = true;
+                      resolve();
+                      return;
+                    }
+                    const s = document.createElement('script');
+                    s.src = foldScripts[foldIndex];
+                    s.setAttribute('nonce', '${n}');
+                    s.onload = () => {
+                      foldIndex++;
+                      loadNextFoldScript();
+                    };
+                    s.onerror = () => {
+                      console.warn('Failed to load folding addon:', foldScripts[foldIndex]);
+                      foldIndex++;
+                      loadNextFoldScript();
+                    };
+                    document.head.appendChild(s);
+                  }
+                  loadNextFoldScript();
                 };
                 commentAddonScript.onerror = () => {
                   codeMirrorLoaded = true;
@@ -944,6 +982,8 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           console.log('Initializing CodeMirror editor...');
           editor = CodeMirror.fromTextArea(exprTextarea, {
             lineNumbers: true,
+            gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+            foldGutter: true,
             mode: 'javascript',
             theme: 'monokai',
             lineWrapping: true,
@@ -952,7 +992,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
             autofocus: true,
             extraKeys: {
               'Ctrl-/': 'toggleComment',
-              'Cmd-/': 'toggleComment'
+              'Cmd-/': 'toggleComment',
+              'Ctrl-Q': function(cm) { cm.foldCode(cm.getCursor()); },
+              'Cmd-Q': function(cm) { cm.foldCode(cm.getCursor()); }
             }
           });
           
@@ -1008,6 +1050,30 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       }
     }
 
+    function initResultJsonEditor() {
+      if (!codeMirrorLoaded || typeof CodeMirror === 'undefined' || !resultJsonEditorTextarea || resultJsonEditor) {
+        return;
+      }
+      try {
+        resultJsonEditor = CodeMirror.fromTextArea(resultJsonEditorTextarea, {
+          lineNumbers: true,
+          gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+          foldGutter: true,
+          mode: { name: 'javascript', json: true },
+          theme: 'monokai',
+          lineWrapping: true,
+          readOnly: true
+        });
+        resultJsonEditorWrapper = resultJsonEditor.getWrapperElement();
+        resultJsonEditorWrapper.style.display = 'none';
+        resultJsonEditor.setSize('100%', '200px');
+      } catch (e) {
+        console.error('Failed to initialize result JSON CodeMirror:', e);
+        resultJsonEditor = null;
+        resultJsonEditorWrapper = null;
+      }
+    }
+    
     // Load CodeMirror and initialize editor
     loadCodeMirror()
       .then(() => {
@@ -1015,9 +1081,11 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         if (document.readyState === 'loading') {
           document.addEventListener('DOMContentLoaded', () => {
             setTimeout(initEditor, 100);
+            setTimeout(initResultJsonEditor, 150);
           });
         } else {
           setTimeout(initEditor, 100);
+          setTimeout(initResultJsonEditor, 150);
         }
       })
       .catch((err) => {
@@ -1433,6 +1501,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       if (format === 'table' && data && Array.isArray(data) && data.length > 0) {
         // Show table view
         resultPre.style.display = 'none';
+        if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
         resultTable.style.display = 'table';
         resultChartContainer.style.display = 'none';
         saveJsonBtn.style.display = 'none';
@@ -1494,6 +1563,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       } else if (format === 'chart') {
          // Show chart view
          resultPre.style.display = 'none';
+         if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
          resultTable.style.display = 'none';
          resultChartContainer.style.display = 'block';
          chartType.style.display = 'inline-block';
@@ -1502,8 +1572,45 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
          saveCsvBtn.style.display = 'none';
          copyResultBtn.style.display = 'none';
          renderChart(data);
+      } else if (format === 'json') {
+        // JSON view with read-only CodeMirror + folding
+        if (!resultJsonEditor && codeMirrorLoaded) {
+          initResultJsonEditor();
+        }
+        let jsonText = text;
+        if ((!jsonText || !jsonText.trim()) && data !== undefined) {
+          try {
+            jsonText = JSON.stringify(data, null, 2);
+          } catch {
+            jsonText = String(data);
+          }
+        }
+        if (resultJsonEditor && resultJsonEditorWrapper) {
+          resultJsonEditor.setValue(jsonText || '');
+          resultJsonEditorWrapper.style.display = 'block';
+          resultPre.style.display = 'none';
+          setTimeout(() => {
+            if (resultJsonEditor) {
+              resultJsonEditor.refresh();
+            }
+          }, 50);
+        } else {
+          // Fallback to plain pre
+          if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
+          resultPre.style.display = 'block';
+          resultPre.textContent = jsonText || '';
+        }
+        resultTable.style.display = 'none';
+        resultChartContainer.style.display = 'none';
+        chartType.style.display = 'none';
+        downloadChartBtn.style.display = 'none';
+        saveJsonBtn.style.display = 'inline-block';
+        saveCsvBtn.style.display = 'none';
+        copyResultBtn.style.display = 'inline-block';
+        resultPre.className = jsonText ? '' : 'empty';
       } else {
-        // Show text view
+        // Raw / default text view
+        if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
         resultTable.style.display = 'none';
         resultChartContainer.style.display = 'none';
         chartType.style.display = 'none';
@@ -1722,15 +1829,8 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           saveJsonBtn.style.display = 'none'; 
           saveCsvBtn.style.display = 'inline-block';
         } else if (format === 'raw') {
-          resultPre.textContent = String(currentResultData);
-          resultPre.style.display = 'block';
-          resultTable.style.display = 'none';
-          resultChartContainer.style.display = 'none';
-          chartType.style.display = 'none';
-          downloadChartBtn.style.display = 'none';
-          saveJsonBtn.style.display = 'inline-block';
-          saveCsvBtn.style.display = 'none';
-          copyResultBtn.style.display = 'inline-block';
+          const text = String(currentResultData);
+          updateResultDisplay(text, currentResultData);
         } else if (format === 'chart') {
            updateResultDisplay('', currentResultData);
            saveJsonBtn.style.display = 'none';
