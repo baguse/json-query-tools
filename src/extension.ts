@@ -5,6 +5,22 @@ import { createRequire } from 'module';
 const HISTORY_KEY = 'jsonQueryTools.history';
 const HISTORY_LIMIT = 200;
 
+// Schema inference types
+interface SchemaInfo {
+  type: 'object' | 'array' | 'primitive';
+  properties?: Record<string, PropertyInfo>;
+  items?: SchemaInfo;
+  valueType?: string | string[];
+}
+
+interface PropertyInfo {
+  name: string;
+  type: string | string[];
+  properties?: Record<string, PropertyInfo>;
+  items?: SchemaInfo;
+  optional?: boolean;
+}
+
 interface HistoryItem {
   expr: string;
   isFavorite: boolean;
@@ -111,6 +127,177 @@ function pickInitialTargetUri(): vscode.Uri | null {
     if (ed.document.languageId === 'json' || ed.document.languageId === 'jsonc') return ed.document.uri;
   }
   return null;
+}
+
+// Schema inference functions
+function detectType(value: unknown): string {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'array';
+  if (typeof value === 'object') return 'object';
+  return typeof value;
+}
+
+function unionTypes(type1: string | string[], type2: string | string[]): string | string[] {
+  const types1 = Array.isArray(type1) ? type1 : [type1];
+  const types2 = Array.isArray(type2) ? type2 : [type2];
+  const combined = [...new Set([...types1, ...types2])];
+  return combined.length === 1 ? combined[0] : combined;
+}
+
+function inferSchemaFromData(data: unknown): SchemaInfo | null {
+  if (data === null || data === undefined) {
+    return { type: 'primitive', valueType: 'null' };
+  }
+
+  // Handle arrays
+  if (Array.isArray(data)) {
+    if (data.length === 0) {
+      return { type: 'array', items: { type: 'primitive', valueType: 'any' } };
+    }
+
+    // Sample up to 20 items for efficiency
+    const sample = data.slice(0, Math.min(20, data.length));
+    const sampleTypes = sample.map(detectType);
+    const uniqueTypes = [...new Set(sampleTypes)];
+
+    // If all items are objects, merge their properties
+    if (uniqueTypes.length === 1 && uniqueTypes[0] === 'object') {
+      const mergedProperties: Record<string, PropertyInfo> = {};
+      const propertyCounts: Record<string, number> = {};
+
+      for (const item of sample) {
+        if (item && typeof item === 'object' && !Array.isArray(item)) {
+          const keys = Object.keys(item);
+          for (const key of keys) {
+            if (!mergedProperties[key]) {
+              mergedProperties[key] = {
+                name: key,
+                type: detectType(item[key]),
+                optional: false
+              };
+              propertyCounts[key] = 1;
+
+              // Recursively infer nested structures
+              if (Array.isArray(item[key])) {
+                const inferred = inferSchemaFromData(item[key]);
+                mergedProperties[key].items = inferred || undefined;
+                mergedProperties[key].type = 'array';
+              } else if (item[key] && typeof item[key] === 'object') {
+                const nestedSchema = inferSchemaFromData(item[key]);
+                if (nestedSchema && nestedSchema.properties) {
+                  mergedProperties[key].properties = nestedSchema.properties;
+                  mergedProperties[key].type = 'object';
+                }
+              }
+            } else {
+              propertyCounts[key] = (propertyCounts[key] || 0) + 1;
+              // Merge types if different
+              const currentType = detectType(item[key]);
+              mergedProperties[key].type = unionTypes(mergedProperties[key].type, currentType);
+
+              // Update nested structures if present
+              if (Array.isArray(item[key])) {
+                const itemSchema = inferSchemaFromData(item[key]);
+                if (itemSchema) {
+                  mergedProperties[key].items = itemSchema.items || itemSchema;
+                  mergedProperties[key].type = 'array';
+                }
+              } else if (item[key] && typeof item[key] === 'object') {
+                const nestedSchema = inferSchemaFromData(item[key]);
+                if (nestedSchema && nestedSchema.properties) {
+                  // Merge nested properties
+                  if (!mergedProperties[key].properties) {
+                    mergedProperties[key].properties = nestedSchema.properties;
+                  } else {
+                    for (const [nestedKey, nestedProp] of Object.entries(nestedSchema.properties)) {
+                      if (!mergedProperties[key].properties![nestedKey]) {
+                        mergedProperties[key].properties![nestedKey] = nestedProp;
+                      } else {
+                        mergedProperties[key].properties![nestedKey].type = unionTypes(
+                          mergedProperties[key].properties![nestedKey].type,
+                          nestedProp.type
+                        );
+                      }
+                    }
+                  }
+                  mergedProperties[key].type = 'object';
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // Mark properties as optional if they don't appear in all items
+      const totalItems = sample.length;
+      for (const key of Object.keys(mergedProperties)) {
+        if (propertyCounts[key] < totalItems) {
+          mergedProperties[key].optional = true;
+        }
+      }
+
+      return {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: mergedProperties
+        }
+      };
+    }
+
+    // If all items are same primitive type
+    if (uniqueTypes.length === 1) {
+      const itemType = uniqueTypes[0];
+      if (itemType !== 'object' && itemType !== 'array') {
+        return {
+          type: 'array',
+          items: { type: 'primitive', valueType: itemType }
+        };
+      }
+    }
+
+    // Mixed types - return union or any
+    if (uniqueTypes.length <= 3) {
+      return {
+        type: 'array',
+        items: { type: 'primitive', valueType: uniqueTypes }
+      };
+    }
+
+    return { type: 'array', items: { type: 'primitive', valueType: 'any' } };
+  }
+
+  // Handle objects
+  if (typeof data === 'object' && data !== null) {
+    const properties: Record<string, PropertyInfo> = {};
+    const keys = Object.keys(data);
+
+    for (const key of keys) {
+      const value = (data as Record<string, unknown>)[key];
+      properties[key] = {
+        name: key,
+        type: detectType(value)
+      };
+
+      // Recursively infer nested structures
+      if (Array.isArray(value)) {
+        const inferred = inferSchemaFromData(value);
+        properties[key].items = inferred || undefined;
+        properties[key].type = 'array';
+      } else if (value && typeof value === 'object') {
+        const nestedSchema = inferSchemaFromData(value);
+        if (nestedSchema && nestedSchema.properties) {
+          properties[key].properties = nestedSchema.properties;
+          properties[key].type = 'object';
+        }
+      }
+    }
+
+    return { type: 'object', properties };
+  }
+
+  // Handle primitives
+  return { type: 'primitive', valueType: detectType(data) };
 }
 
 // ---- Command: one-off input box (also writes history)
@@ -547,6 +734,26 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       margin: 0 2px;
       display: inline-block;
     }
+    .CodeMirror-hints {
+      background: var(--vscode-editorWidget-background, #252526);
+      border: 1px solid var(--vscode-editorWidget-border, #454545);
+      color: var(--vscode-editorWidget-foreground, #cccccc);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      z-index: 1000;
+    }
+    .CodeMirror-hint {
+      color: var(--vscode-foreground, #cccccc);
+      padding: 4px 8px;
+      border-left: 2px solid transparent;
+    }
+    .CodeMirror-hint-active {
+      background: var(--vscode-list-activeSelectionBackground, #094771);
+      color: var(--vscode-list-activeSelectionForeground, #ffffff);
+      border-left-color: var(--vscode-focusBorder, #007acc);
+    }
+    .cm-property-optional {
+      opacity: 0.7;
+    }
     .search-box {
       margin-bottom: 10px;
       position: relative;
@@ -717,6 +924,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     let syntaxErrorWidget = null;
     let syntaxValidationTimer = null;
     
+    // Schema state
+    let currentSchema = null;
+    
     // Streaming state
     let streamingData = null;
     let streamingTotalItems = 0;
@@ -860,10 +1070,21 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
                     foldCSS.onerror = () => console.warn('Failed to load foldgutter CSS from', cdn.base);
                     document.head.appendChild(foldCSS);
                   }
+                  
+                  // Load show-hint CSS
+                  if (!document.querySelector('link[href*="show-hint"]')) {
+                    const hintCSS = document.createElement('link');
+                    hintCSS.rel = 'stylesheet';
+                    hintCSS.href = cdn.base + '/addon/hint/show-hint.css';
+                    hintCSS.onerror = () => console.warn('Failed to load show-hint CSS from', cdn.base);
+                    document.head.appendChild(hintCSS);
+                  }
+                  
                   const foldScripts = [
                     cdn.base + '/addon/fold/foldcode.js',
                     cdn.base + '/addon/fold/brace-fold.js',
-                    cdn.base + '/addon/fold/foldgutter.js'
+                    cdn.base + '/addon/fold/foldgutter.js',
+                    cdn.base + '/addon/hint/show-hint.js'
                   ];
                   let foldIndex = 0;
                   function loadNextFoldScript() {
@@ -880,7 +1101,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
                       loadNextFoldScript();
                     };
                     s.onerror = () => {
-                      console.warn('Failed to load folding addon:', foldScripts[foldIndex]);
+                      console.warn('Failed to load addon:', foldScripts[foldIndex]);
                       foldIndex++;
                       loadNextFoldScript();
                     };
@@ -1044,6 +1265,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
                 scheduleSyntaxValidation(0); // immediate check on blur
               });
               
+              // Setup schema autocomplete
+              setupSchemaAutocomplete();
+              
               // Final check - ensure textarea is completely hidden
               const cmElement = exprTextarea.nextElementSibling;
               if (cmElement && cmElement.classList.contains('CodeMirror')) {
@@ -1092,6 +1316,677 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         resultJsonEditor = null;
         resultJsonEditorWrapper = null;
       }
+    }
+    
+    // Schema-aware autocomplete
+    const TYPE_ANY = 'any';
+    const TYPE_OBJECT = 'object';
+    const TYPE_ARRAY = 'array';
+    const TYPE_STRING = 'string';
+    const TYPE_NUMBER = 'number';
+    const TYPE_BOOLEAN = 'boolean';
+    const TYPE_NULL = 'null';
+
+    function normalizeType(t) {
+      if (!t) return TYPE_ANY;
+      if (Array.isArray(t)) {
+        // Drop null/undefined-ish from unions for method inference
+        const filtered = t.filter(x => x && x !== TYPE_NULL);
+        if (filtered.length === 0) return TYPE_ANY;
+        if (filtered.length === 1) return filtered[0];
+        // Prefer non-any if mixed
+        if (filtered.includes(TYPE_ANY)) return TYPE_ANY;
+        return TYPE_ANY; // union types treated as any for method inference
+      }
+      return t;
+    }
+
+    function schemaTypeOf(schema) {
+      if (!schema) return TYPE_ANY;
+      if (schema.type === 'array') return TYPE_ARRAY;
+      if (schema.type === 'object') return TYPE_OBJECT;
+      if (schema.type === 'primitive') return normalizeType(schema.valueType);
+      return TYPE_ANY;
+    }
+
+    function propTypeOf(prop) {
+      if (!prop) return TYPE_ANY;
+      if (prop.items) return TYPE_ARRAY;
+      if (prop.properties) return TYPE_OBJECT;
+      return normalizeType(prop.type);
+    }
+
+    function schemaForProp(prop) {
+      if (!prop) return null;
+      if (prop.items) return prop.items;
+      if (prop.properties) return { type: 'object', properties: prop.properties };
+      return { type: 'primitive', valueType: normalizeType(prop.type) };
+    }
+
+    // Very small method knowledge base (instance methods)
+    // Return type can be: string | number | boolean | array | object | any | 'sameArray' | 'arrayItems' | 'stringArray'
+    const METHOD_RET = {
+      array: {
+        map: 'sameArray',
+        filter: 'sameArray',
+        slice: 'sameArray',
+        concat: 'sameArray',
+        flat: 'sameArray',
+        flatMap: 'sameArray',
+        toSorted: 'sameArray',
+        toReversed: 'sameArray',
+        reverse: 'array',
+        sort: 'array',
+        push: TYPE_NUMBER,
+        pop: 'arrayItems',
+        shift: 'arrayItems',
+        unshift: TYPE_NUMBER,
+        includes: TYPE_BOOLEAN,
+        some: TYPE_BOOLEAN,
+        every: TYPE_BOOLEAN,
+        find: 'arrayItems',
+        at: 'arrayItems',
+        findIndex: TYPE_NUMBER,
+        indexOf: TYPE_NUMBER,
+        lastIndexOf: TYPE_NUMBER,
+        join: TYPE_STRING,
+        toString: TYPE_STRING,
+        reduce: TYPE_ANY,
+        reduceRight: TYPE_ANY
+      },
+      string: {
+        toUpperCase: TYPE_STRING,
+        toLowerCase: TYPE_STRING,
+        trim: TYPE_STRING,
+        trimStart: TYPE_STRING,
+        trimEnd: TYPE_STRING,
+        slice: TYPE_STRING,
+        substring: TYPE_STRING,
+        replace: TYPE_STRING,
+        replaceAll: TYPE_STRING,
+        split: 'stringArray',
+        includes: TYPE_BOOLEAN,
+        startsWith: TYPE_BOOLEAN,
+        endsWith: TYPE_BOOLEAN,
+        indexOf: TYPE_NUMBER,
+        lastIndexOf: TYPE_NUMBER,
+        charAt: TYPE_STRING,
+        at: TYPE_STRING,
+        padStart: TYPE_STRING,
+        padEnd: TYPE_STRING,
+        repeat: TYPE_STRING,
+        toString: TYPE_STRING,
+        valueOf: TYPE_STRING,
+        match: 'array',
+        matchAll: 'array'
+      },
+      number: {
+        toFixed: TYPE_STRING,
+        toExponential: TYPE_STRING,
+        toPrecision: TYPE_STRING,
+        toString: TYPE_STRING,
+        valueOf: TYPE_NUMBER
+      },
+      boolean: {
+        toString: TYPE_STRING,
+        valueOf: TYPE_BOOLEAN
+      },
+      object: {
+        toString: TYPE_STRING,
+        valueOf: TYPE_ANY,
+        hasOwnProperty: TYPE_BOOLEAN,
+        isPrototypeOf: TYPE_BOOLEAN,
+        propertyIsEnumerable: TYPE_BOOLEAN
+      }
+    };
+
+    const PROPS_RET = {
+      array: { length: TYPE_NUMBER },
+      string: { length: TYPE_NUMBER }
+    };
+
+    function buildMethodCompletions(typeName, schemaPart) {
+      const t = normalizeType(typeName);
+      const list = [];
+
+      // properties (like length)
+      const props = PROPS_RET[t];
+      if (props) {
+        for (const [name, ret] of Object.entries(props)) {
+          list.push({
+            kind: 'property',
+            text: name,
+            displayText: name + ' : ' + ret
+          });
+        }
+      }
+
+      const methods = METHOD_RET[t];
+      if (!methods) return list;
+      for (const [name, ret] of Object.entries(methods)) {
+        const retType = resolveReturnType(t, name, ret, schemaPart);
+        list.push({
+          kind: 'method',
+          text: name,
+          displayText: name + '() : ' + retType
+        });
+      }
+      return list;
+    }
+
+    function resolveReturnType(receiverType, methodName, retSpec, schemaPart) {
+      if (retSpec === 'sameArray') {
+        return TYPE_ARRAY;
+      }
+      if (retSpec === 'arrayItems') {
+        // element type if we know items
+        if (schemaPart && schemaPart.type === 'array' && schemaPart.items) {
+          return schemaTypeOf(schemaPart.items);
+        }
+        return TYPE_ANY;
+      }
+      if (retSpec === 'stringArray') {
+        return TYPE_ARRAY + '<' + TYPE_STRING + '>';
+      }
+      if (retSpec === 'array') {
+        return TYPE_ARRAY;
+      }
+      if (retSpec === TYPE_ANY) return TYPE_ANY;
+      return retSpec;
+    }
+
+    function buildObjectFieldCompletions(schemaPart) {
+      const list = [];
+      if (!schemaPart || schemaPart.type !== 'object' || !schemaPart.properties) return list;
+      for (const [key, prop] of Object.entries(schemaPart.properties)) {
+        const typeStr = Array.isArray(prop.type) ? prop.type.join(' | ') : propTypeOf(prop);
+        const optionalStr = prop.optional ? ' (optional)' : '';
+        list.push({
+          kind: 'field',
+          text: key,
+          displayText: key + ' : ' + typeStr + optionalStr,
+          className: prop.optional ? 'cm-property-optional' : 'cm-property'
+        });
+      }
+      return list;
+    }
+
+    // Infer type of an expression fragment like:
+    // data
+    // data[0]
+    // data[0].name
+    // data[0].name.toUpperCase()
+    // a (callback parameter)
+    // a.name (callback parameter with property access)
+    // Returns { typeName, schemaPart }
+    function inferTypeFromChain(chain, callbackBindings) {
+      if (!currentSchema && !callbackBindings) return { typeName: TYPE_ANY, schemaPart: null };
+      if (!chain) return { typeName: TYPE_ANY, schemaPart: null };
+
+      let schemaPart = null;
+      let typeName = TYPE_ANY;
+
+      // Check if chain starts with a callback parameter
+      if (callbackBindings) {
+        for (const [paramName, binding] of Object.entries(callbackBindings)) {
+          if (chain === paramName || chain.startsWith(paramName + '.')) {
+            schemaPart = binding.schemaPart;
+            typeName = binding.inferredType;
+            // Consume parameter name
+            let rest = chain.slice(paramName.length);
+            // Continue processing rest of chain (e.g., ".name", ".age", ".toUpperCase()")
+            while (rest.length > 0 && rest.startsWith('.')) {
+              rest = rest.slice(1);
+              
+              // Try property access first
+              const propMatch = rest.match(/^([a-zA-Z_$][a-zA-Z0-9_$]*)/);
+              if (propMatch) {
+                const propName = propMatch[1];
+                rest = rest.slice(propMatch[0].length);
+                
+                // Check if it's a method call
+                let isCall = false;
+                if (rest.startsWith('(')) {
+                  isCall = true;
+                  let depth = 0;
+                  let i = 0;
+                  for (; i < rest.length; i++) {
+                    const ch = rest[i];
+                    if (ch === '(') depth++;
+                    else if (ch === ')') {
+                      depth--;
+                      if (depth === 0) { i++; break; }
+                    }
+                  }
+                  rest = rest.slice(i > 0 ? i : 1);
+                }
+                
+                const t = normalizeType(typeName);
+                
+                if (isCall) {
+                  // Method call
+                  const table = METHOD_RET[t];
+                  const retSpec = table ? table[propName] : undefined;
+                  if (retSpec) {
+                    const resolved = resolveReturnType(t, propName, retSpec, schemaPart);
+                    if (retSpec === 'sameArray') {
+                      schemaPart = schemaPart && schemaPart.type === 'array' ? schemaPart : { type: 'array', items: null };
+                      typeName = TYPE_ARRAY;
+                    } else if (retSpec === 'arrayItems') {
+                      if (schemaPart && schemaPart.type === 'array' && schemaPart.items) {
+                        schemaPart = schemaPart.items;
+                        typeName = schemaTypeOf(schemaPart);
+                      } else {
+                        schemaPart = null;
+                        typeName = TYPE_ANY;
+                      }
+                    } else if (retSpec === 'stringArray') {
+                      schemaPart = { type: 'array', items: { type: 'primitive', valueType: TYPE_STRING } };
+                      typeName = TYPE_ARRAY;
+                    } else if (retSpec === 'array') {
+                      schemaPart = { type: 'array', items: null };
+                      typeName = TYPE_ARRAY;
+                    } else {
+                      schemaPart = { type: 'primitive', valueType: resolved };
+                      typeName = normalizeType(resolved);
+                    }
+                  } else {
+                    schemaPart = null;
+                    typeName = TYPE_ANY;
+                    break;
+                  }
+                } else {
+                  // Property access
+                  if (t === TYPE_STRING && propName === 'length') {
+                    schemaPart = { type: 'primitive', valueType: TYPE_NUMBER };
+                    typeName = TYPE_NUMBER;
+                  } else if (t === TYPE_ARRAY && propName === 'length') {
+                    schemaPart = { type: 'primitive', valueType: TYPE_NUMBER };
+                    typeName = TYPE_NUMBER;
+                  } else if (schemaPart && schemaPart.type === 'object' && schemaPart.properties && schemaPart.properties[propName]) {
+                    const prop = schemaPart.properties[propName];
+                    schemaPart = schemaForProp(prop);
+                    typeName = schemaTypeOf(schemaPart);
+                  } else {
+                    schemaPart = null;
+                    typeName = TYPE_ANY;
+                    break;
+                  }
+                }
+              } else {
+                break;
+              }
+            }
+            return { typeName: normalizeType(typeName), schemaPart };
+          }
+        }
+      }
+
+      // Fallback to 'data' chain
+      if (!chain.startsWith('data')) return { typeName: TYPE_ANY, schemaPart: null };
+
+      schemaPart = currentSchema;
+      typeName = schemaTypeOf(schemaPart);
+
+      // Consume after 'data'
+      let rest = chain.slice(4);
+      while (rest.length > 0) {
+        // index access: [0]
+        const idxMatch = rest.match(/^\\[(\\d+)\\]/);
+        if (idxMatch) {
+          if (schemaPart && schemaPart.type === 'array' && schemaPart.items) {
+            schemaPart = schemaPart.items;
+            typeName = schemaTypeOf(schemaPart);
+          } else {
+            schemaPart = null;
+            typeName = TYPE_ANY;
+          }
+          rest = rest.slice(idxMatch[0].length);
+          continue;
+        }
+
+        // member access: .foo, .foo(), or .foo(anyArgs...)
+        const memNameMatch = rest.match(/^\\.([a-zA-Z_$][a-zA-Z0-9_$]*)/);
+        if (memNameMatch) {
+          const name = memNameMatch[1];
+          rest = rest.slice(memNameMatch[0].length);
+
+          // Optional call with args: ( ... )
+          let isCall = false;
+          if (rest.startsWith('(')) {
+            isCall = true;
+            let depth = 0;
+            let i = 0;
+            for (; i < rest.length; i++) {
+              const ch = rest[i];
+              if (ch === '(') depth++;
+              else if (ch === ')') {
+                depth--;
+                if (depth === 0) { i++; break; }
+              }
+            }
+            // Consume call args (best-effort; if unbalanced, consume the '(' only)
+            rest = rest.slice(i > 0 ? i : 1);
+          }
+
+          const t = normalizeType(typeName);
+
+          if (isCall) {
+            // method call on current type
+            const table = METHOD_RET[t];
+            const retSpec = table ? table[name] : undefined;
+            if (retSpec) {
+              const resolved = resolveReturnType(t, name, retSpec, schemaPart);
+              // For array-returning methods, keep schemaPart as array when possible
+              if (retSpec === 'sameArray') {
+                schemaPart = schemaPart && schemaPart.type === 'array' ? schemaPart : { type: 'array', items: null };
+                typeName = TYPE_ARRAY;
+              } else if (retSpec === 'arrayItems') {
+                // element returned
+                if (schemaPart && schemaPart.type === 'array' && schemaPart.items) {
+                  schemaPart = schemaPart.items;
+                  typeName = schemaTypeOf(schemaPart);
+                } else {
+                  schemaPart = null;
+                  typeName = TYPE_ANY;
+                }
+              } else if (retSpec === 'stringArray') {
+                schemaPart = { type: 'array', items: { type: 'primitive', valueType: TYPE_STRING } };
+                typeName = TYPE_ARRAY;
+              } else if (retSpec === 'array') {
+                schemaPart = { type: 'array', items: null };
+                typeName = TYPE_ARRAY;
+              } else if (typeof resolved === 'string' && resolved.startsWith(TYPE_ARRAY + '<')) {
+                schemaPart = { type: 'array', items: { type: 'primitive', valueType: TYPE_STRING } };
+                typeName = TYPE_ARRAY;
+              } else {
+                schemaPart = { type: 'primitive', valueType: resolved };
+                typeName = normalizeType(resolved);
+              }
+            } else {
+              schemaPart = null;
+              typeName = TYPE_ANY;
+            }
+          } else {
+            // property access
+            if (t === TYPE_STRING && name === 'length') {
+              schemaPart = { type: 'primitive', valueType: TYPE_NUMBER };
+              typeName = TYPE_NUMBER;
+            } else if (t === TYPE_ARRAY && name === 'length') {
+              schemaPart = { type: 'primitive', valueType: TYPE_NUMBER };
+              typeName = TYPE_NUMBER;
+            } else if (schemaPart && schemaPart.type === 'object' && schemaPart.properties && schemaPart.properties[name]) {
+              const prop = schemaPart.properties[name];
+              schemaPart = schemaForProp(prop);
+              typeName = schemaTypeOf(schemaPart);
+            } else {
+              // unknown prop
+              schemaPart = null;
+              typeName = TYPE_ANY;
+            }
+          }
+          continue;
+        }
+
+        // Unknown token; stop
+        break;
+      }
+
+      return { typeName: normalizeType(typeName), schemaPart };
+    }
+
+    // Detect callback parameter bindings (e.g., "data.map(x =>" binds x to array items)
+    function findCallbackBindings(line, cursorCh) {
+      const bindings = {}; // paramName -> { receiverChain, inferredType, schemaPart }
+      
+      // Look backwards on this line for "=>" (arrow function)
+      const arrowPos = line.lastIndexOf('=>', cursorCh);
+      if (arrowPos === -1) return bindings;
+      
+      // Extract parameter name before =>
+      let paramEnd = arrowPos; // index of '=' in '=>'
+      let paramStart = paramEnd;
+      // Skip whitespace before =>
+      while (paramStart > 0 && /[\\s]/.test(line[paramStart - 1])) {
+        paramStart--;
+      }
+      // Extract raw parameter segment (supports a, (a), (a, i))
+      while (paramStart > 0 && /[^\\s]/.test(line[paramStart - 1]) && line[paramStart - 1] !== '(') {
+        paramStart--;
+      }
+      let rawParam = line.slice(paramStart, paramEnd).trim();
+      // Strip wrapping parentheses like "(a)" or "(a, i)"
+      if (rawParam.startsWith('(') && rawParam.endsWith(')')) {
+        rawParam = rawParam.slice(1, -1).trim();
+      }
+      // Take first identifier as the callback param
+      const idMatch = rawParam.match(/[a-zA-Z_$][a-zA-Z0-9_$]*/);
+      const paramName = idMatch ? idMatch[0] : '';
+      if (!paramName) return bindings;
+      
+      // Find the method call before => (e.g., "data.items.map(" or "data.map(")
+      const prefix = line.slice(0, arrowPos); // text before =>
+      const arrayMethods = ['map', 'filter', 'find', 'findIndex', 'some', 'every', 'forEach', 'reduce', 'reduceRight', 'flatMap'];
+      let bestIdx = -1;
+      let methodName = '';
+      for (const m of arrayMethods) {
+        const idx = prefix.lastIndexOf('.' + m);
+        if (idx !== -1 && idx > bestIdx) {
+          bestIdx = idx;
+          methodName = m;
+        }
+      }
+      if (bestIdx === -1) return bindings;
+      
+      // Extract receiver chain (e.g., "data" or "data.items")
+      const beforeMethod = prefix.slice(0, bestIdx);
+      const rcMatch = beforeMethod.match(/([a-zA-Z0-9_$\\.\\[\\]]+)\\s*$/);
+      const receiverChain = rcMatch ? rcMatch[1] : beforeMethod.trim();
+      
+      if (!receiverChain.startsWith('data')) return bindings;
+      
+      // Infer type of receiver, then get array items if it's an array
+      const receiverInferred = inferTypeFromChain(receiverChain, {});
+      if (receiverInferred.typeName === TYPE_ARRAY && receiverInferred.schemaPart && receiverInferred.schemaPart.items) {
+        bindings[paramName] = {
+          receiverChain: receiverChain,
+          inferredType: schemaTypeOf(receiverInferred.schemaPart.items),
+          schemaPart: receiverInferred.schemaPart.items
+        };
+      }
+      
+      return bindings;
+    }
+
+    function extractChainForAutocomplete(line, cursorCh) {
+      // Walk backwards from cursor to find a chain containing identifiers, dots, [digits], and calls.
+      // Supports args inside parentheses (e.g. endsWith('7')) by tracking paren depth.
+      let start = cursorCh;
+      let parenDepth = 0;
+      while (start > 0) {
+        const ch = line[start - 1];
+        if (ch === ')') {
+          parenDepth++;
+          start--;
+          continue;
+        }
+        if (ch === '(') {
+          if (parenDepth > 0) {
+            parenDepth--;
+            start--;
+            continue;
+          }
+          // At depth 0, '(' isn't part of the chain start.
+          break;
+        }
+        if (parenDepth > 0) {
+          // Inside call args: accept any chars.
+          start--;
+          continue;
+        }
+        if (/[a-zA-Z0-9_$\\.\\[\\]]/.test(ch)) {
+          start--;
+          continue;
+        }
+        break;
+      }
+      const fragment = line.slice(start, cursorCh);
+
+      // Check if we're inside a callback (arrow function)
+      const callbackBindings = findCallbackBindings(line, cursorCh);
+      
+      // Extract chain - could start with 'data' or a callback parameter
+      let chain = null;
+      let chainStartInLine = start;
+      
+      // First check for callback parameter (e.g., "a." or "x.name.")
+      // Check each binding to see if fragment starts with that parameter name
+      for (const [paramName, binding] of Object.entries(callbackBindings)) {
+        // Check if fragment starts with paramName followed by . or [ or end
+        if (fragment === paramName || 
+            fragment.startsWith(paramName + '.') || 
+            fragment.startsWith(paramName + '[')) {
+          chain = fragment;
+          chainStartInLine = start;
+          break;
+        }
+        // Also check if there's a partial match (e.g., "a.n" when param is "a")
+        const paramDotIdx = fragment.indexOf(paramName + '.');
+        if (paramDotIdx !== -1) {
+          chain = fragment.slice(paramDotIdx);
+          chainStartInLine = start + paramDotIdx;
+          break;
+        }
+      }
+      
+      // Fallback to 'data' chain
+      if (!chain) {
+        const idx = fragment.lastIndexOf('data');
+        if (idx === -1) return null;
+        chain = fragment.slice(idx);
+        chainStartInLine = start + idx;
+      }
+
+      return {
+        chain: chain,
+        chainStartInLine: chainStartInLine,
+        callbackBindings: callbackBindings
+      };
+    }
+    
+    function setupSchemaAutocomplete() {
+      if (!editor || typeof CodeMirror === 'undefined') {
+        return;
+      }
+      // show-hint attaches showHint() to the editor instance (cm)
+      if (typeof editor.showHint !== 'function' && !(CodeMirror.commands && typeof CodeMirror.commands.autocomplete === 'function')) {
+        return;
+      }
+      
+      editor.on('keyup', function(cm, e) {
+        // Trigger autocomplete on typing dot, bracket, or after certain characters
+        if (e.keyCode === 190 || e.keyCode === 219 || e.keyCode === 46) { // . or [ or .
+          if (typeof cm.showHint === 'function') cm.showHint();
+          else if (CodeMirror.commands && typeof CodeMirror.commands.autocomplete === 'function') CodeMirror.commands.autocomplete(cm);
+        }
+      });
+      
+      editor.setOption('hintOptions', {
+        hint: function(cm, options) {
+          if (!currentSchema) return null;
+          
+          const cursor = cm.getCursor();
+          const line = cm.getLine(cursor.line);
+          const pos = cursor.ch;
+
+          const extracted = extractChainForAutocomplete(line, pos);
+          if (!extracted) return null;
+
+          const chain = extracted.chain;
+          const callbackBindings = extracted.callbackBindings || {};
+          const endsWithDot = chain.endsWith('.');
+
+          // For completion, infer the receiver type before the dot (or before the current word)
+          let receiverChain = chain;
+          if (!endsWithDot) {
+            // remove current partial identifier
+            receiverChain = chain.replace(/\\.[a-zA-Z_$][a-zA-Z0-9_$]*$/, '');
+          }
+          // if user is typing right after dot, keep as-is (endsWithDot true)
+          receiverChain = receiverChain.replace(/\\.$/, '');
+
+          const inferred = inferTypeFromChain(receiverChain, callbackBindings);
+          const receiverType = normalizeType(inferred.typeName);
+
+          let completions = [];
+          if (receiverType === TYPE_OBJECT) {
+            completions = buildObjectFieldCompletions(inferred.schemaPart);
+            // also allow common object methods
+            completions.push(...buildMethodCompletions(TYPE_OBJECT, inferred.schemaPart));
+          } else if (receiverType === TYPE_ARRAY) {
+            completions = buildMethodCompletions(TYPE_ARRAY, inferred.schemaPart);
+          } else if (receiverType === TYPE_STRING) {
+            completions = buildMethodCompletions(TYPE_STRING, inferred.schemaPart);
+          } else if (receiverType === TYPE_NUMBER) {
+            completions = buildMethodCompletions(TYPE_NUMBER, inferred.schemaPart);
+          } else if (receiverType === TYPE_BOOLEAN) {
+            completions = buildMethodCompletions(TYPE_BOOLEAN, inferred.schemaPart);
+          } else {
+            // unknown / any: give some safe defaults
+            completions = [
+              ...buildMethodCompletions(TYPE_OBJECT, inferred.schemaPart),
+              ...buildMethodCompletions(TYPE_ARRAY, inferred.schemaPart),
+              ...buildMethodCompletions(TYPE_STRING, inferred.schemaPart),
+              ...buildMethodCompletions(TYPE_NUMBER, inferred.schemaPart)
+            ];
+          }
+
+          // Normalize hint object shape for CodeMirror
+          completions = completions.map(c => ({
+            text: c.text,
+            displayText: c.displayText || c.text,
+            className: c.className
+          }));
+
+          if (completions.length === 0) return null;
+
+          // Replace only the current identifier being typed (not the dot)
+          let wordStart = pos;
+          while (wordStart > 0 && /[a-zA-Z0-9_$]/.test(line[wordStart - 1])) {
+            wordStart--;
+          }
+          const fromPos = endsWithDot ? pos : wordStart;
+          const prefix = endsWithDot ? '' : line.slice(wordStart, pos);
+
+          // Filter by prefix so e.g. ".m" only shows methods starting with "m"
+          let filtered = completions;
+          if (prefix) {
+            filtered = completions.filter(c => typeof c.text === 'string' && c.text.startsWith(prefix));
+          }
+          if (filtered.length === 0) return null;
+
+          return {
+            list: filtered,
+            from: CodeMirror.Pos(cursor.line, fromPos),
+            to: CodeMirror.Pos(cursor.line, pos)
+          };
+        },
+        completeSingle: false,
+        closeOnUnfocus: true
+      });
+      
+      // Enable autocomplete with Ctrl+Space
+      editor.setOption('extraKeys', {
+        ...editor.getOption('extraKeys'),
+        'Ctrl-Space': function(cm) {
+          if (typeof cm.showHint === 'function') cm.showHint();
+          else if (CodeMirror.commands && typeof CodeMirror.commands.autocomplete === 'function') CodeMirror.commands.autocomplete(cm);
+        },
+        'Cmd-Space': function(cm) {
+          if (typeof cm.showHint === 'function') cm.showHint();
+          else if (CodeMirror.commands && typeof CodeMirror.commands.autocomplete === 'function') CodeMirror.commands.autocomplete(cm);
+        }
+      });
     }
     
     // Load CodeMirror and initialize editor
@@ -1457,6 +2352,12 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       const msg = event.data;
       if (msg.type === 'hydrate') {
         renderList(msg.history || []);
+      } else if (msg.type === 'schema') {
+        currentSchema = msg.schema || null;
+        // Re-setup autocomplete if editor is already initialized
+        if (editor) {
+          setupSchemaAutocomplete();
+        }
       } else if (msg.type === 'insert') {
         setEditorValue(msg.expr || '');
       } else if (msg.type === 'status') {
@@ -2355,6 +3256,20 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
   const sendHistory = () => panel.webview.postMessage({ type: 'hydrate', history: getHistory(context) });
   const sendResult = (text: string, data?: unknown) => panel.webview.postMessage({ type: 'result', text, data });
   
+  // Send schema information to webview
+  async function sendSchema() {
+    if (!targetUri) return;
+    try {
+      const data = await readJsonFromUri(targetUri);
+      const schema = inferSchemaFromData(data);
+      if (schema) {
+        panel.webview.postMessage({ type: 'schema', schema });
+      }
+    } catch (e) {
+      // Silently fail - schema inference is optional
+    }
+  }
+  
   // Streaming result support - send large arrays in chunks
   const STREAMING_THRESHOLD = 1000; // Start streaming for arrays with 1000+ items
   const CHUNK_SIZE = 500; // Send 500 items per chunk
@@ -2405,10 +3320,12 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
     try {
       if (msg.type === 'ready') {
         sendHistory();
+        sendSchema();
       } else if (msg.type === 'rebind') {
         targetUri = pickInitialTargetUri();
         panel.webview.html = getQueryEditorHtml(panel.webview, { fileLabel: label(targetUri), scriptNonce: nonce() });
         sendHistory();
+        sendSchema();
       } else if (msg.type === 'use') {
         panel.webview.postMessage({ type: 'insert', expr: String(msg.expr || '') });
       } else if (msg.type === 'run') {
