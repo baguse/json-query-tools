@@ -397,6 +397,20 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       justify-content: center;
       min-height: 120px;
     }
+    .streaming-progress {
+      display: inline-block;
+      margin-left: 8px;
+      font-size: 11px;
+      color: var(--vscode-descriptionForeground, #858585);
+    }
+    .streaming-progress::after {
+      content: ' ⏳';
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
     #resultPre.error {
       color: var(--vscode-errorForeground, #f48771);
       background: rgba(244, 135, 113, 0.08);
@@ -702,6 +716,12 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     let syntaxErrorMarker = null;
     let syntaxErrorWidget = null;
     let syntaxValidationTimer = null;
+    
+    // Streaming state
+    let streamingData = null;
+    let streamingTotalItems = 0;
+    let streamingReceivedItems = 0;
+    let streamingIsActive = false;
 
     // AI Elements
     const aiProvider = document.getElementById('aiProvider');
@@ -1443,6 +1463,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         // could show status text
       } else if (msg.type === 'result') {
         setLoading(false);
+        streamingIsActive = false;
         if (msg.error) {
           resultPre.textContent = 'Error: ' + String(msg.error);
           resultPre.className = 'error';
@@ -1455,6 +1476,55 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           currentResultData = msg.data || null;
           updateResultDisplay(msg.text ?? '', msg.data);
         }
+      } else if (msg.type === 'resultStart') {
+        // Initialize streaming
+        setLoading(true);
+        streamingIsActive = true;
+        streamingData = [];
+        streamingTotalItems = msg.totalItems || 0;
+        streamingReceivedItems = 0;
+        currentResultData = null;
+        
+        // Show initial loading state
+        resultPre.textContent = 'Loading... (0/' + streamingTotalItems + ' items)';
+        resultPre.className = '';
+        resultPre.style.display = 'block';
+        resultTable.style.display = 'none';
+        resultChartContainer.style.display = 'none';
+        resultInfo.textContent = 'Streaming ' + streamingTotalItems + ' items...';
+      } else if (msg.type === 'resultChunk') {
+        // Add chunk to streaming data
+        if (!streamingData) streamingData = [];
+        streamingData.push(...msg.chunk);
+        streamingReceivedItems = msg.chunkEnd || streamingData.length;
+        
+        // Update progress
+        const progress = Math.round((streamingReceivedItems / streamingTotalItems) * 100);
+        resultInfo.textContent = 'Streaming... ' + streamingReceivedItems + '/' + streamingTotalItems + ' items (' + progress + '%)';
+        
+        // If table format is selected, render progressively
+        if (resultFormat.value === 'table' && streamingData.length > 0) {
+          updateResultDisplay('', streamingData, true); // true = isStreaming
+        } else if (resultFormat.value === 'json' || resultFormat.value === 'raw') {
+          // For JSON/raw, show progress but don't render partial JSON (invalid)
+          const progress = Math.round((streamingReceivedItems / streamingTotalItems) * 100);
+          resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items, ' + progress + '%)';
+          resultPre.className = '';
+          resultPre.style.display = 'block';
+          if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
+          resultTable.style.display = 'none';
+          resultChartContainer.style.display = 'none';
+        } else {
+          // For other formats, show progress
+          resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items)';
+        }
+      } else if (msg.type === 'resultComplete') {
+        // Finalize streaming
+        setLoading(false);
+        streamingIsActive = false;
+        currentResultData = msg.data || streamingData || null;
+        streamingData = null;
+        updateResultDisplay(msg.text ?? '', currentResultData);
       } else if (msg.type === 'updateModels') {
         aiModel.innerHTML = '<option value="" disabled selected>Select Model...</option>';
         if (msg.models && msg.models.length > 0) {
@@ -1479,7 +1549,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       }
     });
 
-    function updateResultDisplay(text, data) {
+    function updateResultDisplay(text, data, isStreaming = false) {
       const format = resultFormat.value;
       
       // Update result info
@@ -1510,7 +1580,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
         // Check if array contains objects or primitives
         var hasObjects = false;
         var allKeys = new Set();
-        for (var checkIdx = 0; checkIdx < data.length; checkIdx++) {
+        // For streaming, only check first few items to determine structure
+        var checkLimit = isStreaming ? Math.min(100, data.length) : data.length;
+        for (var checkIdx = 0; checkIdx < checkLimit; checkIdx++) {
           var checkItem = data[checkIdx];
           if (typeof checkItem === 'object' && checkItem !== null && !Array.isArray(checkItem)) {
             hasObjects = true;
@@ -1525,40 +1597,87 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           // Array of objects - use object keys as columns
           var keys = Array.from(allKeys);
           
-          // Build table header
-          var headerCells = [];
-          for (var i = 0; i < keys.length; i++) {
-            var key = keys[i];
-            headerCells.push('<th style="padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(String(key)) + '</th>');
-          }
-          resultTableHead.innerHTML = '<tr>' + headerCells.join('') + '</tr>';
-          
-          // Build table body
-          var bodyRows = [];
-          for (var j = 0; j < data.length; j++) {
-            var item = data[j];
-            var cells = [];
-            for (var k = 0; k < keys.length; k++) {
-              var key = keys[k];
-              var value = item && typeof item === 'object' && item !== null ? item[key] : undefined;
-              var displayValue = value === null ? 'null' : value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
-              cells.push('<td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td>');
+          // Build table header (only once, not on every chunk)
+          if (!isStreaming || resultTableHead.children.length === 0) {
+            var headerCells = [];
+            for (var i = 0; i < keys.length; i++) {
+              var key = keys[i];
+              headerCells.push('<th style="padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(String(key)) + '</th>');
             }
-            bodyRows.push('<tr>' + cells.join('') + '</tr>');
+            resultTableHead.innerHTML = '<tr>' + headerCells.join('') + '</tr>';
           }
-          resultTableBody.innerHTML = bodyRows.join('');
+          
+          // For streaming, append new rows; otherwise rebuild all
+          if (isStreaming) {
+            // Append only new rows (rows that weren't there before)
+            var existingRowCount = resultTableBody.children.length;
+            var bodyRows = [];
+            for (var j = existingRowCount; j < data.length; j++) {
+              var item = data[j];
+              var cells = [];
+              for (var k = 0; k < keys.length; k++) {
+                var key = keys[k];
+                var value = item && typeof item === 'object' && item !== null ? item[key] : undefined;
+                var displayValue = value === null ? 'null' : value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+                cells.push('<td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td>');
+              }
+              bodyRows.push('<tr>' + cells.join('') + '</tr>');
+            }
+            if (bodyRows.length > 0) {
+              var tempDiv = document.createElement('div');
+              tempDiv.innerHTML = bodyRows.join('');
+              while (tempDiv.firstChild) {
+                resultTableBody.appendChild(tempDiv.firstChild);
+              }
+            }
+          } else {
+            // Build table body (full rebuild)
+            var bodyRows = [];
+            for (var j = 0; j < data.length; j++) {
+              var item = data[j];
+              var cells = [];
+              for (var k = 0; k < keys.length; k++) {
+                var key = keys[k];
+                var value = item && typeof item === 'object' && item !== null ? item[key] : undefined;
+                var displayValue = value === null ? 'null' : value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+                cells.push('<td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td>');
+              }
+              bodyRows.push('<tr>' + cells.join('') + '</tr>');
+            }
+            resultTableBody.innerHTML = bodyRows.join('');
+          }
         } else {
           // Array of primitives - single column table
-          resultTableHead.innerHTML = '<tr><th style="padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">Value</th></tr>';
-          
-          // Build table body
-          var bodyRows = [];
-          for (var j = 0; j < data.length; j++) {
-            var item = data[j];
-            var displayValue = item === null ? 'null' : item === undefined ? 'undefined' : typeof item === 'object' ? JSON.stringify(item) : String(item);
-            bodyRows.push('<tr><td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td></tr>');
+          if (!isStreaming || resultTableHead.children.length === 0) {
+            resultTableHead.innerHTML = '<tr><th style="padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">Value</th></tr>';
           }
-          resultTableBody.innerHTML = bodyRows.join('');
+          
+          // For streaming, append new rows; otherwise rebuild all
+          if (isStreaming) {
+            var existingRowCount = resultTableBody.children.length;
+            var bodyRows = [];
+            for (var j = existingRowCount; j < data.length; j++) {
+              var item = data[j];
+              var displayValue = item === null ? 'null' : item === undefined ? 'undefined' : typeof item === 'object' ? JSON.stringify(item) : String(item);
+              bodyRows.push('<tr><td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td></tr>');
+            }
+            if (bodyRows.length > 0) {
+              var tempDiv = document.createElement('div');
+              tempDiv.innerHTML = bodyRows.join('');
+              while (tempDiv.firstChild) {
+                resultTableBody.appendChild(tempDiv.firstChild);
+              }
+            }
+          } else {
+            // Build table body (full rebuild)
+            var bodyRows = [];
+            for (var j = 0; j < data.length; j++) {
+              var item = data[j];
+              var displayValue = item === null ? 'null' : item === undefined ? 'undefined' : typeof item === 'object' ? JSON.stringify(item) : String(item);
+              bodyRows.push('<tr><td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td></tr>');
+            }
+            resultTableBody.innerHTML = bodyRows.join('');
+          }
         }
       } else if (format === 'chart') {
          // Show chart view
@@ -1822,40 +1941,74 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     });
 
     resultFormat.addEventListener('change', () => {
-      if (currentResultData !== null && currentResultData !== undefined) {
+      // Handle format change - support both completed and streaming data
+      const dataToUse = currentResultData !== null && currentResultData !== undefined 
+        ? currentResultData 
+        : (streamingIsActive && streamingData && streamingData.length > 0 ? streamingData : null);
+      
+      if (dataToUse !== null && dataToUse !== undefined) {
         const format = resultFormat.value;
-        if (format === 'table' && Array.isArray(currentResultData) && currentResultData.length > 0) {
-          updateResultDisplay('', currentResultData);
+        const isCurrentlyStreaming = streamingIsActive && currentResultData === null;
+        
+        if (format === 'table' && Array.isArray(dataToUse) && dataToUse.length > 0) {
+          updateResultDisplay('', dataToUse, isCurrentlyStreaming);
           saveJsonBtn.style.display = 'none'; 
           saveCsvBtn.style.display = 'inline-block';
         } else if (format === 'raw') {
-          const text = String(currentResultData);
-          updateResultDisplay(text, currentResultData);
+          if (isCurrentlyStreaming) {
+            // During streaming, show progress for raw format
+            resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items)';
+            resultPre.className = '';
+            resultPre.style.display = 'block';
+          } else {
+            const text = String(dataToUse);
+            updateResultDisplay(text, dataToUse);
+          }
         } else if (format === 'chart') {
-           updateResultDisplay('', currentResultData);
-           saveJsonBtn.style.display = 'none';
-           saveCsvBtn.style.display = 'none';
+          if (isCurrentlyStreaming) {
+            // Charts need complete data
+            resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items) - Chart will render when complete';
+            resultPre.className = '';
+            resultPre.style.display = 'block';
+            resultTable.style.display = 'none';
+            resultChartContainer.style.display = 'none';
+          } else {
+            updateResultDisplay('', dataToUse);
+            saveJsonBtn.style.display = 'none';
+            saveCsvBtn.style.display = 'none';
+          }
         } else {
-          try {
-            resultPre.textContent = JSON.stringify(currentResultData, null, 2);
+          // JSON format
+          if (isCurrentlyStreaming) {
+            // During streaming, show progress
+            resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items)';
+            resultPre.className = '';
             resultPre.style.display = 'block';
+            if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
             resultTable.style.display = 'none';
             resultChartContainer.style.display = 'none';
-            chartType.style.display = 'none';
-            downloadChartBtn.style.display = 'none';
-            saveJsonBtn.style.display = 'inline-block';
-            saveCsvBtn.style.display = 'none';
-            copyResultBtn.style.display = 'inline-block';
-          } catch {
-            resultPre.textContent = String(currentResultData);
-            resultPre.style.display = 'block';
-            resultTable.style.display = 'none';
-            resultChartContainer.style.display = 'none';
-            chartType.style.display = 'none';
-            downloadChartBtn.style.display = 'none';
-            saveJsonBtn.style.display = 'inline-block';
-            saveCsvBtn.style.display = 'none';
-            copyResultBtn.style.display = 'inline-block';
+          } else {
+            try {
+              resultPre.textContent = JSON.stringify(dataToUse, null, 2);
+              resultPre.style.display = 'block';
+              resultTable.style.display = 'none';
+              resultChartContainer.style.display = 'none';
+              chartType.style.display = 'none';
+              downloadChartBtn.style.display = 'none';
+              saveJsonBtn.style.display = 'inline-block';
+              saveCsvBtn.style.display = 'none';
+              copyResultBtn.style.display = 'inline-block';
+            } catch {
+              resultPre.textContent = String(dataToUse);
+              resultPre.style.display = 'block';
+              resultTable.style.display = 'none';
+              resultChartContainer.style.display = 'none';
+              chartType.style.display = 'none';
+              downloadChartBtn.style.display = 'none';
+              saveJsonBtn.style.display = 'inline-block';
+              saveCsvBtn.style.display = 'none';
+              copyResultBtn.style.display = 'inline-block';
+            }
           }
         }
       }
@@ -2201,6 +2354,52 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
 
   const sendHistory = () => panel.webview.postMessage({ type: 'hydrate', history: getHistory(context) });
   const sendResult = (text: string, data?: unknown) => panel.webview.postMessage({ type: 'result', text, data });
+  
+  // Streaming result support - send large arrays in chunks
+  const STREAMING_THRESHOLD = 1000; // Start streaming for arrays with 1000+ items
+  const CHUNK_SIZE = 500; // Send 500 items per chunk
+  
+  async function sendResultStreaming(text: string, data?: unknown) {
+    // Check if we should stream (large array)
+    if (data && Array.isArray(data) && data.length >= STREAMING_THRESHOLD) {
+      // Send initial metadata
+      panel.webview.postMessage({ 
+        type: 'resultStart', 
+        totalItems: data.length,
+        text: '', // Will be built progressively
+        data: null // Full data not sent yet
+      });
+      
+      // Send chunks progressively
+      for (let i = 0; i < data.length; i += CHUNK_SIZE) {
+        const chunk = data.slice(i, i + CHUNK_SIZE);
+        const chunkEnd = Math.min(i + CHUNK_SIZE, data.length);
+        const isLast = chunkEnd >= data.length;
+        
+        // Small delay to allow UI to update
+        await new Promise(resolve => setTimeout(resolve, 10));
+        
+        panel.webview.postMessage({
+          type: 'resultChunk',
+          chunk: chunk,
+          chunkIndex: i,
+          chunkEnd: chunkEnd,
+          isLast: isLast,
+          totalItems: data.length
+        });
+      }
+      
+      // Send final complete result for operations that need full data
+      panel.webview.postMessage({
+        type: 'resultComplete',
+        text: text,
+        data: data
+      });
+    } else {
+      // Small results - send normally
+      sendResult(text, data);
+    }
+  }
 
   panel.webview.onDidReceiveMessage(async (msg) => {
     try {
@@ -2218,7 +2417,8 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         const expr = String(msg.expr || '');
         const result = evaluateExpression(data, expr, targetUri);
         if (msg.save) { pushHistory(context, expr); sendHistory(); }
-        sendResult(stringify(result), result);
+        // Use streaming for large results
+        await sendResultStreaming(stringify(result), result);
       } else if (msg.type === 'save') {
         pushHistory(context, String(msg.expr || ''));
         sendHistory();
