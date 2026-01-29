@@ -2315,6 +2315,26 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     // Setup keyboard shortcuts after editor is initialized
     function setupKeyboardShortcuts() {
       if (editor) {
+        // Helper to wrap current selection(s) with given characters.
+        // If nothing is selected, fall back to default CodeMirror behavior.
+        function makeWrapHandler(openChar, closeChar) {
+          return function(cm) {
+            if (!cm.somethingSelected()) {
+              // Let CodeMirror handle the key normally (insert character, etc.)
+              // Use CodeMirror.Pass when available so the key falls through.
+              if (typeof CodeMirror !== 'undefined' && CodeMirror.Pass) {
+                return CodeMirror.Pass;
+              }
+              return undefined;
+            }
+
+            const selections = cm.getSelections();
+            const wrapped = selections.map((sel) => openChar + sel + closeChar);
+            cm.replaceSelections(wrapped, 'around');
+            return false;
+          };
+        }
+
         editor.setOption('extraKeys', {
           'Ctrl-Enter': () => { runExpression(); return false; },
           'Cmd-Enter': () => { runExpression(); return false; },
@@ -2322,7 +2342,13 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           'Cmd-S': (cm) => { saveExpression(); return false; },
           // Toggle line comments in the embedded CodeMirror editor
           'Ctrl-/': (cm) => { cm.execCommand('toggleComment'); return false; },
-          'Cmd-/': (cm) => { cm.execCommand('toggleComment'); return false; }
+          'Cmd-/': (cm) => { cm.execCommand('toggleComment'); return false; },
+          // Wrap selected text when typing open brackets / parens.
+          // Note: some of these require Shift and thus use the underlying key names.
+          '[': makeWrapHandler('[', ']'),        // '[' key
+          'Shift-9': makeWrapHandler('(', ')'),  // '(' => Shift+9
+          'Shift-[': makeWrapHandler('{', '}'),  // '{' => Shift+[
+          'Shift-,': makeWrapHandler('<', '>')   // '<' => Shift+,
         });
       } else if (exprTextarea) {
         // Also add keyboard shortcuts for textarea fallback
