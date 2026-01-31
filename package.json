@@ -44,6 +44,11 @@
           "type": "string",
           "default": "",
           "description": "API Key for cloud AI providers (e.g. Gemini)"
+        },
+        "jsonQueryTools.templateVariables": {
+          "type": "object",
+          "default": {},
+          "description": "Custom template variables for expressions. Use {{variableName}} in your JS expression; values are substituted before evaluation. Built-ins: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}."
         }
       }
     }

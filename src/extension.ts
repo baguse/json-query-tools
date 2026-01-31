@@ -1,8 +1,34 @@
 
 import * as vscode from 'vscode';
 import { createRequire } from 'module';
+import * as path from 'path';
 
 const HISTORY_KEY = 'jsonQueryTools.history';
+
+/** Template variable syntax: {{variableName}}. Built-ins: fileName, filePath, fileDir, workspaceFolder. */
+function getTemplateVariables(targetUri?: vscode.Uri): Record<string, string> {
+  const config = vscode.workspace.getConfiguration('jsonQueryTools');
+  const custom = config.get<Record<string, string>>('templateVariables') ?? {};
+  const builtins: Record<string, string> = { ...custom };
+  if (targetUri) {
+    builtins['fileName'] = path.basename(targetUri.fsPath);
+    builtins['filePath'] = targetUri.fsPath;
+    builtins['fileDir'] = path.dirname(targetUri.fsPath);
+    const wf = vscode.workspace.getWorkspaceFolder(targetUri);
+    if (wf) builtins['workspaceFolder'] = wf.uri.fsPath;
+  }
+  return builtins;
+}
+
+function resolveTemplateVariables(expr: string, targetUri?: vscode.Uri): string {
+  const vars = getTemplateVariables(targetUri);
+  let out = expr;
+  for (const [name, value] of Object.entries(vars)) {
+    const placeholder = `{{${name}}}`;
+    out = out.split(placeholder).join(value);
+  }
+  return out;
+}
 const HISTORY_LIMIT = 200;
 
 // Schema inference types
@@ -87,8 +113,9 @@ function stringify(value: unknown): string {
 }
 
 function evaluateExpression(data: unknown, expr: string, targetUri?: vscode.Uri): unknown {
+  const resolvedExpr = resolveTemplateVariables(expr, targetUri);
   const req = targetUri ? createRequire(targetUri.fsPath) : require;
-  const fn = new Function('data', 'require', `${expr}`);
+  const fn = new Function('data', 'require', `${resolvedExpr}`);
 
   // First evaluation: run the expression against (data, require)
   const firstResult = fn(data, req) as unknown;
@@ -308,7 +335,7 @@ async function commandTransformWithExpression(context: vscode.ExtensionContext) 
     return;
   }
   const expr = await vscode.window.showInputBox({
-    prompt: 'Enter JS expression. Use variable `data`, or start with a dot to chain: .filter(...).map(...)'
+    prompt: 'Enter JS expression. Use variable `data`; optional template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}'
   });
   if (!expr) return;
   const data = await readJsonFromUri(target);
@@ -833,7 +860,7 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
   <div class="row">
     <div class="editor-container">
       <div class="editor-label">JavaScript Expression</div>
-      <textarea id="expr" placeholder=".filter(x=>x.active).map(x=>({name:x.name, age:x.age}))"></textarea>
+      <textarea id="expr" placeholder=".filter(x=>x.active).map(x=>({name:x.name})) — Template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}"></textarea>
       <div class="keyboard-hint">Press <kbd>Ctrl+Enter</kbd> to run | <kbd>Ctrl+S</kbd> to save</div>
     </div>
   </div>
