@@ -2335,6 +2335,127 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           };
         }
 
+        // Ctrl+D / Cmd+D: Select next occurrence (like VS Code)
+        function selectNextOccurrence(cm) {
+          const doc = cm.getDoc();
+          const Pos = CodeMirror.Pos || function(line, ch) { return { line: line, ch: ch }; };
+          const cmpPos = CodeMirror.cmpPos || function(a, b) {
+            if (a.line !== b.line) return a.line - b.line;
+            return a.ch - b.ch;
+          };
+          
+          // If nothing is selected, select the word at cursor
+          if (!cm.somethingSelected()) {
+            const cursor = cm.getCursor();
+            const wordRange = cm.findWordAt(cursor);
+            if (wordRange) {
+              cm.setSelection(wordRange.anchor, wordRange.head);
+            }
+            return false;
+          }
+
+          const selections = cm.listSelections();
+          if (selections.length === 0) {
+            return false;
+          }
+
+          // Get the primary selection and normalize direction (anchor/head order depends on drag direction)
+          const primarySel = selections[0];
+          const primaryFrom = cmpPos(primarySel.anchor, primarySel.head) <= 0 ? primarySel.anchor : primarySel.head;
+          const primaryTo = cmpPos(primarySel.anchor, primarySel.head) <= 0 ? primarySel.head : primarySel.anchor;
+
+          // Always use normalized range so getRange works when user selected backwards (right-to-left)
+          const searchText = doc.getRange(primaryFrom, primaryTo);
+          
+          if (!searchText || searchText.length === 0) {
+            return false;
+          }
+
+          // Find all matches by searching line by line
+          const allMatches = [];
+          const lineCount = doc.lineCount();
+          
+          for (let lineNum = 0; lineNum < lineCount; lineNum++) {
+            const lineText = doc.getLine(lineNum);
+            let searchStart = 0;
+            
+            while (true) {
+              const foundIndex = lineText.indexOf(searchText, searchStart);
+              if (foundIndex === -1) break;
+              
+              const matchFrom = Pos(lineNum, foundIndex);
+              const matchTo = Pos(lineNum, foundIndex + searchText.length);
+              allMatches.push({ from: matchFrom, to: matchTo });
+              
+              searchStart = foundIndex + 1;
+            }
+          }
+
+          if (allMatches.length === 0) {
+            return false;
+          }
+
+          // Check if a match is already selected (exact match only)
+          function isAlreadySelected(match) {
+            for (let i = 0; i < selections.length; i++) {
+              const sel = selections[i];
+              const selFrom = cmpPos(sel.anchor, sel.head) <= 0 ? sel.anchor : sel.head;
+              const selTo = cmpPos(sel.anchor, sel.head) <= 0 ? sel.head : sel.anchor;
+              
+              // Check if match exactly matches this selection
+              if (cmpPos(match.from, selFrom) === 0 && cmpPos(match.to, selTo) === 0) {
+                return true;
+              }
+            }
+            return false;
+          }
+
+          // Filter out already-selected matches
+          const availableMatches = [];
+          for (let i = 0; i < allMatches.length; i++) {
+            const match = allMatches[i];
+            if (!isAlreadySelected(match)) {
+              availableMatches.push(match);
+            }
+          }
+
+          if (availableMatches.length === 0) {
+            return false;
+          }
+
+          // Sort matches by position
+          availableMatches.sort(function(a, b) {
+            const cmp = cmpPos(a.from, b.from);
+            if (cmp !== 0) return cmp;
+            return cmpPos(a.to, b.to);
+          });
+
+          // Find the first match that starts after the primary selection ends
+          let nextMatch = null;
+          for (let i = 0; i < availableMatches.length; i++) {
+            const match = availableMatches[i];
+            if (cmpPos(match.from, primaryTo) > 0) {
+              nextMatch = match;
+              break;
+            }
+          }
+
+          // If no match found after primary selection, wrap around to the first available match
+          if (!nextMatch) {
+            nextMatch = availableMatches[0];
+          }
+
+          // Add the new selection
+          const newSelections = selections.slice();
+          newSelections.push({
+            anchor: nextMatch.from,
+            head: nextMatch.to
+          });
+
+          cm.setSelections(newSelections);
+          return false;
+        }
+
         editor.setOption('extraKeys', {
           'Ctrl-Enter': () => { runExpression(); return false; },
           'Cmd-Enter': () => { runExpression(); return false; },
@@ -2343,6 +2464,9 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
           // Toggle line comments in the embedded CodeMirror editor
           'Ctrl-/': (cm) => { cm.execCommand('toggleComment'); return false; },
           'Cmd-/': (cm) => { cm.execCommand('toggleComment'); return false; },
+          // Select next occurrence (like VS Code)
+          'Ctrl-D': selectNextOccurrence,
+          'Cmd-D': selectNextOccurrence,
           // Wrap selected text when typing open brackets / parens.
           // Note: some of these require Shift and thus use the underlying key names.
           '[': makeWrapHandler('[', ']'),        // '[' key
