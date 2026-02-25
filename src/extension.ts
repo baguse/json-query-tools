@@ -3554,8 +3554,16 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         const base64 = msg.data;
         const buf = Buffer.from(base64, 'base64');
         const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + '.png';
+        let defaultUri: vscode.Uri;
+        if (targetUri) {
+          defaultUri = vscode.Uri.joinPath(targetUri, '..', defaultName);
+        } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+          defaultUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName);
+        } else {
+          defaultUri = vscode.Uri.file(defaultName);
+        }
         const uri = await vscode.window.showSaveDialog({
-          defaultUri: vscode.Uri.file(defaultName),
+          defaultUri,
           filters: { 'Images': ['png'] }
         });
         if (uri) {
@@ -3588,8 +3596,16 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
       } else if (msg.type === 'saveData') {
         const isJson = msg.fileType === 'json';
         const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + (isJson ? '.json' : '.csv');
+        let defaultUri: vscode.Uri;
+        if (targetUri) {
+            defaultUri = vscode.Uri.joinPath(targetUri, '..', defaultName);
+        } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+            defaultUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName);
+        } else {
+            defaultUri = vscode.Uri.file(defaultName);
+        }
         const uri = await vscode.window.showSaveDialog({
-            defaultUri: vscode.Uri.file(defaultName),
+            defaultUri,
             filters: isJson ? { 'JSON': ['json'] } : { 'CSV': ['csv'] }
         });
         if (uri) {
