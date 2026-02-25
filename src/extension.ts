@@ -5,6 +5,11 @@ import * as path from 'path';
 
 const HISTORY_KEY = 'jsonQueryTools.history';
 
+export interface BoundFile {
+  alias: string;
+  uri: vscode.Uri;
+}
+
 /** Template variable syntax: {{variableName}}. Built-ins: fileName, filePath, fileDir, workspaceFolder. */
 function getTemplateVariables(targetUri?: vscode.Uri): Record<string, string> {
   const config = vscode.workspace.getConfiguration('jsonQueryTools');
@@ -112,19 +117,27 @@ function stringify(value: unknown): string {
   catch { return String(value); }
 }
 
-function evaluateExpression(data: unknown, expr: string, targetUri?: vscode.Uri): unknown {
-  const resolvedExpr = resolveTemplateVariables(expr, targetUri);
-  const req = targetUri ? createRequire(targetUri.fsPath) : require;
-  const fn = new Function('data', 'require', `${resolvedExpr}`);
+function evaluateExpression(boundFiles: BoundFile[], dataMap: Record<string, unknown>, expr: string): unknown {
+  const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
+  const resolvedExpr = resolveTemplateVariables(expr, primaryUri);
+  const req = primaryUri ? createRequire(primaryUri.fsPath) : require;
+  
+  const aliases = Object.keys(dataMap);
+  const dataValues = aliases.map(a => dataMap[a]);
 
-  // First evaluation: run the expression against (data, require)
-  const firstResult = fn(data, req) as unknown;
+  // Construct function with dynamic argument names based on aliases
+  const fnArgs = [...aliases, 'require', `${resolvedExpr}`];
+  const fn = new Function(...fnArgs);
+
+  // First evaluation: run the expression against (data1, data2, ..., require)
+  const firstResult = fn(...dataValues, req) as unknown;
 
   // If the expression itself evaluates to a function (e.g. (data) => { ... }),
   // treat that as the "query function" and invoke it with the same arguments.
+  // Note: For functions, we pass the data mapped to 'data' if it exists, otherwise the first bound file's data.
   const finalResult =
     typeof firstResult === 'function'
-      ? (firstResult as (data: unknown, requireFn: NodeRequire) => unknown)(data, req)
+      ? (firstResult as (data: unknown, requireFn: NodeRequire) => unknown)(dataMap['data'] ?? dataValues[0], req)
       : firstResult;
 
   if (typeof finalResult === 'undefined') {
@@ -339,7 +352,9 @@ async function commandTransformWithExpression(context: vscode.ExtensionContext) 
   });
   if (!expr) return;
   const data = await readJsonFromUri(target);
-  const result = evaluateExpression(data, expr, target);
+  const boundFiles: BoundFile[] = [{ alias: 'data', uri: target }];
+  const dataMap = { 'data': data };
+  const result = evaluateExpression(boundFiles, dataMap, expr);
   pushHistory(context, expr);
   // For this command we still open a new tab (handy for diffs)
   const doc = await vscode.workspace.openTextDocument({ content: stringify(result) + '\n', language: 'json' });
@@ -349,8 +364,15 @@ async function commandTransformWithExpression(context: vscode.ExtensionContext) 
 // ---- Webview Query Editor with persistent History + in-panel results
 function nonce() { return String(Math.random()).slice(2); }
 
-function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string, scriptNonce: string }) {
+function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles: BoundFile[], scriptNonce: string }) {
   const n = params.scriptNonce;
+  const boundFilesHtml = params.boundFiles.map(f => 
+    `<span class="bound-file" data-alias="${f.alias}" title="${f.uri.fsPath}">
+       <span class="file-alias">${f.alias}</span>: ${vscode.workspace.asRelativePath(f.uri).split('/').pop()}
+       ${f.alias !== 'data' ? `<button class="remove-file" title="Remove bound file">×</button>` : ''}
+     </span>`
+  ).join('');
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -400,6 +422,42 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       padding: 14px 20px;
       align-items: center;
       flex-wrap: wrap;
+    }
+    .bound-files-container {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      flex: 1;
+    }
+    .bound-file {
+      display: inline-flex;
+      align-items: center;
+      background: var(--vscode-input-background, #3c3c3c);
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 11px;
+      color: var(--vscode-foreground, #cccccc);
+    }
+    .file-alias {
+      font-weight: bold;
+      color: var(--vscode-textLink-foreground, #3794ff);
+    }
+    .remove-file {
+      background: none;
+      border: none;
+      color: var(--vscode-descriptionForeground, #858585);
+      cursor: pointer;
+      padding: 0 0 0 6px;
+      margin: 0;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .remove-file:hover {
+      color: var(--vscode-errorForeground, #f48771);
+      box-shadow: none;
+      transform: none;
     }
     .row:has(#expr) {
       flex-direction: column;
@@ -827,7 +885,10 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
 <body>
   <header>
     <strong>JSON Tools — Query Editor</strong>
-    <span class="muted">Target: ${params.fileLabel}</span>
+    <div class="bound-files-container" id="boundFilesContainer">
+        ${boundFilesHtml}
+        <button id="addFile" class="secondary" style="padding: 4px 8px; font-size: 11px;">+ Add File</button>
+    </div>
     <button id="rebind" class="secondary" style="margin-left: auto;">🔄 Rebind</button>
   </header>
 
@@ -869,6 +930,8 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     <button id="save" class="secondary">★ Save</button>
     <button id="beautify" class="secondary">✨ Beautify</button>
     <button id="clear" class="secondary">🗑 Clear</button>
+    <button id="importQuery" class="secondary" title="Import a .js, .ts, or .txt file as the query expression" style="margin-left: auto;">📤 Import File</button>
+    <button id="exportQuery" class="secondary" title="Export current query to a file" style="margin-left: 8px;">📥 Export File</button>
   </div>
 
   <div id="result">
@@ -2302,6 +2365,18 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
       return result;
     }
 
+    document.getElementById('boundFilesContainer').addEventListener('click', (e) => {
+      const target = e.target;
+      if (target.id === 'addFile') {
+        vscode.postMessage({ type: 'addFile' });
+      } else if (target.classList && target.classList.contains('remove-file')) {
+        const alias = target.closest('.bound-file')?.getAttribute('data-alias');
+        if (alias) {
+          vscode.postMessage({ type: 'removeFile', alias });
+        }
+      }
+    });
+
     document.getElementById('run').onclick = runExpression;
     document.getElementById('save').onclick = saveExpression;
     document.getElementById('clear').onclick = () => {
@@ -2310,6 +2385,12 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
     };
     document.getElementById('beautify').onclick = () => {
       beautifyExpression();
+    };
+    document.getElementById('importQuery').onclick = () => {
+      vscode.postMessage({ type: 'importQuery' });
+    };
+    document.getElementById('exportQuery').onclick = () => {
+      vscode.postMessage({ type: 'exportQuery', expr: getEditorValue() });
     };
     rebindBtn.onclick = () => vscode.postMessage({ type: 'rebind' });
     copyResultBtn.onclick = () => {
@@ -2527,10 +2608,15 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
-      if (msg.type === 'updateTarget') {
-        const targetLabel = document.querySelector('header span.muted');
-        if (targetLabel) {
-          targetLabel.textContent = 'Target: ' + msg.fileLabel;
+      if (msg.type === 'updateTargets') {
+        const container = document.getElementById('boundFilesContainer');
+        if (container && msg.boundFiles) {
+          container.innerHTML = msg.boundFiles.map((f) => 
+            '<span class="bound-file" data-alias="' + f.alias + '" title="' + f.label + '">' +
+               '<span class="file-alias">' + f.alias + '</span>: ' + f.label.split('/').pop() +
+               (f.alias !== 'data' ? '<button class="remove-file" title="Remove bound file">×</button>' : '') +
+             '</span>'
+          ).join('') + '\\n<button id="addFile" class="secondary" style="padding: 4px 8px; font-size: 11px;">+ Add File</button>';
         }
       } else if (msg.type === 'hydrate') {
         renderList(msg.history || []);
@@ -3432,21 +3518,27 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
     { enableScripts: true, retainContextWhenHidden: true }
   );
 
+  let boundFiles: BoundFile[] = [];
+  if (targetUri) {
+    boundFiles.push({ alias: 'data', uri: targetUri });
+  }
+
   const scriptNonce = nonce();
-  panel.webview.html = getQueryEditorHtml(panel.webview, { fileLabel: label(targetUri), scriptNonce });
+  panel.webview.html = getQueryEditorHtml(panel.webview, { boundFiles, scriptNonce });
 
   const sendHistory = () => panel.webview.postMessage({ type: 'hydrate', history: getHistory(context) });
   const sendResult = (text: string, data?: unknown) => panel.webview.postMessage({ type: 'result', text, data });
   
   // Send schema information to webview
   async function sendSchema() {
-    if (!targetUri) return;
+    if (boundFiles.length === 0) return;
     try {
-      const data = await readJsonFromUri(targetUri);
-      const schema = inferSchemaFromData(data);
-      if (schema) {
-        panel.webview.postMessage({ type: 'schema', schema });
+      const dataMap: Record<string, unknown> = {};
+      for (const file of boundFiles) {
+          dataMap[file.alias] = await readJsonFromUri(file.uri);
       }
+      const compositeSchema = inferSchemaFromData(dataMap);
+      panel.webview.postMessage({ type: 'schema', schema: compositeSchema });
     } catch (e) {
       // Silently fail - schema inference is optional
     }
@@ -3504,22 +3596,110 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         sendHistory();
         sendSchema();
       } else if (msg.type === 'rebind') {
-        targetUri = pickInitialTargetUri();
-        panel.webview.postMessage({ type: 'updateTarget', fileLabel: label(targetUri) });
-        sendSchema();
+        const initialUri = pickInitialTargetUri();
+        if (initialUri) {
+          const dataIdx = boundFiles.findIndex(f => f.alias === 'data');
+          if (dataIdx !== -1) {
+            boundFiles[dataIdx].uri = initialUri;
+          } else {
+            boundFiles.unshift({ alias: 'data', uri: initialUri });
+          }
+          panel.webview.postMessage({ type: 'updateTargets', boundFiles: boundFiles.map(f => ({ alias: f.alias, label: label(f.uri) })) });
+          sendSchema();
+        }
+      } else if (msg.type === 'addFile') {
+         const pickResult = await vscode.window.showQuickPick([
+             { label: '$(file-directory) Choose from disk', id: 'disk' },
+             ...vscode.window.visibleTextEditors
+                .filter(ed => ed.document.languageId === 'json' || ed.document.languageId === 'jsonc')
+                .map(ed => ({ label: `$(file-code) ${label(ed.document.uri)}`, id: 'editor', uri: ed.document.uri }))
+         ], { placeHolder: 'Select a JSON file to bind' });
+
+         if (!pickResult) return;
+         
+         let selectedUri: vscode.Uri | undefined;
+         if (pickResult.id === 'disk') {
+             const uris = await vscode.window.showOpenDialog({
+                 canSelectMany: false,
+                 filters: { 'JSON': ['json', 'jsonc'] }
+             });
+             selectedUri = uris?.[0];
+         } else {
+             // @ts-ignore
+             selectedUri = pickResult.uri;
+         }
+
+         if (selectedUri) {
+             const alias = await vscode.window.showInputBox({ 
+                 prompt: 'Enter an alias for this file (must be a valid JS identifier, e.g. data1)',
+                 validateInput: (text) => /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(text) ? null : 'Invalid identifier'
+             });
+             if (alias) {
+                 if (boundFiles.some(f => f.alias === alias)) {
+                     vscode.window.showErrorMessage(`Alias '${alias}' is already in use.`);
+                 } else {
+                     boundFiles.push({ alias, uri: selectedUri });
+                     panel.webview.postMessage({ type: 'updateTargets', boundFiles: boundFiles.map(f => ({ alias: f.alias, label: label(f.uri) })) });
+                     sendSchema();
+                 }
+             }
+         }
+      } else if (msg.type === 'removeFile') {
+          boundFiles = boundFiles.filter(f => f.alias !== msg.alias);
+          panel.webview.postMessage({ type: 'updateTargets', boundFiles: boundFiles.map(f => ({ alias: f.alias, label: label(f.uri) })) });
+          sendSchema();
       } else if (msg.type === 'use') {
         panel.webview.postMessage({ type: 'insert', expr: String(msg.expr || '') });
       } else if (msg.type === 'run') {
-        if (!targetUri) throw new Error('No target JSON file is bound. Click "Rebind to Current Editor".');
-        const data = await readJsonFromUri(targetUri);
+        if (boundFiles.length === 0) throw new Error('No target JSON files are bound. Click "Rebind to Current Editor" or "+ Add File".');
+        
+        const dataMap: Record<string, unknown> = {};
+        for (const file of boundFiles) {
+            dataMap[file.alias] = await readJsonFromUri(file.uri);
+        }
+        
         const expr = String(msg.expr || '');
-        const result = evaluateExpression(data, expr, targetUri);
+        const result = evaluateExpression(boundFiles, dataMap, expr);
         if (msg.save) { pushHistory(context, expr); sendHistory(); }
         // Use streaming for large results
         await sendResultStreaming(stringify(result), result);
       } else if (msg.type === 'save') {
         pushHistory(context, String(msg.expr || ''));
         sendHistory();
+      } else if (msg.type === 'importQuery') {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          openLabel: 'Import Query',
+          filters: { 'Text/Code Files': ['js', 'ts', 'txt'], 'All Files': ['*'] }
+        });
+        if (uris && uris[0]) {
+          const content = await vscode.workspace.fs.readFile(uris[0]);
+          const textContent = Buffer.from(content).toString('utf-8');
+          panel.webview.postMessage({ type: 'insert', expr: textContent });
+        }
+      } else if (msg.type === 'exportQuery') {
+        const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + '-query.js';
+        let defaultUri: vscode.Uri;
+        const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
+        if (primaryUri) {
+          defaultUri = vscode.Uri.joinPath(primaryUri, '..', defaultName);
+        } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+          defaultUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName);
+        } else {
+          defaultUri = vscode.Uri.file(defaultName);
+        }
+        
+        const uri = await vscode.window.showSaveDialog({
+          defaultUri,
+          saveLabel: 'Export Query',
+          filters: { 'Text/Code Files': ['js', 'ts', 'txt'], 'All Files': ['*'] }
+        });
+        
+        if (uri) {
+          const content = Buffer.from(String(msg.expr || ''), 'utf-8');
+          await vscode.workspace.fs.writeFile(uri, content);
+          vscode.window.showInformationMessage('Query exported to: ' + uri.fsPath);
+        }
       } else if (msg.type === 'toggleFavorite') {
         const history = getHistory(context);
         const targetExpr = msg.expr;
@@ -3555,8 +3735,9 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         const buf = Buffer.from(base64, 'base64');
         const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + '.png';
         let defaultUri: vscode.Uri;
-        if (targetUri) {
-          defaultUri = vscode.Uri.joinPath(targetUri, '..', defaultName);
+        const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
+        if (primaryUri) {
+          defaultUri = vscode.Uri.joinPath(primaryUri, '..', defaultName);
         } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
           defaultUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName);
         } else {
@@ -3597,8 +3778,9 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         const isJson = msg.fileType === 'json';
         const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + (isJson ? '.json' : '.csv');
         let defaultUri: vscode.Uri;
-        if (targetUri) {
-            defaultUri = vscode.Uri.joinPath(targetUri, '..', defaultName);
+        const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
+        if (primaryUri) {
+            defaultUri = vscode.Uri.joinPath(primaryUri, '..', defaultName);
         } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
             defaultUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName);
         } else {
