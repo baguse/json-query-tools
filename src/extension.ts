@@ -2527,7 +2527,12 @@ function getQueryEditorHtml(webview: vscode.Webview, params: { fileLabel: string
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
-      if (msg.type === 'hydrate') {
+      if (msg.type === 'updateTarget') {
+        const targetLabel = document.querySelector('header span.muted');
+        if (targetLabel) {
+          targetLabel.textContent = 'Target: ' + msg.fileLabel;
+        }
+      } else if (msg.type === 'hydrate') {
         renderList(msg.history || []);
       } else if (msg.type === 'schema') {
         currentSchema = msg.schema || null;
@@ -3500,8 +3505,7 @@ async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         sendSchema();
       } else if (msg.type === 'rebind') {
         targetUri = pickInitialTargetUri();
-        panel.webview.html = getQueryEditorHtml(panel.webview, { fileLabel: label(targetUri), scriptNonce: nonce() });
-        sendHistory();
+        panel.webview.postMessage({ type: 'updateTarget', fileLabel: label(targetUri) });
         sendSchema();
       } else if (msg.type === 'use') {
         panel.webview.postMessage({ type: 'insert', expr: String(msg.expr || '') });
