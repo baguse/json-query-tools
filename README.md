@@ -1,32 +1,45 @@
-# JSON Tools with History
+# JSON Tools: JavaScript Methods
 
-Run JavaScript directly on JSON files in VS Code.
+Run JavaScript directly on JSON files in VS Code. Transform data with expressions, keep a searchable history, view results as JSON, table, or chart, and optionally use AI to generate queries.
 
 ## Features
-- Transform JSON with any JS expression (Array methods, reduce, etc.).
-- Save expressions in persistent history.
-- Open history panel to re-run or edit old expressions.
 
-## Docs
-[![Documentation](https://raw.githubusercontent.com/baguse/json-query-tools/3846ab624f8f37ed312d6db37ea6197b5521992f/screenshots/Screenshot_20250915_172239.png)](https://raw.githubusercontent.com/baguse/json-query-tools/3846ab624f8f37ed312d6db37ea6197b5521992f/screenshots/Screenshot_20250915_172239.png)
-[1] Current Active Editor.
-[2] Rebind to Current Editor: Rebind the current editor as the active editor.
-[3] The Script Editor: Write your JS expression here. The JSON content of the active editor is available as the variable `data`.
-[4] Run: Run the expression in the script editor.
-[5] Save to History: Save the current expression to history without running it.
-[6] Clear Editor: Clear the script editor.
-[7] Copy Result to Clipboard: Copy the result to clipboard.
-[8] Result Viewer: View the result of the last executed expression.
-[9] History Panel: The history panel to use, run or delete old expressions.
-[10] Use: Use the selected history item in the script editor.
-[11] Run: Run the selected history item.
-[12] Delete: Delete the selected history item.
+- **Transform JSON** – Use any JavaScript expression (array methods, `reduce`, custom logic). The active editor’s JSON is available as `data`.
+- **Persistent history** – Save expressions, name snippets, search, sort, and re-run or edit them. Mark favorites and copy items to the clipboard.
+- **Result views** – See results as **JSON**, **Raw** text, or **Table**. Export as JSON or CSV.
+- **Charts** – Visualize result data as charts when the result is chartable.
+- **CodeMirror editor** – Syntax highlighting, syntax validation, foldable result view, toggle comment, JS beautify, simple autocomplete, bracket/parenthesis support, and `Ctrl+D` for duplicate selection / add next occurrence.
+- **Templates** – Use `{{variableName}}` in expressions (e.g. `{{fileName}}`, `{{filePath}}`, `{{workspaceFolder}}`). Built-in variables like `{{workspaceFolder}}` are available; add more via `jsonQueryTools.templateVariables`.
+- **Multiple data sources & aliases** – Attach additional files as named sources and reference them via aliases alongside `data` in your expressions.
+- **AI query generator** – Generate expressions with **Ollama** (local) or **Gemini** (cloud). Configure endpoint and API key in settings.
+- **External libraries** – Load external JS libraries in the expression context when needed.
+- **Performance** – Result is streamed in chunks for large outputs.
+ - **Notifications** – Toast notification when the result is `undefined`.
+ - **Export/import scripts** – Export and import JavaScript expressions for reuse.
 
+## Quick start
+
+1. Open a JSON file (or any file you treat as data).
+2. Run **JSON Tools: Open Query Editor** (`jsonQueryTools.openHistory`).
+3. In the script editor, write a JS expression using `data`, e.g. `data.items.filter(x => x.active)`.
+4. Run it and view the result in JSON, Raw, or Table; optionally export as JSON/CSV or view as a chart.
+
+## Configuration
+
+| Setting | Description |
+|--------|-------------|
+| `jsonQueryTools.ollamaEndpoint` | Ollama API URL (default: `http://localhost:11434`) |
+| `jsonQueryTools.aiProvider` | `ollama` or `gemini` |
+| `jsonQueryTools.aiApiKey` | API key for cloud AI (e.g. Gemini) |
+| `jsonQueryTools.templateVariables` | Custom key-value pairs for `{{variableName}}` in expressions |
 
 ## Demo
-[![Demo](https://raw.githubusercontent.com/baguse/json-query-tools/3846ab624f8f37ed312d6db37ea6197b5521992f/screenshots/6da6a59794c902.gif)](https://raw.githubusercontent.com/baguse/json-query-tools/3846ab624f8f37ed312d6db37ea6197b5521992f/screenshots/6da6a59794c902.gif)
+
+[![Demo](https://raw.githubusercontent.com/baguse/json-query-tools/67d4633787056e31674636c4700a9524a53e315f/screenshots/678900b83706d55d.gif)](https://raw.githubusercontent.com/baguse/json-query-tools/67d4633787056e31674636c4700a9524a53e315f/screenshots/678900b83706d55d.gif)
 
 ## Contributing
-If you want to contribute kindly to create a PR and if you want to request a feature or report of a bug kindly create the Issue
-##### Buy me a coffee
+
+Contributions are welcome. Open a PR for changes or an Issue for bugs and feature requests.
+
+**Buy me a coffee**  
 <a href="https://buymeacoffee.com/andreantobs"><img src="https://raw.githubusercontent.com/baguse/directus-extension-flow-manager/6edf42d9a46f11c84f4caef2dbef25de22085172/images/buyme-coffee.png" width="200" /></a>
