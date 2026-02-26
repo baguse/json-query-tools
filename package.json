@@ -2,7 +2,7 @@
   "name": "json-query-tools",
   "displayName": "JSON Tools: JavaScript Methods",
   "description": "VS Code JSON query editor, history, and in-panel results.",
-  "version": "0.0.3",
+  "version": "0.1.0",
   "icon": "images/icon.png",
   "publisher": "Baguse",
   "repository": {
