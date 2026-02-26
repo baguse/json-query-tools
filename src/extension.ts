@@ -10,15 +10,12 @@ export interface BoundFile {
   uri: vscode.Uri;
 }
 
-/** Template variable syntax: {{variableName}}. Built-ins: fileName, filePath, fileDir, workspaceFolder. */
+/** Template variable syntax: {{variableName}}. Built-ins: workspaceFolder. */
 function getTemplateVariables(targetUri?: vscode.Uri): Record<string, string> {
   const config = vscode.workspace.getConfiguration('jsonQueryTools');
   const custom = config.get<Record<string, string>>('templateVariables') ?? {};
   const builtins: Record<string, string> = { ...custom };
   if (targetUri) {
-    builtins['fileName'] = path.basename(targetUri.fsPath);
-    builtins['filePath'] = targetUri.fsPath;
-    builtins['fileDir'] = path.dirname(targetUri.fsPath);
     const wf = vscode.workspace.getWorkspaceFolder(targetUri);
     if (wf) builtins['workspaceFolder'] = wf.uri.fsPath;
   }
