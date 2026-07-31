@@ -8,6 +8,28 @@ export function stringify(value: unknown): string {
   catch { return String(value); }
 }
 
+const MALICIOUS_PATTERNS: Array<{ pattern: RegExp; description: string }> = [
+  { pattern: /\brequire\s*\(\s*['"]child_process['"]\s*\)/, description: 'spawning child processes' },
+  { pattern: /\brequire\s*\(\s*['"]fs['"]\s*\)/, description: 'accessing the file system' },
+  { pattern: /\brequire\s*\(\s*['"]net['"]\s*\)/, description: 'opening network connections' },
+  { pattern: /\brequire\s*\(\s*['"]http['"]\s*\)/, description: 'making HTTP requests' },
+  { pattern: /\brequire\s*\(\s*['"]https['"]\s*\)/, description: 'making HTTPS requests' },
+  { pattern: /\brequire\s*\(\s*['"]dgram['"]\s*\)/, description: 'opening UDP sockets' },
+  { pattern: /\brequire\s*\(\s*['"]os['"]\s*\)/, description: 'accessing OS-level operations' },
+  { pattern: /\bprocess\s*\.\s*exit\b/, description: 'terminating the process' },
+  { pattern: /\bprocess\s*\.\s*env\b/, description: 'reading environment variables' },
+  { pattern: /\beval\s*\(/, description: 'nested eval()' },
+];
+
+export function checkForMaliciousExpression(expr: string): string | null {
+  for (const { pattern, description } of MALICIOUS_PATTERNS) {
+    if (pattern.test(expr)) {
+      return `Expression accesses restricted module: ${description}`;
+    }
+  }
+  return null;
+}
+
 export function evaluateExpression(boundFiles: BoundFile[], dataMap: Record<string, unknown>, expr: string): unknown {
   const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
   const resolvedExpr = resolveTemplateVariables(expr, primaryUri);

@@ -518,6 +518,36 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
       color: var(--vscode-textLink-foreground, #3794ff);
       font-size: 12px;
     }
+    .security-warning {
+      background: rgba(255, 200, 0, 0.1);
+      border: 1px solid rgba(255, 200, 0, 0.4);
+      border-radius: 4px;
+      margin: 0 20px;
+      padding: 10px 16px;
+    }
+    .security-warning-content {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .security-warning-icon {
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .security-warning-text {
+      flex: 1;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .security-warning-text strong {
+      display: block;
+      color: #e0c36a;
+      margin-bottom: 2px;
+    }
+    .security-warning-text span {
+      color: var(--vscode-descriptionForeground, #cccccc);
+    }
 
   </style>
 </head>
@@ -557,9 +587,19 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
     </div>
   </div>
 
+  <div id="securityWarning" class="security-warning" style="display: none; margin-top: 10px;">
+    <div class="security-warning-content">
+      <span class="security-warning-icon">⚠</span>
+      <div class="security-warning-text">
+        <strong>Security Warning</strong>
+        <span id="securityWarningMessage"></span>
+      </div>
+      <button id="runAnyway" class="danger">Run Anyway</button>
+      <button id="dismissWarning" class="secondary">Cancel</button>
+    </div>
+  </div>
+
   <div class="row">
-    <div class="editor-container">
-      <div class="editor-label">JavaScript Expression</div>
       <textarea id="expr" placeholder=".filter(x=>x.active).map(x=>({name:x.name})) — Template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}"></textarea>
       <div class="keyboard-hint">Press <kbd>Ctrl+Enter</kbd> to run | <kbd>Ctrl+S</kbd> to save</div>
     </div>
@@ -2245,6 +2285,20 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
       }
     }, 400);
 
+    // Security warning banner buttons (set up once)
+    const securityBanner = document.getElementById('securityWarning');
+    document.getElementById('runAnyway').addEventListener('click', () => {
+      if (securityBanner) securityBanner.style.display = 'none';
+      vscode.postMessage({ type: 'runConfirmed', expr: editor ? editor.getValue() : exprTextarea.value, save: false });
+    });
+    document.getElementById('dismissWarning').addEventListener('click', () => {
+      if (securityBanner) securityBanner.style.display = 'none';
+      setLoading(false);
+      resultPre.textContent = 'Canceled by user';
+      resultPre.className = '';
+      resultPre.style.display = 'block';
+    });
+
     window.addEventListener('message', (event) => {
       const msg = event.data;
       if (msg.type === 'updateTargets') {
@@ -2267,6 +2321,13 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
         }
       } else if (msg.type === 'insert') {
         setEditorValue(msg.expr || '');
+      } else if (msg.type === 'securityWarning') {
+        const banner = document.getElementById('securityWarning');
+        const msgEl = document.getElementById('securityWarningMessage');
+        if (banner && msgEl) {
+          msgEl.textContent = msg.warning;
+          banner.style.display = 'block';
+        }
       } else if (msg.type === 'status') {
         // could show status text
       } else if (msg.type === 'result') {

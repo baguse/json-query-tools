@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { HISTORY_KEY } from './constants';
 import { BoundFile } from './types';
 import { getHistory, pushHistory } from './history';
-import { evaluateExpression, pickInitialTargetUri, readJsonFromUri, stringify } from './evaluator';
+import { evaluateExpression, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression } from './evaluator';
 import { inferSchemaFromData } from './schema';
 import { getQueryEditorHtml, nonce } from './webview/html';
 import { callGemini, callOllama, fetchGeminiModels, fetchOllamaModels } from './ai';
@@ -174,7 +174,7 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
           sendSchema();
       } else if (msg.type === 'use') {
         panel.webview.postMessage({ type: 'insert', expr: String(msg.expr || '') });
-      } else if (msg.type === 'run') {
+      } else if (msg.type === 'run' || msg.type === 'runConfirmed') {
         if (boundFiles.length === 0) throw new Error('No target JSON files are bound. Click "Rebind to Current Editor" or "+ Add File".');
         
         const dataMap: Record<string, unknown> = {};
@@ -183,6 +183,15 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         }
         
         const expr = String(msg.expr || '');
+
+        if (msg.type === 'run') {
+          const warning = checkForMaliciousExpression(expr);
+          if (warning) {
+            panel.webview.postMessage({ type: 'securityWarning', warning, expr });
+            return;
+          }
+        }
+
         const result = evaluateExpression(boundFiles, dataMap, expr);
         if (msg.save) { pushHistory(context, expr); sendHistory(); }
         // Use streaming for large results
