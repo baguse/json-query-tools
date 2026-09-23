@@ -86,6 +86,39 @@ async function runHistoryTests() {
   ]);
   console.log('  ✓ normalizeHistory handles legacy string array and objects');
 
+  // 6. Concurrency / race condition test: rapid concurrent pushHistory calls
+  const asyncStorage = {};
+  const asyncContext = {
+    globalState: {
+      get: (key) => asyncStorage[key],
+      update: async (key, val) => {
+        // Simulate async I/O delay in VS Code storage
+        await new Promise(r => setTimeout(r, 15));
+        asyncStorage[key] = val;
+      }
+    }
+  };
+
+  const concurrentPromises = [
+    pushHistory(asyncContext, 'concurrent query 1'),
+    pushHistory(asyncContext, 'concurrent query 2'),
+    pushHistory(asyncContext, 'concurrent query 3'),
+    pushHistory(asyncContext, 'concurrent query 4')
+  ];
+
+  await Promise.all(concurrentPromises);
+  const concurrentHist = getHistory(asyncContext);
+  assert.strictEqual(
+    concurrentHist.length,
+    4,
+    `Expected 4 items from concurrent pushes, got ${concurrentHist.length}`
+  );
+  assert.strictEqual(concurrentHist[0].expr, 'concurrent query 1');
+  assert.strictEqual(concurrentHist[1].expr, 'concurrent query 2');
+  assert.strictEqual(concurrentHist[2].expr, 'concurrent query 3');
+  assert.strictEqual(concurrentHist[3].expr, 'concurrent query 4');
+  console.log('  ✓ Rapid concurrent pushHistory calls are sequenced without write races');
+
   console.log('\n✅ All history tests passed successfully!\n');
 }
 
