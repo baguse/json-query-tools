@@ -1,16 +1,51 @@
 import * as vscode from 'vscode';
-import { BoundFile } from '../types';
+import { BoundFile, SerializedBoundSource } from '../types';
 
 export function nonce() { return String(Math.random()).slice(2); }
 
-export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles: BoundFile[], scriptNonce: string }) {
+function escapeHtmlStr(text: string): string {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+export function getQueryEditorHtml(
+  webview: vscode.Webview,
+  params: { boundFiles?: BoundFile[]; sources?: SerializedBoundSource[]; scriptNonce: string }
+) {
   const n = params.scriptNonce;
-  const boundFilesHtml = params.boundFiles.map(f => 
-    `<span class="bound-file" data-alias="${f.alias}" title="${f.uri.fsPath}">
-       <span class="file-alias">${f.alias}</span>: ${vscode.workspace.asRelativePath(f.uri).split('/').pop()}
-       ${f.alias !== 'data' ? `<button class="remove-file" title="Remove bound file">×</button>` : ''}
-     </span>`
-  ).join('');
+  const sources: SerializedBoundSource[] = params.sources ?? (params.boundFiles || []).map(f => ({
+    type: 'file' as const,
+    alias: f.alias,
+    label: vscode.workspace.asRelativePath(f.uri)
+  }));
+
+  const initialSourcesJson = JSON.stringify(sources).replace(/</g, '\\u003c');
+
+  const sourcesHtml = sources.map(s => {
+    if (s.type === 'url') {
+      const method = s.method || 'GET';
+      const methodClass = `method-${method.toLowerCase()}`;
+      return `<span class="bound-file bound-url" data-alias="${escapeHtmlStr(s.alias)}" data-id="${escapeHtmlStr(s.id || '')}" title="${escapeHtmlStr(method)} ${escapeHtmlStr(s.url || '')}">
+        <span class="url-badge-method ${methodClass}">${escapeHtmlStr(method)}</span>
+        <span class="file-alias">${escapeHtmlStr(s.alias)}</span>: ${escapeHtmlStr(s.label || s.url || '')}
+        <button class="inspect-source-btn" data-id="${escapeHtmlStr(s.id || '')}" title="View cached API response">👁️</button>
+        <button class="refresh-url-btn" data-id="${escapeHtmlStr(s.id || '')}" title="Re-fetch data from URL">🔄</button>
+        <button class="edit-url-btn" data-id="${escapeHtmlStr(s.id || '')}" title="Edit URL, headers, or method">✏️</button>
+        <button class="remove-source" data-alias="${escapeHtmlStr(s.alias)}" data-id="${escapeHtmlStr(s.id || '')}" title="Remove source">×</button>
+      </span>`;
+    }
+    return `<span class="bound-file" data-alias="${escapeHtmlStr(s.alias)}" title="${escapeHtmlStr(s.label)}">
+      <span class="file-icon">📁</span>
+      <span class="file-alias">${escapeHtmlStr(s.alias)}</span>: ${escapeHtmlStr(s.label.split('/').pop() || s.label)}
+      <button class="inspect-source-btn" data-alias="${escapeHtmlStr(s.alias)}" title="View JSON data">👁️</button>
+      ${s.alias !== 'data' || sources.length > 1 ? `<button class="remove-source" data-alias="${escapeHtmlStr(s.alias)}" title="Remove source">×</button>` : ''}
+    </span>`;
+  }).join('');
+
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -72,6 +107,7 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
     .bound-file {
       display: inline-flex;
       align-items: center;
+      gap: 5px;
       background: var(--vscode-input-background, #3c3c3c);
       border: 1px solid var(--vscode-input-border, #3e3e42);
       border-radius: 4px;
@@ -79,25 +115,291 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
       font-size: 11px;
       color: var(--vscode-foreground, #cccccc);
     }
+    .bound-file.bound-url {
+      border-left: 3px solid #3794ff;
+    }
+    .url-badge-method {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 4px;
+      border-radius: 3px;
+      text-transform: uppercase;
+      color: #ffffff;
+      line-height: 1.2;
+    }
+    .method-get { background: #007acc; }
+    .method-post { background: #238636; }
+    .method-put { background: #8957e5; }
+    .method-patch { background: #a371f7; }
+    .method-delete { background: #da3633; }
+    .method-head, .method-options { background: #6e7681; }
+
     .file-alias {
       font-weight: bold;
       color: var(--vscode-textLink-foreground, #3794ff);
     }
-    .remove-file {
+    .remove-file, .remove-source, .refresh-url-btn, .edit-url-btn, .inspect-source-btn {
       background: none;
       border: none;
       color: var(--vscode-descriptionForeground, #858585);
       cursor: pointer;
-      padding: 0 0 0 6px;
+      padding: 0 2px;
       margin: 0;
-      font-size: 14px;
+      font-size: 12px;
       line-height: 1;
+      border-radius: 2px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
     }
-    .remove-file:hover {
+    .remove-file:hover, .remove-source:hover {
       color: var(--vscode-errorForeground, #f48771);
       box-shadow: none;
       transform: none;
     }
+    .refresh-url-btn:hover, .edit-url-btn:hover, .inspect-source-btn:hover {
+      color: var(--vscode-textLink-activeForeground, #3794ff);
+    }
+    .status-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 3px;
+      color: #ffffff;
+      line-height: 1.2;
+      display: inline-block;
+    }
+    .status-2xx { background: #238636; }
+    .status-3xx { background: #0e639c; }
+    .status-4xx { background: #d29922; color: #1e1e1e; }
+    .status-5xx { background: #da3633; }
+
+
+    /* URL Modal Styles */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(2px);
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .modal-dialog {
+      background: var(--vscode-editor-background, #1e1e1e);
+      border: 1px solid var(--vscode-widget-border, #454545);
+      border-radius: 6px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      width: 100%;
+      max-width: 660px;
+      max-height: 90vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .modal-header {
+      padding: 12px 16px;
+      background: var(--vscode-titleBar-activeBackground, #2d2d30);
+      border-bottom: 1px solid var(--vscode-panel-border, #3e3e42);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .modal-header h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--vscode-titleBar-activeForeground, #fff);
+    }
+    .modal-close-btn {
+      background: none;
+      border: none;
+      color: var(--vscode-descriptionForeground, #858585);
+      font-size: 18px;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0 4px;
+    }
+    .modal-close-btn:hover {
+      color: var(--vscode-foreground, #fff);
+    }
+    .modal-body {
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .modal-footer {
+      padding: 12px 16px;
+      background: var(--vscode-titleBar-activeBackground, #2d2d30);
+      border-top: 1px solid var(--vscode-panel-border, #3e3e42);
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+    }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .form-group label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--vscode-descriptionForeground, #ccc);
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .form-group input, .form-group select, .form-group textarea {
+      padding: 6px 10px;
+      background: var(--vscode-input-background, #3c3c3c);
+      color: var(--vscode-input-foreground, #cccccc);
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 3px;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    .form-group textarea {
+      font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;
+      resize: vertical;
+      line-height: 1.4;
+    }
+    .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+      outline: 1px solid var(--vscode-focusBorder, #007acc);
+      border-color: var(--vscode-focusBorder, #007acc);
+    }
+    .form-hint {
+      font-size: 10.5px;
+      color: var(--vscode-descriptionForeground, #858585);
+      line-height: 1.3;
+    }
+    .form-hint code {
+      background: rgba(255,255,255,0.08);
+      padding: 1px 4px;
+      border-radius: 2px;
+    }
+    .modal-alert {
+      padding: 8px 12px;
+      background: rgba(244, 135, 113, 0.15);
+      border: 1px solid var(--vscode-errorForeground, #f48771);
+      border-radius: 4px;
+      color: var(--vscode-errorForeground, #f48771);
+      font-size: 12px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Request Configuration Tabs & Query Params Table */
+    .request-tabs-bar {
+      display: flex;
+      border-bottom: 1px solid var(--vscode-panel-border, #3e3e42);
+      gap: 2px;
+      margin-top: 4px;
+    }
+    .request-tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--vscode-descriptionForeground, #858585);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 6px 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-bottom: -1px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .request-tab-btn:hover {
+      color: var(--vscode-foreground, #fff);
+    }
+    .request-tab-btn.active {
+      color: var(--vscode-textLink-foreground, #3794ff);
+      border-bottom-color: var(--vscode-textLink-foreground, #3794ff);
+    }
+    .tab-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 5px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      color: var(--vscode-foreground, #ccc);
+      line-height: 1.2;
+    }
+    .request-tab-btn.active .tab-badge {
+      background: var(--vscode-badge-background, #007acc);
+      color: var(--vscode-badge-foreground, #ffffff);
+    }
+    .request-tab-pane {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .param-row {
+      border-bottom: 1px solid var(--vscode-input-border, #3e3e42);
+      transition: background 0.1s;
+    }
+    .param-row:last-child {
+      border-bottom: none;
+    }
+    .param-row:hover {
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .param-row.param-disabled {
+      opacity: 0.55;
+    }
+    .param-row input[type="text"] {
+      background: transparent !important;
+      border: none !important;
+      color: var(--vscode-input-foreground, #cccccc);
+      width: 100%;
+      padding: 5px 6px;
+      font-size: 11px;
+      font-family: inherit;
+      outline: none !important;
+    }
+    .param-row input[type="text"]:focus {
+      background: rgba(255, 255, 255, 0.05) !important;
+    }
+    .param-row input[type="checkbox"] {
+      cursor: pointer;
+    }
+    .remove-param-btn {
+      background: none;
+      border: none;
+      color: var(--vscode-descriptionForeground, #858585);
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 2px 6px;
+      border-radius: 2px;
+    }
+    .remove-param-btn:hover {
+      color: var(--vscode-errorForeground, #f48771) !important;
+      background: rgba(244, 135, 113, 0.1);
+    }
+
     .row:has(#expr) {
       flex-direction: column;
       align-items: stretch;
@@ -555,11 +857,13 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
   <header>
     <strong>JSON Tools — Query Editor</strong>
     <div class="bound-files-container" id="boundFilesContainer">
-        ${boundFilesHtml}
-        <button id="addFile" class="secondary" style="padding: 4px 8px; font-size: 11px;">+ Add File</button>
+        ${sourcesHtml}
+        <button id="addFile" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Bind another JSON file from workspace or disk">+ Add File</button>
+        <button id="addUrl" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Fetch data directly from an HTTP/HTTPS URL with custom headers">+ Add URL</button>
     </div>
-    <button id="rebind" class="secondary" style="margin-left: auto;">🔄 Rebind</button>
+    <button id="rebind" class="secondary" style="margin-left: auto;" title="Rebind 'data' to currently focused editor">🔄 Rebind</button>
   </header>
+
 
   <div class="row" style="background: var(--vscode-sideBar-background); border-bottom: 1px solid var(--vscode-panel-border); padding: 14px 20px; flex-direction: column; gap: 10px;">
     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 2px;">
@@ -635,6 +939,7 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
         <button id="saveJson" class="secondary" style="display: none; padding: 6px 10px;">📥 json</button>
         <button id="saveCsv" class="secondary" style="display: none; padding: 6px 10px;">📥 csv</button>
         <button id="copy-result-to-clipboard" class="secondary" style="padding: 6px 10px;">📋 Copy</button>
+        <button id="openResultInEditorBtn" class="secondary" style="padding: 6px 10px;" title="Open result in a new VS Code editor tab">↗ In Editor</button>
       </div>
     </div>
     <div id="resultContainer">
@@ -661,6 +966,151 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
     <div id="list"></div>
   </div>
 
+  <!-- URL Source Modal -->
+  <div id="urlModal" class="modal-backdrop" style="display: none;">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <h3 id="urlModalTitle">Add URL Data Source</h3>
+        <button id="closeUrlModal" class="modal-close-btn" title="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="urlSourceId" value="">
+        
+        <div class="form-group">
+          <label for="urlAlias">Source Alias (Variable Name)</label>
+          <input type="text" id="urlAlias" placeholder="e.g. data or apiData" value="data">
+          <span class="form-hint">Used as the variable in your JS expression (e.g. <code>data.items</code> or <code>apiData.users</code>)</span>
+        </div>
+
+        <div class="form-row" style="display: flex; gap: 8px;">
+          <div class="form-group" style="width: 120px;">
+            <label for="urlMethod">Method</label>
+            <select id="urlMethod" style="width: 100%;">
+              <option value="GET">GET</option>
+              <option value="POST">POST</option>
+              <option value="PUT">PUT</option>
+              <option value="PATCH">PATCH</option>
+              <option value="DELETE">DELETE</option>
+              <option value="HEAD">HEAD</option>
+              <option value="OPTIONS">OPTIONS</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex: 1;">
+            <label for="urlEndpoint">URL</label>
+            <input type="text" id="urlEndpoint" placeholder="https://api.example.com/v1/data">
+          </div>
+        </div>
+
+        <!-- Request Configuration Tabs (Params | Headers | Body) -->
+        <div class="request-tabs-bar">
+          <button type="button" class="request-tab-btn active" data-tab="params" id="tabBtnParams">
+            Params <span id="paramsCountBadge" class="tab-badge" style="display: none;">0</span>
+          </button>
+          <button type="button" class="request-tab-btn" data-tab="headers" id="tabBtnHeaders">
+            Headers <span id="headersCountBadge" class="tab-badge" style="display: none;">0</span>
+          </button>
+          <button type="button" class="request-tab-btn" data-tab="body" id="tabBtnBody" style="display: none;">
+            Body
+          </button>
+        </div>
+
+        <!-- Tab Pane: Query Params (Postman Style) -->
+        <div id="tabPaneParams" class="request-tab-pane" style="display: block;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span class="form-hint" style="font-size: 11px;">Query Parameters (synced with URL in real-time)</span>
+            <button type="button" id="addParamRowBtn" class="secondary" style="padding: 2px 8px; font-size: 11px;">+ Add Param</button>
+          </div>
+          <div class="params-table-container" style="border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; overflow: hidden; background: var(--vscode-input-background, #252526);">
+            <table id="queryParamsTable" style="width: 100%; border-collapse: collapse; font-size: 11px;">
+              <thead>
+                <tr style="background: rgba(255,255,255,0.04); border-bottom: 1px solid var(--vscode-input-border, #3e3e42); color: var(--vscode-descriptionForeground, #858585); text-align: left;">
+                  <th style="width: 32px; padding: 6px; text-align: center;"></th>
+                  <th style="padding: 6px 8px; font-weight: 600; width: 42%;">Key</th>
+                  <th style="padding: 6px 8px; font-weight: 600;">Value</th>
+                  <th style="width: 32px; padding: 6px; text-align: center;"></th>
+                </tr>
+              </thead>
+              <tbody id="queryParamsBody">
+                <!-- Dynamic param rows will be rendered here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Tab Pane: Headers -->
+        <div id="tabPaneHeaders" class="request-tab-pane" style="display: none;">
+          <div class="form-group">
+            <label for="urlHeaders">Custom Headers</label>
+            <textarea id="urlHeaders" rows="4" placeholder="Authorization: Bearer your-token&#10;Accept: application/json&#10;X-Custom-Header: value"></textarea>
+            <span class="form-hint">Enter one header per line as <code>Header-Name: value</code> or as a JSON object.</span>
+          </div>
+        </div>
+
+        <!-- Tab Pane: Body -->
+        <div id="tabPaneBody" class="request-tab-pane" style="display: none;">
+          <div class="form-group" id="urlBodyGroup">
+            <label for="urlBody">Request Body</label>
+            <textarea id="urlBody" rows="5" placeholder="{&#10;  &quot;query&quot;: &quot;value&quot;&#10;}"></textarea>
+            <span class="form-hint">Payload for POST, PUT, PATCH, DELETE requests.</span>
+          </div>
+        </div>
+
+        <div id="urlModalAlert" class="modal-alert" style="display: none;"></div>
+
+        <!-- URL Response Preview Pane -->
+        <div id="urlModalPreview" style="display: none; border-top: 1px solid var(--vscode-panel-border, #3e3e42); padding-top: 10px; margin-top: 5px; contain: content;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--vscode-descriptionForeground, #ccc);">Response Preview</span>
+              <span id="previewStatusBadge" class="status-badge status-2xx">200 OK</span>
+            </div>
+            <span id="previewMeta" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585);"></span>
+          </div>
+          <pre id="urlPreviewPre" style="margin: 0; max-height: 180px; overflow: auto; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace; font-size: 11px; line-height: 1.4; padding: 8px; background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; color: var(--vscode-editor-foreground, #d4d4d4); white-space: pre; contain: content;"></pre>
+        </div>
+      </div>
+
+      <div class="modal-footer" style="display: flex; align-items: center; justify-content: space-between;">
+        <button id="testUrlModal" class="secondary" title="Test request and preview response without saving">
+          <span id="testUrlSpinner" class="spinner" style="display: none;"></span>
+          <span id="testUrlText">Test Request</span>
+        </button>
+        <div style="display: flex; gap: 10px;">
+          <button id="cancelUrlModal" class="secondary">Cancel</button>
+          <button id="submitUrlModal" class="primary">
+            <span id="submitUrlSpinner" class="spinner" style="display: none;"></span>
+            <span id="submitUrlText">Fetch &amp; Bind</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Source Inspection Modal (Option A) -->
+  <div id="sourceInspectModal" class="modal-backdrop" style="display: none;">
+    <div class="modal-dialog" style="max-width: 720px; width: 90%;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+          <h3 id="inspectModalTitle" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;">Inspect Source</h3>
+          <span id="inspectModalTypeBadge" class="status-badge status-3xx" style="display: none;">URL</span>
+        </div>
+        <button id="closeInspectModal" class="modal-close-btn" title="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body" style="gap: 8px;">
+        <div id="inspectSourceDetails" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585); line-height: 1.4; word-break: break-all; background: rgba(255,255,255,0.03); padding: 6px 10px; border-radius: 4px; border: 1px solid var(--vscode-panel-border, #3e3e42);"></div>
+        <pre id="inspectDataPre" style="margin: 0; max-height: 55vh; min-height: 150px; overflow: auto; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace; font-size: 11px; line-height: 1.4; padding: 10px; background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; color: var(--vscode-editor-foreground, #d4d4d4); white-space: pre; contain: content;"></pre>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between; align-items: center;">
+        <span id="inspectDataMeta" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585);"></span>
+        <div style="display: flex; gap: 8px;">
+          <button id="copyInspectBtn" class="secondary">📋 Copy</button>
+          <button id="openInspectInEditorBtn" class="secondary" title="Open this data in a new VS Code editor tab">↗ Open in VS Code Tab</button>
+          <button id="dismissInspectBtn" class="primary">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script nonce="${n}">
     let beautifyReady = false;
     const vscode = acquireVsCodeApi();
@@ -681,7 +1131,41 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
     const resultChartContainer = document.getElementById('resultChartContainer');
     const chartCanvas = document.getElementById('resultChart');
     const resultJsonEditorTextarea = document.getElementById('resultJsonEditor');
-    
+    let currentSources = ${initialSourcesJson};
+
+
+    function renderSources(sources) {
+      currentSources = sources || [];
+      const container = document.getElementById('boundFilesContainer');
+      if (!container) return;
+
+      const html = currentSources.map(s => {
+        if (s.type === 'url') {
+          const method = s.method || 'GET';
+          const methodClass = 'method-' + method.toLowerCase();
+          return '<span class="bound-file bound-url" data-alias="' + escapeHtml(s.alias) + '" data-id="' + escapeHtml(s.id || '') + '" title="' + escapeHtml(method) + ' ' + escapeHtml(s.url || '') + '">' +
+            '<span class="url-badge-method ' + methodClass + '">' + escapeHtml(method) + '</span>' +
+            '<span class="file-alias">' + escapeHtml(s.alias) + '</span>: ' + escapeHtml(s.label || s.url || '') +
+            '<button class="inspect-source-btn" data-id="' + escapeHtml(s.id || '') + '" title="View cached API response">👁️</button>' +
+            '<button class="refresh-url-btn" data-id="' + escapeHtml(s.id || '') + '" title="Re-fetch data from URL">🔄</button>' +
+            '<button class="edit-url-btn" data-id="' + escapeHtml(s.id || '') + '" title="Edit URL, headers, or method">✏️</button>' +
+            '<button class="remove-source" data-alias="' + escapeHtml(s.alias) + '" data-id="' + escapeHtml(s.id || '') + '" title="Remove source">×</button>' +
+          '</span>';
+        }
+        return '<span class="bound-file" data-alias="' + escapeHtml(s.alias) + '" title="' + escapeHtml(s.label) + '">' +
+          '<span class="file-icon">📁</span> ' +
+          '<span class="file-alias">' + escapeHtml(s.alias) + '</span>: ' + escapeHtml(s.label.split('/').pop() || s.label) +
+          '<button class="inspect-source-btn" data-alias="' + escapeHtml(s.alias) + '" title="View JSON data">👁️</button>' +
+          (s.alias !== 'data' || currentSources.length > 1 ? '<button class="remove-source" data-alias="' + escapeHtml(s.alias) + '" title="Remove source">×</button>' : '') +
+        '</span>';
+      }).join('');
+
+      container.innerHTML = html +
+        '<button id="addFile" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Bind another JSON file from workspace or disk">+ Add File</button>' +
+        '<button id="addUrl" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Fetch data directly from an HTTP/HTTPS URL with custom headers">+ Add URL</button>';
+
+    }
+
     let currentResultData = null;
     let editor;
     let codeMirrorLoaded = false;
@@ -2048,13 +2532,31 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
       const target = e.target;
       if (target.id === 'addFile') {
         vscode.postMessage({ type: 'addFile' });
-      } else if (target.classList && target.classList.contains('remove-file')) {
-        const alias = target.closest('.bound-file')?.getAttribute('data-alias');
-        if (alias) {
-          vscode.postMessage({ type: 'removeFile', alias });
+      } else if (target.id === 'addUrl') {
+        openUrlModal();
+      } else if (target.classList && (target.classList.contains('remove-file') || target.classList.contains('remove-source'))) {
+        const span = target.closest('.bound-file');
+        const alias = span?.getAttribute('data-alias');
+        const id = span?.getAttribute('data-id');
+        vscode.postMessage({ type: 'removeSource', alias, id });
+      } else if (target.classList && target.classList.contains('refresh-url-btn')) {
+        const id = target.getAttribute('data-id');
+        if (id) {
+          vscode.postMessage({ type: 'refreshUrlSource', id });
         }
+      } else if (target.classList && target.classList.contains('edit-url-btn')) {
+        const id = target.getAttribute('data-id');
+        const src = currentSources.find(s => s.id === id);
+        if (src) {
+          openUrlModal(src);
+        }
+      } else if (target.classList && target.classList.contains('inspect-source-btn')) {
+        const id = target.getAttribute('data-id');
+        const alias = target.getAttribute('data-alias') || target.closest('.bound-file')?.getAttribute('data-alias');
+        vscode.postMessage({ type: 'inspectSource', id, alias });
       }
     });
+
 
     document.getElementById('run').onclick = runExpression;
     document.getElementById('save').onclick = saveExpression;
@@ -2097,6 +2599,37 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
           copyResultBtn.textContent = originalText;
         }, 1500);
       }
+    };
+
+    const openResultInEditorBtn = document.getElementById('openResultInEditorBtn');
+    if (openResultInEditorBtn) {
+      openResultInEditorBtn.onclick = () => {
+        let text = '';
+        if (resultTable && resultTable.style.display === 'table') {
+          const rows = [];
+          const headerRow = Array.from(resultTableHead.querySelectorAll('th')).map(th => th.textContent);
+          rows.push(headerRow.join(','));
+          Array.from(resultTableBody.querySelectorAll('tr')).forEach(tr => {
+            const cells = Array.from(tr.querySelectorAll('td')).map(td => td.textContent);
+            rows.push(cells.join(','));
+          });
+          text = rows.join(String.fromCharCode(10));
+          vscode.postMessage({ type: 'openInEditor', text, language: 'csv' });
+          return;
+        }
+        if (currentResultData !== null && currentResultData !== undefined) {
+          try {
+            text = typeof currentResultData === 'string' ? currentResultData : JSON.stringify(currentResultData, null, 2);
+          } catch (e) {
+            text = String(currentResultData);
+          }
+        } else {
+          text = resultPre ? (resultPre.textContent || '') : '';
+        }
+        if (text && !text.includes('(no result yet)') && !text.includes('Running...')) {
+          vscode.postMessage({ type: 'openInEditor', text, language: 'json' });
+        }
+      };
     };
 
     // Setup keyboard shortcuts after editor is initialized
@@ -2302,15 +2835,22 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
     window.addEventListener('message', (event) => {
       const msg = event.data;
       if (msg.type === 'updateTargets') {
-        const container = document.getElementById('boundFilesContainer');
-        if (container && msg.boundFiles) {
-          container.innerHTML = msg.boundFiles.map((f) => 
-            '<span class="bound-file" data-alias="' + f.alias + '" title="' + f.label + '">' +
-               '<span class="file-alias">' + f.alias + '</span>: ' + f.label.split('/').pop() +
-               (f.alias !== 'data' ? '<button class="remove-file" title="Remove bound file">×</button>' : '') +
-             '</span>'
-          ).join('') + '\\n<button id="addFile" class="secondary" style="padding: 4px 8px; font-size: 11px;">+ Add File</button>';
+        if (msg.sources) {
+          renderSources(msg.sources);
+        } else if (msg.boundFiles) {
+          renderSources(msg.boundFiles.map(function(f) { return { type: 'file', alias: f.alias, label: f.label }; }));
         }
+      } else if (msg.type === 'urlSourceSuccess') {
+        closeUrlModal();
+      } else if (msg.type === 'urlSourceError') {
+        showUrlModalAlert(msg.error || 'Failed to fetch URL source.');
+        setModalLoading(false);
+      } else if (msg.type === 'urlPreviewResult') {
+        renderUrlPreview(msg.details);
+      } else if (msg.type === 'urlPreviewError') {
+        renderUrlPreviewError(msg.error);
+      } else if (msg.type === 'showSourceInspection') {
+        openSourceInspectModal(msg.source, msg.data);
       } else if (msg.type === 'hydrate') {
         renderList(msg.history || []);
       } else if (msg.type === 'schema') {
@@ -2321,6 +2861,18 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
         }
       } else if (msg.type === 'insert') {
         setEditorValue(msg.expr || '');
+        const aiBtn = document.getElementById('aiGenerate');
+        if (aiBtn) {
+          aiBtn.disabled = false;
+          aiBtn.textContent = 'Generate';
+        }
+      } else if (msg.type === 'aiError') {
+        const aiBtn = document.getElementById('aiGenerate');
+        if (aiBtn) {
+          aiBtn.disabled = false;
+          aiBtn.textContent = 'Generate';
+        }
+
       } else if (msg.type === 'securityWarning') {
         const banner = document.getElementById('securityWarning');
         const msgEl = document.getElementById('securityWarningMessage');
@@ -3067,22 +3619,708 @@ export function getQueryEditorHtml(webview: vscode.Webview, params: { boundFiles
         
 
     };
-    // Also re-enable on message receive (could interpret 'insert' as 'generation success')
+    // URL Modal Controller
+    const urlModal = document.getElementById('urlModal');
+    const urlModalTitle = document.getElementById('urlModalTitle');
+    const urlSourceId = document.getElementById('urlSourceId');
+    const urlAlias = document.getElementById('urlAlias');
+    const urlMethod = document.getElementById('urlMethod');
+    const urlEndpoint = document.getElementById('urlEndpoint');
+    const urlHeaders = document.getElementById('urlHeaders');
+    const urlBody = document.getElementById('urlBody');
+    const urlBodyGroup = document.getElementById('urlBodyGroup');
+    const urlModalAlert = document.getElementById('urlModalAlert');
+    const submitUrlModal = document.getElementById('submitUrlModal');
+    const cancelUrlModal = document.getElementById('cancelUrlModal');
+    const closeUrlModalBtn = document.getElementById('closeUrlModal');
+    const submitUrlSpinner = document.getElementById('submitUrlSpinner');
+    const submitUrlText = document.getElementById('submitUrlText');
 
-    window.addEventListener('message', e => {
-        const msg = e.data;
-        if (msg.type === 'insert') {
-            aiGenerateBtn.disabled = false;
-            aiGenerateBtn.textContent = 'Generate';
-        } else if (msg.type === 'aiError') {
-             aiGenerateBtn.disabled = false;
-             aiGenerateBtn.textContent = 'Generate';
-             throw new Error('Generation failed: ' + msg.error);
+    // URL Modal Tabs and Query Params Controller (Postman Style)
+    const tabBtnParams = document.getElementById('tabBtnParams');
+    const tabBtnHeaders = document.getElementById('tabBtnHeaders');
+    const tabBtnBody = document.getElementById('tabBtnBody');
+    const tabPaneParams = document.getElementById('tabPaneParams');
+    const tabPaneHeaders = document.getElementById('tabPaneHeaders');
+    const tabPaneBody = document.getElementById('tabPaneBody');
+    const paramsCountBadge = document.getElementById('paramsCountBadge');
+    const headersCountBadge = document.getElementById('headersCountBadge');
+    const queryParamsBody = document.getElementById('queryParamsBody');
+    const addParamRowBtn = document.getElementById('addParamRowBtn');
+
+    let currentQueryParams = [];
+    let isSyncingQueryParams = false;
+
+    function switchUrlTab(tabName) {
+      if (tabBtnParams) tabBtnParams.classList.toggle('active', tabName === 'params');
+      if (tabBtnHeaders) tabBtnHeaders.classList.toggle('active', tabName === 'headers');
+      if (tabBtnBody) tabBtnBody.classList.toggle('active', tabName === 'body');
+
+      if (tabPaneParams) tabPaneParams.style.display = tabName === 'params' ? 'block' : 'none';
+      if (tabPaneHeaders) tabPaneHeaders.style.display = tabName === 'headers' ? 'block' : 'none';
+      if (tabPaneBody) tabPaneBody.style.display = tabName === 'body' ? 'block' : 'none';
+    }
+
+    if (tabBtnParams) tabBtnParams.onclick = () => switchUrlTab('params');
+    if (tabBtnHeaders) tabBtnHeaders.onclick = () => switchUrlTab('headers');
+    if (tabBtnBody) tabBtnBody.onclick = () => switchUrlTab('body');
+
+    function updateHeadersBadge() {
+      if (!headersCountBadge || !urlHeaders) return;
+      const text = urlHeaders.value.trim();
+      let count = 0;
+      if (text.startsWith('{') && text.endsWith('}')) {
+        try {
+          count = Object.keys(JSON.parse(text)).length;
+        } catch (e) {
+          count = 0;
         }
-    });
+      } else if (text) {
+        count = text.split(String.fromCharCode(10)).filter(line => line.trim().indexOf(':') > 0).length;
+      }
+      if (count > 0) {
+        headersCountBadge.textContent = String(count);
+        headersCountBadge.style.display = 'inline-block';
+      } else {
+        headersCountBadge.style.display = 'none';
+      }
+    }
+
+    if (urlHeaders) {
+      urlHeaders.addEventListener('input', updateHeadersBadge);
+    }
+
+    function toggleBodyGroup() {
+      if (!urlMethod) return;
+      const method = urlMethod.value;
+      const supportsBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+      if (tabBtnBody) {
+        tabBtnBody.style.display = supportsBody ? 'inline-flex' : 'none';
+      }
+      if (!supportsBody && tabBtnBody && tabBtnBody.classList.contains('active')) {
+        switchUrlTab('params');
+      }
+    }
+
+    function safeDecodeQuery(str) {
+      if (!str) return '';
+      try {
+        return decodeURIComponent(str.split('+').join(' '));
+      } catch (e) {
+        return str;
+      }
+    }
+
+    function parseQueryParamsFromUrl(url) {
+      if (!url) return [];
+      const qIdx = url.indexOf('?');
+      if (qIdx === -1) return [];
+      let queryStr = url.slice(qIdx + 1);
+      const hashIdx = queryStr.indexOf('#');
+      if (hashIdx !== -1) {
+        queryStr = queryStr.slice(0, hashIdx);
+      }
+      if (!queryStr) return [];
+
+      const pairs = queryStr.split('&');
+      const result = [];
+      for (let i = 0; i < pairs.length; i++) {
+        const pair = pairs[i];
+        if (!pair) continue;
+        const eqIdx = pair.indexOf('=');
+        if (eqIdx !== -1) {
+          result.push({
+            enabled: true,
+            key: safeDecodeQuery(pair.slice(0, eqIdx)),
+            value: safeDecodeQuery(pair.slice(eqIdx + 1))
+          });
+        } else {
+          result.push({
+            enabled: true,
+            key: safeDecodeQuery(pair),
+            value: ''
+          });
+        }
+      }
+      return result;
+    }
+
+    function buildUrlWithQueryParams(rawUrl, params) {
+      let base = rawUrl || '';
+      let hash = '';
+      const hashIdx = base.indexOf('#');
+      if (hashIdx !== -1) {
+        hash = base.slice(hashIdx);
+        base = base.slice(0, hashIdx);
+      }
+      const qIdx = base.indexOf('?');
+      if (qIdx !== -1) {
+        base = base.slice(0, qIdx);
+      }
+
+      const activePairs = [];
+      for (let i = 0; i < params.length; i++) {
+        const p = params[i];
+        if (p.enabled && (p.key.trim() || p.value.trim())) {
+          const k = encodeURIComponent(p.key);
+          const v = encodeURIComponent(p.value);
+          if (p.value !== '') {
+            activePairs.push(k + '=' + v);
+          } else {
+            activePairs.push(k);
+          }
+        }
+      }
+
+      if (activePairs.length > 0) {
+        return base + '?' + activePairs.join('&') + hash;
+      } else {
+        return base + hash;
+      }
+    }
+
+    function updateParamsBadge() {
+      if (!paramsCountBadge) return;
+      const count = currentQueryParams.filter(p => p.enabled && p.key.trim().length > 0).length;
+      if (count > 0) {
+        paramsCountBadge.textContent = String(count);
+        paramsCountBadge.style.display = 'inline-block';
+      } else {
+        paramsCountBadge.style.display = 'none';
+      }
+    }
+
+    let syncParamsRaf = null;
+    function syncParamsToUrl() {
+      if (isSyncingQueryParams || !urlEndpoint) return;
+      if (syncParamsRaf) cancelAnimationFrame(syncParamsRaf);
+      syncParamsRaf = requestAnimationFrame(() => {
+        syncParamsRaf = null;
+        if (isSyncingQueryParams || !urlEndpoint) return;
+        isSyncingQueryParams = true;
+        try {
+          const newUrl = buildUrlWithQueryParams(urlEndpoint.value, currentQueryParams);
+          urlEndpoint.value = newUrl;
+          updateParamsBadge();
+          if (urlModalPreview && urlModalPreview.style.display !== 'none') {
+            urlModalPreview.style.opacity = '0.55';
+            if (previewMeta && !previewMeta.textContent.includes('edited')) {
+              previewMeta.textContent += ' (params edited)';
+            }
+          }
+        } finally {
+          isSyncingQueryParams = false;
+        }
+      });
+    }
+
+    function syncUrlToTable() {
+      if (isSyncingQueryParams) return;
+      isSyncingQueryParams = true;
+      try {
+        const parsed = parseQueryParamsFromUrl(urlEndpoint ? urlEndpoint.value : '');
+        const disabled = currentQueryParams.filter(p => !p.enabled && (p.key || p.value));
+        currentQueryParams = parsed.concat(disabled);
+        renderQueryParamsTable();
+      } finally {
+        isSyncingQueryParams = false;
+      }
+    }
+
+    if (urlEndpoint) {
+      urlEndpoint.addEventListener('input', syncUrlToTable);
+    }
+
+    function renderQueryParamsTable() {
+      if (!queryParamsBody) return;
+
+      if (currentQueryParams.length === 0 ||
+          currentQueryParams[currentQueryParams.length - 1].key !== '' ||
+          currentQueryParams[currentQueryParams.length - 1].value !== '') {
+        currentQueryParams.push({ enabled: true, key: '', value: '' });
+      }
+
+      updateParamsBadge();
+
+      let rowsHtml = '';
+      for (let i = 0; i < currentQueryParams.length; i++) {
+        const p = currentQueryParams[i];
+        const isLast = (i === currentQueryParams.length - 1);
+        const disabledClass = !p.enabled ? ' param-disabled' : '';
+        const checkedAttr = p.enabled ? 'checked' : '';
+
+        rowsHtml += '<tr class="param-row' + disabledClass + '" data-index="' + i + '">' +
+          '<td style="text-align: center; vertical-align: middle; padding: 2px;">' +
+            '<input type="checkbox" class="param-enabled" ' + checkedAttr + ' title="' + (p.enabled ? 'Disable parameter' : 'Enable parameter') + '">' +
+          '</td>' +
+          '<td style="padding: 2px 4px; border-right: 1px solid var(--vscode-input-border, #3e3e42);">' +
+            '<input type="text" class="param-key" placeholder="Key" value="' + escapeHtml(p.key) + '">' +
+          '</td>' +
+          '<td style="padding: 2px 4px;">' +
+            '<input type="text" class="param-value" placeholder="Value" value="' + escapeHtml(p.value) + '">' +
+          '</td>' +
+          '<td style="text-align: center; vertical-align: middle; padding: 2px;">' +
+            (!isLast ? '<button type="button" class="remove-param-btn" title="Delete parameter">&times;</button>' : '') +
+          '</td>' +
+        '</tr>';
+      }
+
+      queryParamsBody.innerHTML = rowsHtml;
+    }
+
+    if (queryParamsBody) {
+      queryParamsBody.addEventListener('change', (e) => {
+        const target = e.target;
+        if (target && target.classList.contains('param-enabled')) {
+          const tr = target.closest('tr');
+          const idx = parseInt(tr.getAttribute('data-index'), 10);
+          if (currentQueryParams[idx]) {
+            currentQueryParams[idx].enabled = target.checked;
+            tr.classList.toggle('param-disabled', !target.checked);
+            target.title = target.checked ? 'Disable parameter' : 'Enable parameter';
+            syncParamsToUrl();
+          }
+        }
+      });
+
+      queryParamsBody.addEventListener('input', (e) => {
+        const target = e.target;
+        if (target && (target.classList.contains('param-key') || target.classList.contains('param-value'))) {
+          const tr = target.closest('tr');
+          const idx = parseInt(tr.getAttribute('data-index'), 10);
+          if (currentQueryParams[idx]) {
+            const keyInput = tr.querySelector('.param-key');
+            const valInput = tr.querySelector('.param-value');
+            currentQueryParams[idx].key = keyInput ? keyInput.value : '';
+            currentQueryParams[idx].value = valInput ? valInput.value : '';
+
+            if (idx === currentQueryParams.length - 1 && (currentQueryParams[idx].key || currentQueryParams[idx].value)) {
+              currentQueryParams.push({ enabled: true, key: '', value: '' });
+              const actionTd = tr.querySelector('td:last-child');
+              if (actionTd && !actionTd.querySelector('.remove-param-btn')) {
+                actionTd.innerHTML = '<button type="button" class="remove-param-btn" title="Delete parameter">&times;</button>';
+              }
+              const newIdx = currentQueryParams.length - 1;
+              const newTr = document.createElement('tr');
+              newTr.className = 'param-row';
+              newTr.setAttribute('data-index', String(newIdx));
+              newTr.innerHTML = '<td style="text-align: center; vertical-align: middle; padding: 2px;">' +
+                '<input type="checkbox" class="param-enabled" checked title="Disable parameter">' +
+              '</td>' +
+              '<td style="padding: 2px 4px; border-right: 1px solid var(--vscode-input-border, #3e3e42);">' +
+                '<input type="text" class="param-key" placeholder="Key" value="">' +
+              '</td>' +
+              '<td style="padding: 2px 4px;">' +
+                '<input type="text" class="param-value" placeholder="Value" value="">' +
+              '</td>' +
+              '<td style="text-align: center; vertical-align: middle; padding: 2px;"></td>';
+              queryParamsBody.appendChild(newTr);
+            }
+
+            syncParamsToUrl();
+          }
+        }
+      });
+
+      queryParamsBody.addEventListener('click', (e) => {
+        const target = e.target;
+        if (target && target.classList.contains('remove-param-btn')) {
+          const tr = target.closest('tr');
+          const idx = parseInt(tr.getAttribute('data-index'), 10);
+          if (idx >= 0 && idx < currentQueryParams.length) {
+            currentQueryParams.splice(idx, 1);
+            renderQueryParamsTable();
+            syncParamsToUrl();
+          }
+        }
+      });
+    }
+
+    if (addParamRowBtn) {
+      addParamRowBtn.onclick = () => {
+        if (currentQueryParams.length === 0 ||
+            currentQueryParams[currentQueryParams.length - 1].key !== '' ||
+            currentQueryParams[currentQueryParams.length - 1].value !== '') {
+          currentQueryParams.push({ enabled: true, key: '', value: '' });
+          renderQueryParamsTable();
+        }
+        const rows = queryParamsBody ? queryParamsBody.querySelectorAll('.param-row') : [];
+        if (rows.length > 0) {
+          const lastRow = rows[rows.length - 1];
+          const keyInput = lastRow.querySelector('.param-key');
+          if (keyInput) keyInput.focus();
+        }
+      };
+    }
+
+    if (urlMethod) {
+      urlMethod.addEventListener('change', toggleBodyGroup);
+    }
+
+    function showUrlModalAlert(text) {
+      if (urlModalAlert) {
+        urlModalAlert.textContent = text;
+        urlModalAlert.style.display = 'block';
+      }
+    }
+
+    function clearUrlModalAlert() {
+      if (urlModalAlert) {
+        urlModalAlert.textContent = '';
+        urlModalAlert.style.display = 'none';
+      }
+    }
+
+    function setModalLoading(isLoading) {
+      if (submitUrlModal) submitUrlModal.disabled = isLoading;
+      if (cancelUrlModal) cancelUrlModal.disabled = isLoading;
+      if (submitUrlSpinner) submitUrlSpinner.style.display = isLoading ? 'inline-block' : 'none';
+      if (submitUrlText) submitUrlText.textContent = isLoading ? 'Fetching...' : 'Fetch & Bind';
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === 0 || !bytes) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    const testUrlModal = document.getElementById('testUrlModal');
+    const testUrlSpinner = document.getElementById('testUrlSpinner');
+    const testUrlText = document.getElementById('testUrlText');
+    const urlModalPreview = document.getElementById('urlModalPreview');
+    const previewStatusBadge = document.getElementById('previewStatusBadge');
+    const previewMeta = document.getElementById('previewMeta');
+    const urlPreviewPre = document.getElementById('urlPreviewPre');
+
+    function setTestLoading(isLoading) {
+      if (testUrlModal) testUrlModal.disabled = isLoading;
+      if (testUrlSpinner) testUrlSpinner.style.display = isLoading ? 'inline-block' : 'none';
+      if (testUrlText) testUrlText.textContent = isLoading ? 'Testing...' : 'Test Request';
+    }
+
+    function clearUrlPreview() {
+      if (urlModalPreview) urlModalPreview.style.display = 'none';
+      if (urlPreviewPre) urlPreviewPre.textContent = '';
+      if (previewMeta) previewMeta.textContent = '';
+    }
+
+    function renderUrlPreview(details) {
+      setTestLoading(false);
+      if (!urlModalPreview || !previewStatusBadge || !previewMeta || !urlPreviewPre) return;
+
+      const status = details.status || 200;
+      const statusText = details.statusText || 'OK';
+      previewStatusBadge.textContent = status + ' ' + statusText;
+
+      let badgeClass = 'status-badge status-2xx';
+      if (status >= 300 && status < 400) badgeClass = 'status-badge status-3xx';
+      else if (status >= 400 && status < 500) badgeClass = 'status-badge status-4xx';
+      else if (status >= 500) badgeClass = 'status-badge status-5xx';
+      previewStatusBadge.className = badgeClass;
+
+      previewMeta.textContent = (details.timeMs !== undefined ? details.timeMs + 'ms' : '') +
+        (details.sizeBytes !== undefined ? ' | ' + formatBytes(details.sizeBytes) : '');
+
+      let bodyStr = '';
+      if (details.data === null || details.data === undefined) {
+        bodyStr = '(No response body)';
+      } else if (typeof details.data === 'object') {
+        try {
+          bodyStr = JSON.stringify(details.data, null, 2);
+        } catch (e) {
+          bodyStr = String(details.data);
+        }
+      } else {
+        bodyStr = String(details.data);
+      }
+
+      const MAX_PREVIEW_CHARS = 30000;
+      if (bodyStr.length > MAX_PREVIEW_CHARS || details.isTruncated) {
+        bodyStr = bodyStr.slice(0, MAX_PREVIEW_CHARS) + String.fromCharCode(10) + String.fromCharCode(10) +
+          '... [Response preview truncated (' + formatBytes(details.sizeBytes) + ' total). Bind source or click 👁️ to view full data]';
+      }
+
+      urlPreviewPre.textContent = bodyStr;
+      urlModalPreview.style.opacity = '1';
+      urlModalPreview.style.display = 'block';
+    }
+
+    function renderUrlPreviewError(error) {
+      setTestLoading(false);
+      showUrlModalAlert('Test failed: ' + (error || 'Unknown error'));
+      clearUrlPreview();
+    }
+
+    function openUrlModal(source) {
+      clearUrlModalAlert();
+      clearUrlPreview();
+      setModalLoading(false);
+      setTestLoading(false);
+      if (source) {
+        if (urlModalTitle) urlModalTitle.textContent = 'Edit URL Data Source (' + (source.alias || 'data') + ')';
+        if (urlSourceId) urlSourceId.value = source.id || '';
+        if (urlAlias) urlAlias.value = source.alias || 'data';
+        if (urlMethod) urlMethod.value = source.method || 'GET';
+        if (urlEndpoint) urlEndpoint.value = source.url || '';
+        if (urlHeaders) {
+          if (typeof source.headers === 'object' && source.headers !== null) {
+            urlHeaders.value = Object.entries(source.headers).map(function(pair) { return pair[0] + ': ' + pair[1]; }).join(String.fromCharCode(10));
+          } else {
+            urlHeaders.value = source.headers || '';
+          }
+        }
+        if (urlBody) urlBody.value = source.body || '';
+      } else {
+        if (urlModalTitle) urlModalTitle.textContent = 'Add URL Data Source';
+        if (urlSourceId) urlSourceId.value = '';
+        const hasData = (currentSources || []).some(s => s.alias === 'data');
+        let suggestedAlias = hasData ? 'apiData' : 'data';
+        let counter = 1;
+        while ((currentSources || []).some(s => s.alias === suggestedAlias)) {
+          counter++;
+          suggestedAlias = 'apiData' + counter;
+        }
+        if (urlAlias) urlAlias.value = suggestedAlias;
+        if (urlMethod) urlMethod.value = 'GET';
+        if (urlEndpoint) urlEndpoint.value = '';
+        if (urlHeaders) urlHeaders.value = '';
+        if (urlBody) urlBody.value = '';
+      }
+      toggleBodyGroup();
+      switchUrlTab('params');
+      updateHeadersBadge();
+      currentQueryParams = parseQueryParamsFromUrl(urlEndpoint ? urlEndpoint.value : '');
+      renderQueryParamsTable();
+
+      if (urlModal) urlModal.style.display = 'flex';
+      setTimeout(() => {
+        if (!source || !source.url) {
+          if (urlEndpoint) urlEndpoint.focus();
+        } else {
+          if (urlAlias) urlAlias.focus();
+        }
+      }, 50);
+    }
+
+    function closeUrlModal() {
+      if (urlModal) urlModal.style.display = 'none';
+      clearUrlModalAlert();
+      clearUrlPreview();
+      setModalLoading(false);
+      setTestLoading(false);
+      currentQueryParams = [];
+    }
+
+    if (cancelUrlModal) cancelUrlModal.onclick = closeUrlModal;
+    if (closeUrlModalBtn) closeUrlModalBtn.onclick = closeUrlModal;
+    if (urlModal) {
+      urlModal.addEventListener('click', (e) => {
+        if (e.target === urlModal) {
+          closeUrlModal();
+        }
+      });
+    }
+
+    if (testUrlModal) {
+      testUrlModal.onclick = () => {
+        clearUrlModalAlert();
+        clearUrlPreview();
+        const url = (urlEndpoint?.value || '').trim();
+        const method = urlMethod ? urlMethod.value : 'GET';
+        const headers = urlHeaders ? urlHeaders.value : '';
+        const body = urlBody ? urlBody.value : '';
+
+        if (!url) {
+          showUrlModalAlert('Please enter a URL to test.');
+          if (urlEndpoint) urlEndpoint.focus();
+          return;
+        }
+        const lowerUrl = url.toLowerCase();
+        if (!lowerUrl.startsWith('http://') && !lowerUrl.startsWith('https://')) {
+          showUrlModalAlert('Invalid URL: must start with http:// or https://');
+          if (urlEndpoint) urlEndpoint.focus();
+          return;
+        }
+
+        setTestLoading(true);
+        vscode.postMessage({
+          type: 'previewUrlSource',
+          source: {
+            url,
+            method,
+            headers,
+            body
+          }
+        });
+      };
+    }
+
+    if (submitUrlModal) {
+      submitUrlModal.onclick = () => {
+        clearUrlModalAlert();
+        const alias = (urlAlias?.value || '').trim();
+        const url = (urlEndpoint?.value || '').trim();
+        const method = urlMethod ? urlMethod.value : 'GET';
+        const headers = urlHeaders ? urlHeaders.value : '';
+        const body = urlBody ? urlBody.value : '';
+        const id = urlSourceId?.value || undefined;
+
+        if (!alias) {
+          showUrlModalAlert('Please enter an alias for the source (e.g. data or api).');
+          if (urlAlias) urlAlias.focus();
+          return;
+        }
+        if (!/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(alias)) {
+          showUrlModalAlert('Invalid alias: must be a valid JavaScript identifier (letters, digits, _, $).');
+          if (urlAlias) urlAlias.focus();
+          return;
+        }
+        if (!url) {
+          showUrlModalAlert('Please enter a URL (e.g. https://api.example.com/data).');
+          if (urlEndpoint) urlEndpoint.focus();
+          return;
+        }
+        const lowerUrl = url.toLowerCase();
+        if (!lowerUrl.startsWith('http://') && !lowerUrl.startsWith('https://')) {
+          showUrlModalAlert('Invalid URL: must start with http:// or https://');
+          if (urlEndpoint) urlEndpoint.focus();
+          return;
+        }
+
+        setModalLoading(true);
+        vscode.postMessage({
+          type: 'fetchUrlSource',
+          source: {
+            id,
+            alias,
+            url,
+            method,
+            headers,
+            body
+          }
+        });
+      };
+    }
+
+    // Source Inspection Modal Controller (Option A)
+    const sourceInspectModal = document.getElementById('sourceInspectModal');
+    const inspectModalTitle = document.getElementById('inspectModalTitle');
+    const inspectModalTypeBadge = document.getElementById('inspectModalTypeBadge');
+    const closeInspectModalBtn = document.getElementById('closeInspectModal');
+    const inspectSourceDetails = document.getElementById('inspectSourceDetails');
+    const inspectDataPre = document.getElementById('inspectDataPre');
+    const inspectDataMeta = document.getElementById('inspectDataMeta');
+    const copyInspectBtn = document.getElementById('copyInspectBtn');
+    const openInspectInEditorBtn = document.getElementById('openInspectInEditorBtn');
+    const dismissInspectBtn = document.getElementById('dismissInspectBtn');
+
+    let currentInspectDataText = '';
+
+    function openSourceInspectModal(source, data) {
+      if (!sourceInspectModal) return;
+
+      const isUrl = source.type === 'url' || !!source.url;
+      if (inspectModalTitle) {
+        inspectModalTitle.textContent = 'Data Source: ' + (source.alias || 'data');
+      }
+      if (inspectModalTypeBadge) {
+        inspectModalTypeBadge.style.display = 'inline-block';
+        if (isUrl) {
+          inspectModalTypeBadge.textContent = 'URL (' + (source.method || 'GET') + ')';
+          inspectModalTypeBadge.className = 'status-badge status-3xx';
+        } else {
+          inspectModalTypeBadge.textContent = 'FILE';
+          inspectModalTypeBadge.className = 'status-badge status-2xx';
+        }
+      }
+
+      if (inspectSourceDetails) {
+        if (isUrl) {
+          let detailsHtml = '<div><strong>URL:</strong> ' + escapeHtml(source.url || '') + '</div>';
+          if (source.lastFetched) {
+            detailsHtml += '<div><strong>Last Fetched:</strong> ' + new Date(source.lastFetched).toLocaleString() + '</div>';
+          }
+          inspectSourceDetails.innerHTML = detailsHtml;
+        } else {
+          inspectSourceDetails.innerHTML = '<div><strong>Path:</strong> ' + escapeHtml(source.label || '') + '</div>';
+        }
+      }
+
+      let formatted = '';
+      if (data === null || data === undefined) {
+        formatted = '(empty / null)';
+      } else if (typeof data === 'object') {
+        try {
+          formatted = JSON.stringify(data, null, 2);
+        } catch (e) {
+          formatted = String(data);
+        }
+      } else {
+        formatted = String(data);
+      }
+      currentInspectDataText = formatted;
+
+      const MAX_INSPECT_CHARS = 100000;
+      let displayContent = formatted;
+      if (formatted.length > MAX_INSPECT_CHARS) {
+        displayContent = formatted.slice(0, MAX_INSPECT_CHARS) + String.fromCharCode(10) + String.fromCharCode(10) +
+          '... [Display truncated for performance. Showing first 100KB of ' + formatBytes(formatted.length) + '. Click "↗ Open in VS Code Tab" to view all ' + formatted.split(String.fromCharCode(10)).length + ' lines in editor]';
+      }
+
+      if (inspectDataPre) {
+        inspectDataPre.textContent = displayContent;
+      }
+      if (inspectDataMeta) {
+        const lineCount = formatted.split(String.fromCharCode(10)).length;
+        inspectDataMeta.textContent = lineCount + ' lines | ' + formatBytes(formatted.length);
+      }
+
+      sourceInspectModal.style.display = 'flex';
+    }
+
+    function closeSourceInspectModal() {
+      if (sourceInspectModal) sourceInspectModal.style.display = 'none';
+      currentInspectDataText = '';
+    }
+
+    if (closeInspectModalBtn) closeInspectModalBtn.onclick = closeSourceInspectModal;
+    if (dismissInspectBtn) dismissInspectBtn.onclick = closeSourceInspectModal;
+    if (sourceInspectModal) {
+      sourceInspectModal.addEventListener('click', (e) => {
+        if (e.target === sourceInspectModal) {
+          closeSourceInspectModal();
+        }
+      });
+    }
+
+    if (copyInspectBtn) {
+      copyInspectBtn.onclick = () => {
+        if (!currentInspectDataText) return;
+        vscode.postMessage({ type: 'copyToClipboard', text: currentInspectDataText });
+        const originalText = copyInspectBtn.textContent;
+        copyInspectBtn.textContent = '✓ Copied';
+        setTimeout(() => {
+          copyInspectBtn.textContent = originalText;
+        }, 1500);
+      };
+    }
+
+    if (openInspectInEditorBtn) {
+      openInspectInEditorBtn.onclick = () => {
+        if (!currentInspectDataText) return;
+        vscode.postMessage({
+          type: 'openInEditor',
+          text: currentInspectDataText,
+          language: 'json'
+        });
+      };
+    }
 
   </script>
 </body>
+
 </html>`;
 
 }

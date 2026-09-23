@@ -16,7 +16,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:jsonQueryTools.openHistory"
+    "onCommand:jsonQueryTools.openHistory",
+    "onCommand:jsonQueryTools.transformWithExpression"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -24,6 +25,10 @@
       {
         "command": "jsonQueryTools.openHistory",
         "title": "JSON Tools: Open Query Editor"
+      },
+      {
+        "command": "jsonQueryTools.transformWithExpression",
+        "title": "JSON Tools: Transform with Expression"
       }
     ],
     "configuration": {
@@ -56,8 +61,12 @@
   "scripts": {
     "build": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=out/extension.js --format=cjs --sourcemap",
     "watch": "npm run build -- --watch",
-    "package": "vsce package"
+    "package": "vsce package",
+    "test:syntax": "node scripts/validate-webview.js",
+    "test:fetcher": "node scripts/test-fetcher.js",
+    "test": "node scripts/validate-webview.js && node scripts/test-fetcher.js"
   },
+
   "devDependencies": {
     "@types/node": "^25.0.9",
     "@types/vscode": "^1.93.0",

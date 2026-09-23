@@ -11,11 +11,16 @@ Run JavaScript directly on JSON files in VS Code. Transform data with expression
 - **CodeMirror editor** – Syntax highlighting, syntax validation, foldable result view, toggle comment, JS beautify, simple autocomplete, bracket/parenthesis support, and `Ctrl+D` for duplicate selection / add next occurrence.
 - **Templates** – Use `{{variableName}}` in expressions (e.g. `{{fileName}}`, `{{filePath}}`, `{{workspaceFolder}}`). Built-in variables like `{{workspaceFolder}}` are available; add more via `jsonQueryTools.templateVariables`.
 - **Multiple data sources & aliases** – Attach additional files as named sources and reference them via aliases alongside `data` in your expressions.
+- **Fetch from URL** – Fetch data directly from HTTP/HTTPS endpoints with support for all HTTP methods (GET, POST, PUT, PATCH, DELETE, etc.), custom request headers (Authorization tokens, API keys), and request body. Use the response as a standalone or multi-source data context with persistent storage.
+- **Query Parameters Editor (Postman Style)** – Key-value editor table with checkboxes, automatic bidirectional sync with the URL input bar, live count badges, and one-click param addition/deletion.
+- **Fetch Preview & Test** – Test endpoints before binding: preview status codes, response headers, response time, payload size, and response data in the modal.
+- **Response & Source Inspector** – View cached API responses or bound file contents anytime via the 👁️ button on each source badge. Copy data or open it in a VS Code editor tab.
+- **Open in Editor** – One-click button (`↗ In Editor`) to open query results or inspected source payloads in a full VS Code editor document.
 - **AI query generator** – Generate expressions with **Ollama** (local) or **Gemini** (cloud). Configure endpoint and API key in settings.
 - **External libraries** – Load external JS libraries in the expression context when needed.
 - **Performance** – Result is streamed in chunks for large outputs.
- - **Notifications** – Toast notification when the result is `undefined`.
- - **Export/import scripts** – Export and import JavaScript expressions for reuse.
+- **Notifications** – Toast notification when the result is `undefined`.
+- **Export/import scripts** – Export and import JavaScript expressions for reuse.
 
 ## Quick start
 

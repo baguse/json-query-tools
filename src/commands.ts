@@ -1,11 +1,13 @@
 import * as vscode from 'vscode';
-import { HISTORY_KEY } from './constants';
-import { BoundFile } from './types';
+import { HISTORY_KEY, URL_SOURCES_KEY } from './constants';
+import { BoundFile, BoundUrl, SerializedBoundSource } from './types';
 import { getHistory, pushHistory } from './history';
 import { evaluateExpression, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression } from './evaluator';
 import { inferSchemaFromData } from './schema';
 import { getQueryEditorHtml, nonce } from './webview/html';
 import { callGemini, callOllama, fetchGeminiModels, fetchOllamaModels } from './ai';
+import { fetchUrlData, fetchUrlWithDetails, parseHeaders } from './fetcher';
+
 
 export async function commandTransformWithExpression(context: vscode.ExtensionContext) {
   const target = pickInitialTargetUri();
@@ -31,36 +33,109 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
   let targetUri: vscode.Uri | null = pickInitialTargetUri();
   const label = (u: vscode.Uri | null) => u ? vscode.workspace.asRelativePath(u) : '(none)';
 
-  if (!targetUri) {
-    vscode.window.showWarningMessage('Open a JSON file and then run the command again.');
-  }
+  const column = vscode.window.activeTextEditor ? vscode.ViewColumn.Beside : vscode.ViewColumn.One;
 
   const panel = vscode.window.createWebviewPanel(
     'jsonQueryTools.queryEditor',
     'JSON Tools — Query Editor',
-    vscode.ViewColumn.Beside,
+    column,
     { enableScripts: true, retainContextWhenHidden: true }
   );
 
   let boundFiles: BoundFile[] = [];
   if (targetUri) {
-    boundFiles.push({ alias: 'data', uri: targetUri });
+    boundFiles.push({ type: 'file', alias: 'data', uri: targetUri, label: label(targetUri) });
+  }
+
+  function getPersistedUrls(): BoundUrl[] {
+    const fromWorkspace = context.workspaceState.get<BoundUrl[]>(URL_SOURCES_KEY);
+    if (fromWorkspace && fromWorkspace.length > 0) return fromWorkspace;
+    return context.globalState.get<BoundUrl[]>(URL_SOURCES_KEY) ?? [];
+  }
+
+  async function savePersistedUrls(urls: BoundUrl[]) {
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+      await context.workspaceState.update(URL_SOURCES_KEY, urls);
+    } else {
+      await context.globalState.update(URL_SOURCES_KEY, urls);
+    }
+  }
+
+  let boundUrls: BoundUrl[] = getPersistedUrls();
+  const urlDataCache = new Map<string, unknown>();
+
+  function getSerializedSources(): SerializedBoundSource[] {
+    const list: SerializedBoundSource[] = [];
+    for (const f of boundFiles) {
+      list.push({
+        type: 'file',
+        alias: f.alias,
+        label: label(f.uri)
+      });
+    }
+    for (const u of boundUrls) {
+      let host = u.url;
+      try {
+        const parsed = new URL(u.url);
+        host = parsed.host + (parsed.pathname && parsed.pathname !== '/' ? parsed.pathname : '');
+      } catch {}
+      list.push({
+        type: 'url',
+        id: u.id,
+        alias: u.alias,
+        label: host,
+        url: u.url,
+        method: u.method,
+        headers: u.headers,
+        body: u.body,
+        lastFetched: u.lastFetched
+      });
+    }
+    return list;
   }
 
   const scriptNonce = nonce();
-  panel.webview.html = getQueryEditorHtml(panel.webview, { boundFiles, scriptNonce });
+  panel.webview.html = getQueryEditorHtml(panel.webview, { sources: getSerializedSources(), scriptNonce });
 
   const sendHistory = () => panel.webview.postMessage({ type: 'hydrate', history: getHistory(context) });
   const sendResult = (text: string, data?: unknown) => panel.webview.postMessage({ type: 'result', text, data });
+  const sendSources = () => panel.webview.postMessage({
+    type: 'updateTargets',
+    sources: getSerializedSources(),
+    boundFiles: boundFiles.map(f => ({ alias: f.alias, label: label(f.uri) }))
+  });
+
+  async function getOrFetchUrlData(source: BoundUrl, forceRefresh = false): Promise<unknown> {
+    if (!forceRefresh && urlDataCache.has(source.id)) {
+      return urlDataCache.get(source.id);
+    }
+    const data = await fetchUrlData({
+      url: source.url,
+      method: source.method,
+      headers: source.headers,
+      body: source.body
+    });
+    source.lastFetched = Date.now();
+    urlDataCache.set(source.id, data);
+    return data;
+  }
+
+  async function buildDataMap(): Promise<Record<string, unknown>> {
+    const dataMap: Record<string, unknown> = {};
+    for (const file of boundFiles) {
+      dataMap[file.alias] = await readJsonFromUri(file.uri);
+    }
+    for (const u of boundUrls) {
+      dataMap[u.alias] = await getOrFetchUrlData(u, false);
+    }
+    return dataMap;
+  }
   
   // Send schema information to webview
   async function sendSchema() {
-    if (boundFiles.length === 0) return;
+    if (boundFiles.length === 0 && boundUrls.length === 0) return;
     try {
-      const dataMap: Record<string, unknown> = {};
-      for (const file of boundFiles) {
-          dataMap[file.alias] = await readJsonFromUri(file.uri);
-      }
+      const dataMap = await buildDataMap();
       const compositeSchema = inferSchemaFromData(dataMap);
       panel.webview.postMessage({ type: 'schema', schema: compositeSchema });
     } catch (e) {
@@ -118,18 +193,34 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
     try {
       if (msg.type === 'ready') {
         sendHistory();
-        sendSchema();
+        sendSources();
+        // Background fetch for URL sources to enable schema autocomplete
+        (async () => {
+          try {
+            for (const u of boundUrls) {
+              if (!urlDataCache.has(u.id)) {
+                await getOrFetchUrlData(u, false);
+              }
+            }
+            await sendSchema();
+          } catch {
+            // Ignore background fetch failure on init
+          }
+        })();
       } else if (msg.type === 'rebind') {
         const initialUri = pickInitialTargetUri();
         if (initialUri) {
           const dataIdx = boundFiles.findIndex(f => f.alias === 'data');
           if (dataIdx !== -1) {
             boundFiles[dataIdx].uri = initialUri;
+            boundFiles[dataIdx].label = label(initialUri);
           } else {
-            boundFiles.unshift({ alias: 'data', uri: initialUri });
+            boundFiles.unshift({ type: 'file', alias: 'data', uri: initialUri, label: label(initialUri) });
           }
-          panel.webview.postMessage({ type: 'updateTargets', boundFiles: boundFiles.map(f => ({ alias: f.alias, label: label(f.uri) })) });
+          sendSources();
           sendSchema();
+        } else {
+          vscode.window.showInformationMessage('No active JSON editor found to rebind.');
         }
       } else if (msg.type === 'addFile') {
          const pickResult = await vscode.window.showQuickPick([
@@ -159,29 +250,201 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
                  validateInput: (text) => /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(text) ? null : 'Invalid identifier'
              });
              if (alias) {
-                 if (boundFiles.some(f => f.alias === alias)) {
+                 if (boundFiles.some(f => f.alias === alias) || boundUrls.some(u => u.alias === alias)) {
                      vscode.window.showErrorMessage(`Alias '${alias}' is already in use.`);
                  } else {
-                     boundFiles.push({ alias, uri: selectedUri });
-                     panel.webview.postMessage({ type: 'updateTargets', boundFiles: boundFiles.map(f => ({ alias: f.alias, label: label(f.uri) })) });
+                     boundFiles.push({ type: 'file', alias, uri: selectedUri, label: label(selectedUri) });
+                     sendSources();
                      sendSchema();
                  }
              }
          }
       } else if (msg.type === 'removeFile') {
           boundFiles = boundFiles.filter(f => f.alias !== msg.alias);
-          panel.webview.postMessage({ type: 'updateTargets', boundFiles: boundFiles.map(f => ({ alias: f.alias, label: label(f.uri) })) });
+          sendSources();
           sendSchema();
+      } else if (msg.type === 'removeSource') {
+          if (msg.id) {
+            boundUrls = boundUrls.filter(u => u.id !== msg.id);
+            urlDataCache.delete(msg.id);
+            await savePersistedUrls(boundUrls);
+          } else if (msg.alias) {
+            boundFiles = boundFiles.filter(f => f.alias !== msg.alias);
+            const urlIdx = boundUrls.findIndex(u => u.alias === msg.alias);
+            if (urlIdx !== -1) {
+              const u = boundUrls[urlIdx];
+              urlDataCache.delete(u.id);
+              boundUrls.splice(urlIdx, 1);
+              await savePersistedUrls(boundUrls);
+            }
+          }
+          sendSources();
+          sendSchema();
+      } else if (msg.type === 'fetchUrlSource') {
+          const src = msg.source;
+          if (!src || !src.url) {
+            panel.webview.postMessage({ type: 'urlSourceError', error: 'URL is required.' });
+            return;
+          }
+          const alias = (src.alias || 'data').trim();
+          if (!/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(alias)) {
+            panel.webview.postMessage({ type: 'urlSourceError', error: `Invalid alias "${alias}". Must be a valid JavaScript identifier (e.g. data, api).` });
+            return;
+          }
+
+          const sourceId = src.id || ('url_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
+          if (boundFiles.some(f => f.alias === alias)) {
+            panel.webview.postMessage({ type: 'urlSourceError', error: `Alias "${alias}" is already used by a bound file.` });
+            return;
+          }
+          if (boundUrls.some(u => u.alias === alias && u.id !== sourceId)) {
+            panel.webview.postMessage({ type: 'urlSourceError', error: `Alias "${alias}" is already used by another URL source.` });
+            return;
+          }
+
+          try {
+            const parsedHeaders = parseHeaders(src.headers);
+            const data = await fetchUrlData({
+              url: src.url,
+              method: src.method || 'GET',
+              headers: parsedHeaders,
+              body: src.body
+            });
+
+            const boundUrl: BoundUrl = {
+              type: 'url',
+              id: sourceId,
+              alias,
+              url: src.url.trim(),
+              method: (src.method || 'GET').toUpperCase() as any,
+              headers: parsedHeaders,
+              body: src.body,
+              lastFetched: Date.now()
+            };
+
+            urlDataCache.set(sourceId, data);
+            const existingIdx = boundUrls.findIndex(u => u.id === sourceId);
+            if (existingIdx !== -1) {
+              boundUrls[existingIdx] = boundUrl;
+            } else {
+              boundUrls.push(boundUrl);
+            }
+
+            await savePersistedUrls(boundUrls);
+            panel.webview.postMessage({ type: 'urlSourceSuccess', source: boundUrl });
+            sendSources();
+            await sendSchema();
+            vscode.window.showInformationMessage(`URL source '${boundUrl.alias}' loaded successfully.`);
+          } catch (err: any) {
+            panel.webview.postMessage({ type: 'urlSourceError', error: err.message || String(err) });
+          }
+      } else if (msg.type === 'refreshUrlSource') {
+          const u = boundUrls.find(item => item.id === msg.id);
+          if (u) {
+            try {
+              await getOrFetchUrlData(u, true);
+              sendSources();
+              await sendSchema();
+              vscode.window.showInformationMessage(`Refreshed URL source '${u.alias}'.`);
+            } catch (err: any) {
+              vscode.window.showErrorMessage(`Failed to refresh '${u.alias}': ${err.message}`);
+            }
+          }
+      } else if (msg.type === 'previewUrlSource') {
+          const src = msg.source;
+          if (!src || !src.url) {
+            panel.webview.postMessage({ type: 'urlPreviewError', error: 'URL is required.' });
+            return;
+          }
+          try {
+            const parsedHeaders = parseHeaders(src.headers);
+            const details = await fetchUrlWithDetails({
+              url: src.url,
+              method: src.method || 'GET',
+              headers: parsedHeaders,
+              body: src.body
+            });
+
+            // Avoid transferring massive payloads across IPC for a small preview pane
+            let previewData = details.data;
+            let isTruncated = false;
+            if (Array.isArray(details.data) && details.data.length > 50) {
+              previewData = details.data.slice(0, 50);
+              isTruncated = true;
+            } else if (typeof details.data === 'string' && details.data.length > 50000) {
+              previewData = details.data.slice(0, 50000);
+              isTruncated = true;
+            }
+
+            panel.webview.postMessage({
+              type: 'urlPreviewResult',
+              details: {
+                ...details,
+                data: previewData,
+                isTruncated
+              }
+            });
+          } catch (err: any) {
+            panel.webview.postMessage({ type: 'urlPreviewError', error: err.message || String(err) });
+          }
+      } else if (msg.type === 'inspectSource') {
+          try {
+            if (msg.id) {
+              const u = boundUrls.find(item => item.id === msg.id);
+              if (u) {
+                const data = await getOrFetchUrlData(u, false);
+                panel.webview.postMessage({
+                  type: 'showSourceInspection',
+                  source: {
+                    type: 'url',
+                    id: u.id,
+                    alias: u.alias,
+                    url: u.url,
+                    method: u.method,
+                    headers: u.headers,
+                    lastFetched: u.lastFetched
+                  },
+                  data
+                });
+              }
+            } else if (msg.alias) {
+              const f = boundFiles.find(item => item.alias === msg.alias);
+              if (f) {
+                const data = await readJsonFromUri(f.uri);
+                panel.webview.postMessage({
+                  type: 'showSourceInspection',
+                  source: {
+                    type: 'file',
+                    alias: f.alias,
+                    label: label(f.uri)
+                  },
+                  data
+                });
+              }
+            }
+          } catch (err: any) {
+            vscode.window.showErrorMessage(`Failed to load source data: ${err.message}`);
+          }
+      } else if (msg.type === 'openInEditor') {
+          try {
+            const content = String(msg.text || '');
+            const doc = await vscode.workspace.openTextDocument({
+              content: content.endsWith('\n') ? content : content + '\n',
+              language: msg.language || 'json'
+            });
+            await vscode.window.showTextDocument(doc, { preview: false });
+          } catch (err: any) {
+            vscode.window.showErrorMessage(`Failed to open in editor: ${err.message}`);
+          }
       } else if (msg.type === 'use') {
+
         panel.webview.postMessage({ type: 'insert', expr: String(msg.expr || '') });
       } else if (msg.type === 'run' || msg.type === 'runConfirmed') {
-        if (boundFiles.length === 0) throw new Error('No target JSON files are bound. Click "Rebind to Current Editor" or "+ Add File".');
-        
-        const dataMap: Record<string, unknown> = {};
-        for (const file of boundFiles) {
-            dataMap[file.alias] = await readJsonFromUri(file.uri);
+        if (boundFiles.length === 0 && boundUrls.length === 0) {
+          throw new Error('No data sources are bound. Click "+ Add URL" or "+ Add File" to bind a data source.');
         }
         
+        const dataMap = await buildDataMap();
         const expr = String(msg.expr || '');
 
         if (msg.type === 'run') {
@@ -365,17 +628,18 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         const model = msg.model || (provider === 'ollama' ? 'llama3' : 'gemini-1.5-flash');
         
         let dataSample = 'unknown';
-        if (targetUri) {
-            try {
-                const fullData = await readJsonFromUri(targetUri);
-                // Create a small sample
-                let sample: any = fullData;
-                if (Array.isArray(fullData)) {
-                    sample = fullData.slice(0, 2);
-                }
-                dataSample = JSON.stringify(sample).substring(0, 1000); // Limit size
-            } catch (e) { /* ignore */ }
-        }
+        try {
+          const dataMap = await buildDataMap();
+          const primaryData = dataMap['data'] ?? Object.values(dataMap)[0];
+          if (primaryData !== undefined) {
+            let sample: any = primaryData;
+            if (Array.isArray(primaryData)) {
+              sample = primaryData.slice(0, 2);
+            }
+            dataSample = JSON.stringify(sample).substring(0, 1000);
+          }
+        } catch (e) { /* ignore */ }
+
 
         try {
             let code = '';
