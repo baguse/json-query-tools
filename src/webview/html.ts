@@ -2644,13 +2644,21 @@ export function getQueryEditorHtml(
 
     copyResultBtn.onclick = () => {
       let text = '';
-      if (resultTable.style.display === 'table') {
+      if (resultTable && resultTable.style.display === 'table') {
         const dataToUse = currentResultData !== null && currentResultData !== undefined 
           ? currentResultData 
           : (streamingData && streamingData.length > 0 ? streamingData : null);
         text = generateCsv(dataToUse);
+      } else if (resultJsonEditor && resultJsonEditorWrapper && resultJsonEditorWrapper.style.display !== 'none') {
+        text = resultJsonEditor.getValue();
+      } else if (currentResultData !== null && currentResultData !== undefined) {
+        try {
+          text = typeof currentResultData === 'string' ? currentResultData : JSON.stringify(currentResultData, null, 2);
+        } catch (e) {
+          text = String(currentResultData);
+        }
       } else {
-        text = resultPre.textContent || '';
+        text = resultPre ? (resultPre.textContent || '') : '';
       }
       
       if (text && !text.includes('(no result yet)') && !text.includes('Running...')) {
@@ -2675,7 +2683,9 @@ export function getQueryEditorHtml(
           vscode.postMessage({ type: 'openInEditor', text, language: 'csv' });
           return;
         }
-        if (currentResultData !== null && currentResultData !== undefined) {
+        if (resultJsonEditor && resultJsonEditorWrapper && resultJsonEditorWrapper.style.display !== 'none') {
+          text = resultJsonEditor.getValue();
+        } else if (currentResultData !== null && currentResultData !== undefined) {
           try {
             text = typeof currentResultData === 'string' ? currentResultData : JSON.stringify(currentResultData, null, 2);
           } catch (e) {
@@ -3187,6 +3197,7 @@ export function getQueryEditorHtml(
           resultJsonEditor.setValue(jsonText || '');
           resultJsonEditorWrapper.style.display = 'block';
           resultPre.style.display = 'none';
+          resultPre.textContent = jsonText || '';
           setTimeout(() => {
             if (resultJsonEditor) {
               resultJsonEditor.refresh();
@@ -3425,27 +3436,7 @@ export function getQueryEditorHtml(
             resultTable.style.display = 'none';
             resultChartContainer.style.display = 'none';
           } else {
-            try {
-              resultPre.textContent = JSON.stringify(dataToUse, null, 2);
-              resultPre.style.display = 'block';
-              resultTable.style.display = 'none';
-              resultChartContainer.style.display = 'none';
-              chartType.style.display = 'none';
-              downloadChartBtn.style.display = 'none';
-              saveJsonBtn.style.display = 'inline-block';
-              saveCsvBtn.style.display = 'none';
-              copyResultBtn.style.display = 'inline-block';
-            } catch {
-              resultPre.textContent = String(dataToUse);
-              resultPre.style.display = 'block';
-              resultTable.style.display = 'none';
-              resultChartContainer.style.display = 'none';
-              chartType.style.display = 'none';
-              downloadChartBtn.style.display = 'none';
-              saveJsonBtn.style.display = 'inline-block';
-              saveCsvBtn.style.display = 'none';
-              copyResultBtn.style.display = 'inline-block';
-            }
+            updateResultDisplay('', dataToUse);
           }
         }
       }
