@@ -17,16 +17,18 @@ export function stringify(value: unknown): string {
 }
 
 const MALICIOUS_PATTERNS: Array<{ pattern: RegExp; description: string }> = [
-  { pattern: /\brequire\s*\(\s*['"]child_process['"]\s*\)/, description: 'spawning child processes' },
-  { pattern: /\brequire\s*\(\s*['"]fs['"]\s*\)/, description: 'accessing the file system' },
-  { pattern: /\brequire\s*\(\s*['"]net['"]\s*\)/, description: 'opening network connections' },
-  { pattern: /\brequire\s*\(\s*['"]http['"]\s*\)/, description: 'making HTTP requests' },
-  { pattern: /\brequire\s*\(\s*['"]https['"]\s*\)/, description: 'making HTTPS requests' },
-  { pattern: /\brequire\s*\(\s*['"]dgram['"]\s*\)/, description: 'opening UDP sockets' },
-  { pattern: /\brequire\s*\(\s*['"]os['"]\s*\)/, description: 'accessing OS-level operations' },
-  { pattern: /\bprocess\s*\.\s*exit\b/, description: 'terminating the process' },
-  { pattern: /\bprocess\s*\.\s*env\b/, description: 'reading environment variables' },
+  { pattern: /\b(?:require|import)\s*\(\s*['"`]\s*(?:node:)?child_process(?:\/|\b)/, description: 'spawning child processes' },
+  { pattern: /\b(?:require|import)\s*\(\s*['"`]\s*(?:node:)?fs(?:\/|\b)/, description: 'accessing the file system' },
+  { pattern: /\b(?:require|import)\s*\(\s*['"`]\s*(?:node:)?net(?:\/|\b)/, description: 'opening network connections' },
+  { pattern: /\b(?:require|import)\s*\(\s*['"`]\s*(?:node:)?http(?:\/|\b)/, description: 'making HTTP requests' },
+  { pattern: /\b(?:require|import)\s*\(\s*['"`]\s*(?:node:)?https(?:\/|\b)/, description: 'making HTTPS requests' },
+  { pattern: /\b(?:require|import)\s*\(\s*['"`]\s*(?:node:)?dgram(?:\/|\b)/, description: 'opening UDP sockets' },
+  { pattern: /\b(?:require|import)\s*\(\s*['"`]\s*(?:node:)?os(?:\/|\b)/, description: 'accessing OS-level operations' },
+  { pattern: /\b(?:require|import)\s*\(\s*['"`]\s*(?:node:)?(?:vm|worker_threads|cluster)\b/, description: 'accessing system or worker modules' },
+  { pattern: /\bprocess\s*(?:\.\s*|\[\s*['"`])(?:exit|kill|abort|reallyExit|binding|dlopen|mainModule)\b/, description: 'terminating or manipulating the process' },
+  { pattern: /\bprocess\s*(?:\.\s*|\[\s*['"`])env\b/, description: 'reading environment variables' },
   { pattern: /\beval\s*\(/, description: 'nested eval()' },
+  { pattern: /\bFunction\s*\(/, description: 'dynamic Function() constructor' },
 ];
 
 export function checkForMaliciousExpression(expr: string): string | null {
