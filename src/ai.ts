@@ -16,6 +16,38 @@ export async function fetchOllamaModels(endpoint: string): Promise<string[]> {
   }
 }
 
+/**
+ * Strips markdown code blocks and conversational preambles/postambles from AI model output.
+ * Extracts the code contained within ``` fences (e.g. ```javascript, ```js, or untyped ```).
+ * If no code block is found, returns the trimmed code string.
+ */
+export function stripMarkdownCode(code: string): string {
+  // First prefer an explicit javascript/js/typescript/ts code block
+  const jsMatch = code.match(/```(?:javascript|js|typescript|ts)\b\s*([\s\S]*?)\s*```/i);
+  if (jsMatch) {
+    return jsMatch[1].trim();
+  }
+
+  // Next match any fenced code block (e.g. untyped ``` or other language)
+  const anyMatch = code.match(/```[a-zA-Z]*\s*([\s\S]*?)\s*```/);
+  if (anyMatch) {
+    return anyMatch[1].trim();
+  }
+
+  // Handle unclosed opening code block (e.g. truncated response from LLM)
+  const openJsMatch = code.match(/```(?:javascript|js|typescript|ts)\b\s*([\s\S]*)$/i);
+  if (openJsMatch) {
+    return openJsMatch[1].trim();
+  }
+
+  const openMatch = code.match(/```[a-zA-Z]*\s*([\s\S]*)$/);
+  if (openMatch) {
+    return openMatch[1].trim();
+  }
+
+  return code.trim();
+}
+
 export async function callOllama(endpoint: string, model: string, prompt: string, dataSample: string): Promise<string> {
   const systemPrompt = `You are a JavaScript expert. Write JavaScript expression to filter/map the \`data\` variable based on the user request.
 Input data structure sample: ${dataSample}
@@ -43,7 +75,7 @@ Rules:
   const json = await res.json() as any;
   let code = json.response.trim();
   // Strip markdown code blocks if present
-  code = code.replace(/^```(javascript|js)?\s*/i, '').replace(/\s*```$/, '');
+  code = stripMarkdownCode(code);
   return code;
 }
 
@@ -102,6 +134,6 @@ Rules:
   if (!candidate) throw new Error('No content generated');
 
   let code = candidate.trim();
-  code = code.replace(/^```(javascript|js)?\s*/i, '').replace(/\s*```$/, '');
+  code = stripMarkdownCode(code);
   return code;
 }
