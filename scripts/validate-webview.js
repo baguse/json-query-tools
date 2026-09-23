@@ -105,7 +105,8 @@ async function validate() {
       'id="queryParamsBody"',
       'id="addParamRowBtn"',
       'id="aiAlert"',
-      'id="aiAlertMessage"'
+      'id="aiAlertMessage"',
+      'class="search-icon">&#128269;</span>'
     ];
 
     for (const elem of requiredElements) {
@@ -113,6 +114,11 @@ async function validate() {
         hasErrors = true;
         console.error(`\n❌ Missing expected UI element ${elem} in [${tc.name}]`);
       }
+    }
+
+    if (html.includes('\uFFFD')) {
+      hasErrors = true;
+      console.error(`\n❌ Found corrupted Unicode replacement character (\\uFFFD) in [${tc.name}] HTML output`);
     }
 
     // Extract all <script> contents

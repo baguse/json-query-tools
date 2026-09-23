@@ -964,7 +964,7 @@ export function getQueryEditorHtml(
   <div id="history">
     <h4>History</h4>
     <div class="search-box">
-      <span class="search-icon">�</span>
+      <span class="search-icon">&#128269;</span>
       <input type="text" id="historySearch" class="search-input" placeholder="Search saved queries..." />
     </div>
     <div id="list"></div>
