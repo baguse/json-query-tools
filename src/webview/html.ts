@@ -1,7 +1,10 @@
 import * as vscode from 'vscode';
+import * as crypto from 'crypto';
 import { BoundFile, SerializedBoundSource } from '../types';
 
-export function nonce() { return String(Math.random()).slice(2); }
+export function nonce(): string {
+  return crypto.randomBytes(16).toString('hex');
+}
 
 function escapeHtmlStr(text: string): string {
   return String(text)
