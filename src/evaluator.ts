@@ -33,9 +33,16 @@ export function checkForMaliciousExpression(expr: string): string | null {
 export function evaluateExpression(boundFiles: BoundFile[], dataMap: Record<string, unknown>, expr: string): unknown {
   const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
   const resolvedExpr = resolveTemplateVariables(expr, primaryUri);
-  const req = primaryUri ? createRequire(primaryUri.fsPath) : require;
+  const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
+  const baseUri = primaryUri ?? workspaceUri;
+  const req = baseUri ? createRequire(baseUri.fsPath) : require;
 
   const aliases = Object.keys(dataMap);
+  // In standalone mode (no sources bound), make `data` available as an argument (undefined)
+  // so expressions referencing `data` or arrow functions do not throw a ReferenceError.
+  if (aliases.length === 0) {
+    aliases.push('data');
+  }
   const dataValues = aliases.map(a => dataMap[a]);
 
   // Construct function with dynamic argument names based on aliases

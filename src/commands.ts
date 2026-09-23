@@ -440,10 +440,6 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
 
         panel.webview.postMessage({ type: 'insert', expr: String(msg.expr || '') });
       } else if (msg.type === 'run' || msg.type === 'runConfirmed') {
-        if (boundFiles.length === 0 && boundUrls.length === 0) {
-          throw new Error('No data sources are bound. Click "+ Add URL" or "+ Add File" to bind a data source.');
-        }
-        
         const dataMap = await buildDataMap();
         const expr = String(msg.expr || '');
 

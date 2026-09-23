@@ -25,7 +25,7 @@ export function getQueryEditorHtml(
 
   const initialSourcesJson = JSON.stringify(sources).replace(/</g, '\\u003c');
 
-  const sourcesHtml = sources.map(s => {
+  const sourcesHtml = sources.length > 0 ? sources.map(s => {
     if (s.type === 'url') {
       const method = s.method || 'GET';
       const methodClass = `method-${method.toLowerCase()}`;
@@ -42,9 +42,9 @@ export function getQueryEditorHtml(
       <span class="file-icon">📁</span>
       <span class="file-alias">${escapeHtmlStr(s.alias)}</span>: ${escapeHtmlStr(s.label.split('/').pop() || s.label)}
       <button class="inspect-source-btn" data-alias="${escapeHtmlStr(s.alias)}" title="View JSON data">👁️</button>
-      ${s.alias !== 'data' || sources.length > 1 ? `<button class="remove-source" data-alias="${escapeHtmlStr(s.alias)}" title="Remove source">×</button>` : ''}
+      <button class="remove-source" data-alias="${escapeHtmlStr(s.alias)}" title="Remove source">×</button>
     </span>`;
-  }).join('');
+  }).join('') : '<span class="bound-file standalone-tag" style="opacity: 0.75; font-style: italic; background: transparent; border: 1px dashed var(--vscode-input-border, #3e3e42); padding: 3px 8px; border-radius: 3px;" title="Standalone Mode: No data sources bound. You can generate data or run standalone JavaScript expressions.">⚡ Standalone Mode</span>';
 
 
   return `<!DOCTYPE html>
@@ -1139,7 +1139,7 @@ export function getQueryEditorHtml(
       const container = document.getElementById('boundFilesContainer');
       if (!container) return;
 
-      const html = currentSources.map(s => {
+      const itemsHtml = currentSources.map(s => {
         if (s.type === 'url') {
           const method = s.method || 'GET';
           const methodClass = 'method-' + method.toLowerCase();
@@ -1156,11 +1156,13 @@ export function getQueryEditorHtml(
           '<span class="file-icon">📁</span> ' +
           '<span class="file-alias">' + escapeHtml(s.alias) + '</span>: ' + escapeHtml(s.label.split('/').pop() || s.label) +
           '<button class="inspect-source-btn" data-alias="' + escapeHtml(s.alias) + '" title="View JSON data">👁️</button>' +
-          (s.alias !== 'data' || currentSources.length > 1 ? '<button class="remove-source" data-alias="' + escapeHtml(s.alias) + '" title="Remove source">×</button>' : '') +
+          '<button class="remove-source" data-alias="' + escapeHtml(s.alias) + '" title="Remove source">×</button>' +
         '</span>';
       }).join('');
 
-      container.innerHTML = html +
+      const sourcesHtml = currentSources.length > 0 ? itemsHtml : '<span class="bound-file standalone-tag" style="opacity: 0.75; font-style: italic; background: transparent; border: 1px dashed var(--vscode-input-border, #3e3e42); padding: 3px 8px; border-radius: 3px;" title="Standalone Mode: No data sources bound. You can generate data or run standalone JavaScript expressions.">⚡ Standalone Mode</span>';
+
+      container.innerHTML = sourcesHtml +
         '<button id="addFile" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Bind another JSON file from workspace or disk">+ Add File</button>' +
         '<button id="addUrl" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Fetch data directly from an HTTP/HTTPS URL with custom headers">+ Add URL</button>';
 
