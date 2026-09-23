@@ -65,8 +65,10 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
   }
 
   function getPersistedUrls(): BoundUrl[] {
-    const fromWorkspace = context.workspaceState.get<BoundUrl[]>(URL_SOURCES_KEY);
-    if (fromWorkspace && fromWorkspace.length > 0) return fromWorkspace;
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+      const fromWorkspace = context.workspaceState.get<BoundUrl[]>(URL_SOURCES_KEY);
+      if (fromWorkspace !== undefined) return fromWorkspace;
+    }
     return context.globalState.get<BoundUrl[]>(URL_SOURCES_KEY) ?? [];
   }
 
