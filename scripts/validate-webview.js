@@ -106,6 +106,12 @@ async function validate() {
       'id="addParamRowBtn"',
       'id="aiAlert"',
       'id="aiAlertMessage"',
+      'id="tablePagination"',
+      'id="tablePageSize"',
+      'id="tablePrevPage"',
+      'id="tableNextPage"',
+      'id="tablePageInput"',
+      'id="tableTotalPages"',
       'class="search-icon">&#128269;</span>'
     ];
 

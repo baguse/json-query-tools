@@ -659,6 +659,50 @@ export function getQueryEditorHtml(
     #resultTable tbody tr:hover {
       background: rgba(255, 255, 255, 0.04);
     }
+    #tablePagination {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      margin-top: 8px;
+      background: var(--vscode-editor-background, #1e1e1e);
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 4px;
+      font-size: 11px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    #tablePagination button {
+      padding: 3px 8px;
+      font-size: 11px;
+      min-width: 24px;
+      height: 24px;
+      line-height: 1;
+    }
+    #tablePagination select {
+      padding: 2px 6px;
+      background: var(--vscode-dropdown-background, #3c3c3c);
+      color: var(--vscode-dropdown-foreground, #cccccc);
+      border: 1px solid var(--vscode-dropdown-border, #3e3e42);
+      border-radius: 3px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    #tablePagination input[type="number"] {
+      padding: 2px 4px;
+      background: var(--vscode-input-background, #3c3c3c);
+      color: var(--vscode-input-foreground, #cccccc);
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 3px;
+      font-size: 11px;
+      text-align: center;
+      -moz-appearance: textfield;
+    }
+    #tablePagination input[type="number"]::-webkit-inner-spin-button,
+    #tablePagination input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
     .loading {
       opacity: 0.6;
       pointer-events: none;
@@ -958,6 +1002,32 @@ export function getQueryEditorHtml(
         <tbody id="resultTableBody" style="color: var(--vscode-textPreformat-foreground, #d4d4d4);">
         </tbody>
       </table>
+      <div id="tablePagination">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span id="tablePageInfo" style="color: var(--vscode-descriptionForeground, #858585);"></span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 5px;">
+            <label for="tablePageSize" style="color: var(--vscode-descriptionForeground, #858585); font-size: 11px;">Rows per page:</label>
+            <select id="tablePageSize">
+              <option value="25">25</option>
+              <option value="50" selected>50</option>
+              <option value="100">100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+            </select>
+          </div>
+          <div style="display: flex; align-items: center; gap: 4px;">
+            <button id="tableFirstPage" class="secondary" title="First Page">«</button>
+            <button id="tablePrevPage" class="secondary" title="Previous Page">‹ Prev</button>
+            <span style="font-size: 11px; color: var(--vscode-foreground, #cccccc); margin: 0 4px; display: inline-flex; align-items: center; gap: 4px;">
+              Page <input id="tablePageInput" type="number" min="1" value="1" style="width: 44px;" /> of <span id="tableTotalPages">1</span>
+            </span>
+            <button id="tableNextPage" class="secondary" title="Next Page">Next ›</button>
+            <button id="tableLastPage" class="secondary" title="Last Page">»</button>
+          </div>
+        </div>
+      </div>
       <div id="resultChartContainer">
         <canvas id="resultChart"></canvas>
       </div>
@@ -1135,9 +1205,36 @@ export function getQueryEditorHtml(
     const resultTable = document.getElementById('resultTable');
     const resultTableHead = document.getElementById('resultTableHead');
     const resultTableBody = document.getElementById('resultTableBody');
+    const tablePagination = document.getElementById('tablePagination');
+    const tablePageInfo = document.getElementById('tablePageInfo');
+    const tablePageSize = document.getElementById('tablePageSize');
+    const tableFirstPage = document.getElementById('tableFirstPage');
+    const tablePrevPage = document.getElementById('tablePrevPage');
+    const tableNextPage = document.getElementById('tableNextPage');
+    const tableLastPage = document.getElementById('tableLastPage');
+    const tablePageInput = document.getElementById('tablePageInput');
+    const tableTotalPages = document.getElementById('tableTotalPages');
     const resultChartContainer = document.getElementById('resultChartContainer');
     const chartCanvas = document.getElementById('resultChart');
     const resultJsonEditorTextarea = document.getElementById('resultJsonEditor');
+
+    function hideTable() {
+      if (resultTable) resultTable.style.display = 'none';
+      if (tablePagination) tablePagination.style.display = 'none';
+    }
+
+    let currentTableData = null;
+    let tableCurrentPage = 1;
+    let currentTablePageSize = 50;
+    try {
+      const savedPageSize = parseInt(localStorage.getItem('jsonQueryTools.tablePageSize') || '50', 10);
+      if ([25, 50, 100, 250, 500].includes(savedPageSize)) {
+        currentTablePageSize = savedPageSize;
+      }
+    } catch (e) {}
+    if (tablePageSize) {
+      tablePageSize.value = String(currentTablePageSize);
+    }
     let currentSources = ${initialSourcesJson};
 
 
@@ -3032,11 +3129,12 @@ export function getQueryEditorHtml(
       } else if (msg.type === 'result') {
         setLoading(false);
         streamingIsActive = false;
+        tableCurrentPage = 1;
         if (msg.error) {
           resultPre.textContent = 'Error: ' + String(msg.error);
           resultPre.className = 'error';
           resultPre.style.display = 'block';
-          resultTable.style.display = 'none';
+          hideTable();
           resultChartContainer.style.display = 'none';
           resultInfo.textContent = '';
           currentResultData = null;
@@ -3052,12 +3150,13 @@ export function getQueryEditorHtml(
         streamingTotalItems = msg.totalItems || 0;
         streamingReceivedItems = 0;
         currentResultData = null;
+        tableCurrentPage = 1;
         
         // Show initial loading state
         resultPre.textContent = 'Loading... (0/' + streamingTotalItems + ' items)';
         resultPre.className = '';
         resultPre.style.display = 'block';
-        resultTable.style.display = 'none';
+        hideTable();
         resultChartContainer.style.display = 'none';
         resultInfo.textContent = 'Streaming ' + streamingTotalItems + ' items...';
       } else if (msg.type === 'resultChunk') {
@@ -3080,7 +3179,7 @@ export function getQueryEditorHtml(
           resultPre.className = '';
           resultPre.style.display = 'block';
           if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
-          resultTable.style.display = 'none';
+          hideTable();
           resultChartContainer.style.display = 'none';
         } else {
           // For other formats, show progress
@@ -3118,6 +3217,168 @@ export function getQueryEditorHtml(
       }
     });
 
+    function renderTablePage() {
+      if (!currentTableData || !Array.isArray(currentTableData) || currentTableData.length === 0) {
+        hideTable();
+        return;
+      }
+
+      const totalRows = currentTableData.length;
+      const totalPages = Math.max(1, Math.ceil(totalRows / currentTablePageSize));
+
+      if (tableCurrentPage > totalPages) {
+        tableCurrentPage = totalPages;
+      }
+      if (tableCurrentPage < 1) {
+        tableCurrentPage = 1;
+      }
+
+      const startIdx = (tableCurrentPage - 1) * currentTablePageSize;
+      const endIdx = Math.min(startIdx + currentTablePageSize, totalRows);
+      const pageRows = currentTableData.slice(startIdx, endIdx);
+
+      if (tablePageInfo) {
+        tablePageInfo.textContent = 'Showing ' + (startIdx + 1) + '–' + endIdx + ' of ' + totalRows.toLocaleString() + ' rows';
+      }
+      if (tablePageInput) {
+        tablePageInput.value = tableCurrentPage;
+        tablePageInput.max = totalPages;
+      }
+      if (tableTotalPages) {
+        tableTotalPages.textContent = totalPages;
+      }
+      if (tableFirstPage) tableFirstPage.disabled = tableCurrentPage <= 1;
+      if (tablePrevPage) tablePrevPage.disabled = tableCurrentPage <= 1;
+      if (tableNextPage) tableNextPage.disabled = tableCurrentPage >= totalPages;
+      if (tableLastPage) tableLastPage.disabled = tableCurrentPage >= totalPages;
+
+      var hasObjects = false;
+      var allKeys = new Set();
+      var checkLimit = Math.min(500, currentTableData.length);
+      for (var checkIdx = 0; checkIdx < checkLimit; checkIdx++) {
+        var checkItem = currentTableData[checkIdx];
+        if (typeof checkItem === 'object' && checkItem !== null && !Array.isArray(checkItem)) {
+          hasObjects = true;
+          var itemKeys = Object.keys(checkItem);
+          for (var keyIdx = 0; keyIdx < itemKeys.length; keyIdx++) {
+            allKeys.add(itemKeys[keyIdx]);
+          }
+        }
+      }
+
+      if (hasObjects && allKeys.size > 0) {
+        var keys = Array.from(allKeys);
+        var headerCells = [];
+        for (var i = 0; i < keys.length; i++) {
+          headerCells.push('<th style="padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(String(keys[i])) + '</th>');
+        }
+        resultTableHead.innerHTML = '<tr>' + headerCells.join('') + '</tr>';
+
+        var bodyRows = [];
+        for (var j = 0; j < pageRows.length; j++) {
+          var item = pageRows[j];
+          var cells = [];
+          for (var k = 0; k < keys.length; k++) {
+            var key = keys[k];
+            var value = item && typeof item === 'object' && item !== null ? item[key] : undefined;
+            var displayValue = value === null ? 'null' : value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+            cells.push('<td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td>');
+          }
+          bodyRows.push('<tr>' + cells.join('') + '</tr>');
+        }
+        resultTableBody.innerHTML = bodyRows.join('');
+      } else {
+        resultTableHead.innerHTML = '<tr><th style="padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">Value</th></tr>';
+        var bodyRows = [];
+        for (var j = 0; j < pageRows.length; j++) {
+          var item = pageRows[j];
+          var displayValue = item === null ? 'null' : item === undefined ? 'undefined' : typeof item === 'object' ? JSON.stringify(item) : String(item);
+          bodyRows.push('<tr><td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td></tr>');
+        }
+        resultTableBody.innerHTML = bodyRows.join('');
+      }
+    }
+
+    if (tableFirstPage) {
+      tableFirstPage.onclick = () => {
+        if (tableCurrentPage > 1) {
+          tableCurrentPage = 1;
+          renderTablePage();
+          const rc = document.getElementById('resultContainer');
+          if (rc) rc.scrollTop = 0;
+        }
+      };
+    }
+
+    if (tablePrevPage) {
+      tablePrevPage.onclick = () => {
+        if (tableCurrentPage > 1) {
+          tableCurrentPage--;
+          renderTablePage();
+          const rc = document.getElementById('resultContainer');
+          if (rc) rc.scrollTop = 0;
+        }
+      };
+    }
+
+    if (tableNextPage) {
+      tableNextPage.onclick = () => {
+        const totalPages = Math.max(1, Math.ceil((currentTableData ? currentTableData.length : 0) / currentTablePageSize));
+        if (tableCurrentPage < totalPages) {
+          tableCurrentPage++;
+          renderTablePage();
+          const rc = document.getElementById('resultContainer');
+          if (rc) rc.scrollTop = 0;
+        }
+      };
+    }
+
+    if (tableLastPage) {
+      tableLastPage.onclick = () => {
+        const totalPages = Math.max(1, Math.ceil((currentTableData ? currentTableData.length : 0) / currentTablePageSize));
+        if (tableCurrentPage < totalPages) {
+          tableCurrentPage = totalPages;
+          renderTablePage();
+          const rc = document.getElementById('resultContainer');
+          if (rc) rc.scrollTop = 0;
+        }
+      };
+    }
+
+    if (tablePageInput) {
+      tablePageInput.addEventListener('change', () => {
+        const totalPages = Math.max(1, Math.ceil((currentTableData ? currentTableData.length : 0) / currentTablePageSize));
+        const val = parseInt(tablePageInput.value, 10);
+        if (!isNaN(val)) {
+          tableCurrentPage = Math.max(1, Math.min(val, totalPages));
+          renderTablePage();
+          const rc = document.getElementById('resultContainer');
+          if (rc) rc.scrollTop = 0;
+        } else {
+          tablePageInput.value = tableCurrentPage;
+        }
+      });
+      tablePageInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          tablePageInput.blur();
+        }
+      });
+    }
+
+    if (tablePageSize) {
+      tablePageSize.addEventListener('change', () => {
+        const newSize = parseInt(tablePageSize.value, 10) || 50;
+        const oldSize = currentTablePageSize;
+        currentTablePageSize = newSize;
+        try {
+          localStorage.setItem('jsonQueryTools.tablePageSize', String(newSize));
+        } catch (e) {}
+        const firstVisibleIdx = (tableCurrentPage - 1) * oldSize;
+        tableCurrentPage = Math.floor(firstVisibleIdx / newSize) + 1;
+        renderTablePage();
+      });
+    }
+
     function updateResultDisplay(text, data, isStreaming = false) {
       const format = resultFormat.value;
       
@@ -3142,117 +3403,21 @@ export function getQueryEditorHtml(
         resultPre.style.display = 'none';
         if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
         resultTable.style.display = 'table';
+        if (tablePagination) tablePagination.style.display = 'flex';
         resultChartContainer.style.display = 'none';
+        chartType.style.display = 'none';
+        downloadChartBtn.style.display = 'none';
         saveJsonBtn.style.display = 'none';
         saveCsvBtn.style.display = 'inline-block';
+        copyResultBtn.style.display = 'inline-block';
         
-        // Check if array contains objects or primitives
-        var hasObjects = false;
-        var allKeys = new Set();
-        // For streaming, only check first few items to determine structure
-        var checkLimit = isStreaming ? Math.min(100, data.length) : data.length;
-        for (var checkIdx = 0; checkIdx < checkLimit; checkIdx++) {
-          var checkItem = data[checkIdx];
-          if (typeof checkItem === 'object' && checkItem !== null && !Array.isArray(checkItem)) {
-            hasObjects = true;
-            var itemKeys = Object.keys(checkItem);
-            for (var keyIdx = 0; keyIdx < itemKeys.length; keyIdx++) {
-              allKeys.add(itemKeys[keyIdx]);
-            }
-          }
-        }
-        
-        if (hasObjects && allKeys.size > 0) {
-          // Array of objects - use object keys as columns
-          var keys = Array.from(allKeys);
-          
-          // Build table header (only once, not on every chunk)
-          if (!isStreaming || resultTableHead.children.length === 0) {
-            var headerCells = [];
-            for (var i = 0; i < keys.length; i++) {
-              var key = keys[i];
-              headerCells.push('<th style="padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(String(key)) + '</th>');
-            }
-            resultTableHead.innerHTML = '<tr>' + headerCells.join('') + '</tr>';
-          }
-          
-          // For streaming, append new rows; otherwise rebuild all
-          if (isStreaming) {
-            // Append only new rows (rows that weren't there before)
-            var existingRowCount = resultTableBody.children.length;
-            var bodyRows = [];
-            for (var j = existingRowCount; j < data.length; j++) {
-              var item = data[j];
-              var cells = [];
-              for (var k = 0; k < keys.length; k++) {
-                var key = keys[k];
-                var value = item && typeof item === 'object' && item !== null ? item[key] : undefined;
-                var displayValue = value === null ? 'null' : value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
-                cells.push('<td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td>');
-              }
-              bodyRows.push('<tr>' + cells.join('') + '</tr>');
-            }
-            if (bodyRows.length > 0) {
-              var tempDiv = document.createElement('div');
-              tempDiv.innerHTML = bodyRows.join('');
-              while (tempDiv.firstChild) {
-                resultTableBody.appendChild(tempDiv.firstChild);
-              }
-            }
-          } else {
-            // Build table body (full rebuild)
-            var bodyRows = [];
-            for (var j = 0; j < data.length; j++) {
-              var item = data[j];
-              var cells = [];
-              for (var k = 0; k < keys.length; k++) {
-                var key = keys[k];
-                var value = item && typeof item === 'object' && item !== null ? item[key] : undefined;
-                var displayValue = value === null ? 'null' : value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
-                cells.push('<td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td>');
-              }
-              bodyRows.push('<tr>' + cells.join('') + '</tr>');
-            }
-            resultTableBody.innerHTML = bodyRows.join('');
-          }
-        } else {
-          // Array of primitives - single column table
-          if (!isStreaming || resultTableHead.children.length === 0) {
-            resultTableHead.innerHTML = '<tr><th style="padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">Value</th></tr>';
-          }
-          
-          // For streaming, append new rows; otherwise rebuild all
-          if (isStreaming) {
-            var existingRowCount = resultTableBody.children.length;
-            var bodyRows = [];
-            for (var j = existingRowCount; j < data.length; j++) {
-              var item = data[j];
-              var displayValue = item === null ? 'null' : item === undefined ? 'undefined' : typeof item === 'object' ? JSON.stringify(item) : String(item);
-              bodyRows.push('<tr><td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td></tr>');
-            }
-            if (bodyRows.length > 0) {
-              var tempDiv = document.createElement('div');
-              tempDiv.innerHTML = bodyRows.join('');
-              while (tempDiv.firstChild) {
-                resultTableBody.appendChild(tempDiv.firstChild);
-              }
-            }
-          } else {
-            // Build table body (full rebuild)
-            var bodyRows = [];
-            for (var j = 0; j < data.length; j++) {
-              var item = data[j];
-              var displayValue = item === null ? 'null' : item === undefined ? 'undefined' : typeof item === 'object' ? JSON.stringify(item) : String(item);
-              bodyRows.push('<tr><td style="padding: 8px 12px; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">' + escapeHtml(displayValue) + '</td></tr>');
-            }
-            resultTableBody.innerHTML = bodyRows.join('');
-          }
-        }
+        currentTableData = data;
+        renderTablePage();
       } else if (format === 'chart') {
          // Show chart view
          resultPre.style.display = 'none';
          if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
-         resultTable.style.display = 'none';
+         hideTable();
          resultChartContainer.style.display = 'block';
          chartType.style.display = 'inline-block';
          downloadChartBtn.style.display = 'inline-block';
@@ -3289,7 +3454,7 @@ export function getQueryEditorHtml(
           resultPre.style.display = 'block';
           resultPre.textContent = jsonText || '';
         }
-        resultTable.style.display = 'none';
+        hideTable();
         resultChartContainer.style.display = 'none';
         chartType.style.display = 'none';
         downloadChartBtn.style.display = 'none';
@@ -3300,7 +3465,7 @@ export function getQueryEditorHtml(
       } else {
         // Raw / default text view
         if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
-        resultTable.style.display = 'none';
+        hideTable();
         resultChartContainer.style.display = 'none';
         chartType.style.display = 'none';
         downloadChartBtn.style.display = 'none';
@@ -3498,7 +3663,7 @@ export function getQueryEditorHtml(
             resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items) - Chart will render when complete';
             resultPre.className = '';
             resultPre.style.display = 'block';
-            resultTable.style.display = 'none';
+            hideTable();
             resultChartContainer.style.display = 'none';
           } else {
             updateResultDisplay('', dataToUse);
@@ -3513,7 +3678,7 @@ export function getQueryEditorHtml(
             resultPre.className = '';
             resultPre.style.display = 'block';
             if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
-            resultTable.style.display = 'none';
+            hideTable();
             resultChartContainer.style.display = 'none';
           } else {
             updateResultDisplay('', dataToUse);
