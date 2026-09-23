@@ -4,8 +4,16 @@ import { BoundFile } from './types';
 import { resolveTemplateVariables } from './config';
 
 export function stringify(value: unknown): string {
-  try { return JSON.stringify(value, null, 2); }
-  catch { return String(value); }
+  try {
+    const json = JSON.stringify(
+      value,
+      (_k, v) => (typeof v === 'bigint' ? v.toString() : v),
+      2
+    );
+    return json ?? (value !== undefined ? String(value) : 'undefined');
+  } catch {
+    return String(value);
+  }
 }
 
 const MALICIOUS_PATTERNS: Array<{ pattern: RegExp; description: string }> = [
