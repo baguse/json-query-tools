@@ -2506,6 +2506,53 @@ export function getQueryEditorHtml(
         const char = code[i];
         const nextChar = code[i + 1];
         
+        // Skip string literals (double quote, single quote, backtick template)
+        if (char === '"' || char === "'" || char === '\`') {
+          const quote = char;
+          result += quote;
+          i++;
+          while (i < code.length) {
+            const c = code[i];
+            result += c;
+            if (c === '\\\\') {
+              i++;
+              if (i < code.length) {
+                result += code[i];
+              }
+            } else if (c === quote) {
+              break;
+            }
+            i++;
+          }
+          i++;
+          continue;
+        }
+
+        // Skip single-line comments
+        if (char === '/' && nextChar === '/') {
+          while (i < code.length && code[i] !== '\\n') {
+            result += code[i];
+            i++;
+          }
+          continue;
+        }
+
+        // Skip multi-line comments
+        if (char === '/' && nextChar === '*') {
+          result += '/*';
+          i += 2;
+          while (i < code.length) {
+            if (code[i] === '*' && code[i + 1] === '/') {
+              result += '*/';
+              i += 2;
+              break;
+            }
+            result += code[i];
+            i++;
+          }
+          continue;
+        }
+        
         if (char === '{' || char === '[') {
           result += char + '\\n';
           indent++;
