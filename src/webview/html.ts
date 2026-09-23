@@ -883,6 +883,10 @@ export function getQueryEditorHtml(
       </select>
       <button id="refreshModels" class="secondary" title="Refresh Models" style="padding: 6px 10px;">🔄</button>
     </div>
+    <div id="aiAlert" class="modal-alert" style="display: none; padding: 6px 10px; font-size: 11px; align-items: center; justify-content: space-between; gap: 8px;">
+      <span id="aiAlertMessage" style="flex: 1;"></span>
+      <span id="aiAlertDismiss" style="cursor: pointer; margin-left: 8px; font-weight: bold; opacity: 0.8;" title="Dismiss">✕</span>
+    </div>
     <div style="display: flex; gap: 8px; width: 100%;">
       <textarea id="aiPrompt" placeholder="e.g. Filter active users older than 25, return just their names" style="flex: 1; height: 128px; padding: 6px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; resize: none; font-family: inherit; font-size: 14px;"></textarea>
       <div style="display: flex; align-items: center;">
@@ -1198,6 +1202,27 @@ export function getQueryEditorHtml(
     const refreshModelsBtn = document.getElementById('refreshModels');
     const aiPrompt = document.getElementById('aiPrompt');
     const aiGenerateBtn = document.getElementById('aiGenerate');
+    const aiAlert = document.getElementById('aiAlert');
+    const aiAlertMessage = document.getElementById('aiAlertMessage');
+    const aiAlertDismiss = document.getElementById('aiAlertDismiss');
+
+    function showAiAlert(msg) {
+      if (aiAlert && aiAlertMessage) {
+        aiAlertMessage.textContent = msg;
+        aiAlert.style.display = 'flex';
+      }
+    }
+
+    function hideAiAlert() {
+      if (aiAlert && aiAlertMessage) {
+        aiAlertMessage.textContent = '';
+        aiAlert.style.display = 'none';
+      }
+    }
+
+    if (aiAlertDismiss) {
+      aiAlertDismiss.onclick = hideAiAlert;
+    }
 
     // Initialize Config
     const savedProvider = localStorage.getItem('jsonQueryTools.aiProvider') || 'ollama';
@@ -1224,6 +1249,7 @@ export function getQueryEditorHtml(
     }
 
     aiProvider.onchange = () => {
+        hideAiAlert();
         localStorage.setItem('jsonQueryTools.aiProvider', aiProvider.value);
         updateProviderUI();
         // Clear models when switching?
@@ -2928,6 +2954,7 @@ export function getQueryEditorHtml(
           setupSchemaAutocomplete();
         }
       } else if (msg.type === 'insert') {
+        hideAiAlert();
         setEditorValue(msg.expr || '');
         const aiBtn = document.getElementById('aiGenerate');
         if (aiBtn) {
@@ -2940,7 +2967,9 @@ export function getQueryEditorHtml(
           aiBtn.disabled = false;
           aiBtn.textContent = 'Generate';
         }
-
+        if (msg.error) {
+          showAiAlert('AI Generation Error: ' + msg.error);
+        }
       } else if (msg.type === 'securityWarning') {
         const banner = document.getElementById('securityWarning');
         const msgEl = document.getElementById('securityWarningMessage');
@@ -3017,6 +3046,7 @@ export function getQueryEditorHtml(
       } else if (msg.type === 'updateModels') {
         aiModel.innerHTML = '<option value="" disabled selected>Select Model...</option>';
         if (msg.models && msg.models.length > 0) {
+            hideAiAlert();
             msg.models.forEach(m => {
                 const opt = document.createElement('option');
                 opt.value = m;
@@ -3032,8 +3062,8 @@ export function getQueryEditorHtml(
             }
         }
         if (msg.error) {
-            console.error(msg.error);
-            throw new Error('Failed to fetch models: ' + msg.error);
+            console.error('Failed to fetch models:', msg.error);
+            showAiAlert('Failed to fetch models: ' + msg.error);
         }
       }
     });
@@ -3584,8 +3614,8 @@ export function getQueryEditorHtml(
 
     vscode.postMessage({ type: 'ready' });
 
-    // AI Event Listeners
     refreshModelsBtn.onclick = () => {
+        hideAiAlert();
         const provider = aiProvider.value;
         const ep = ollamaEndpoint.value || 'http://localhost:11434';
         const key = aiApiKey.value;
@@ -3597,6 +3627,7 @@ export function getQueryEditorHtml(
     };
 
     aiModel.onchange = () => {
+        hideAiAlert();
         localStorage.setItem('jsonQueryTools.aiModel', aiModel.value);
     };
 
@@ -3608,23 +3639,27 @@ export function getQueryEditorHtml(
         const key = aiApiKey.value;
         
         if (provider === 'ollama' && !ep) {
-            throw new Error('Please check the Ollama Endpoint.');
+            showAiAlert('Please check the Ollama Endpoint.');
+            return;
         }
         if (provider === 'gemini' && !key) {
-             throw new Error('Please enter a Gemini API Key.');
-             return;
+            showAiAlert('Please enter a Gemini API Key.');
+            return;
         }
         if (!model) {
-            throw new Error('Please select a model.');
+            showAiAlert('Please select a model.');
+            return;
         }
-        if (!prompt) return;
+        if (!prompt || !prompt.trim()) {
+            showAiAlert('Please enter a prompt.');
+            return;
+        }
+        hideAiAlert();
 
         aiGenerateBtn.disabled = true;
         aiGenerateBtn.textContent = 'Generating...';
         
         vscode.postMessage({ type: 'generateQuery', provider, endpoint: ep, apiKey: key, model, prompt });
-        
-
     };
     // URL Modal Controller
     const urlModal = document.getElementById('urlModal');

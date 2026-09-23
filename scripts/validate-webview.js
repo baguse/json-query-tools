@@ -103,7 +103,9 @@ async function validate() {
       'id="tabBtnHeaders"',
       'id="queryParamsTable"',
       'id="queryParamsBody"',
-      'id="addParamRowBtn"'
+      'id="addParamRowBtn"',
+      'id="aiAlert"',
+      'id="aiAlertMessage"'
     ];
 
     for (const elem of requiredElements) {
