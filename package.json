@@ -65,7 +65,8 @@
     "test:syntax": "node scripts/validate-webview.js",
     "test:fetcher": "node scripts/test-fetcher.js",
     "test:standalone": "node scripts/test-standalone.js",
-    "test": "node scripts/validate-webview.js && node scripts/test-fetcher.js && node scripts/test-standalone.js"
+    "test:history": "node scripts/test-history.js",
+    "test": "node scripts/validate-webview.js && node scripts/test-fetcher.js && node scripts/test-standalone.js && node scripts/test-history.js"
   },
 
   "devDependencies": {

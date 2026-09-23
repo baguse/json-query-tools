@@ -23,7 +23,7 @@ export async function commandTransformWithExpression(context: vscode.ExtensionCo
   const boundFiles: BoundFile[] = [{ alias: 'data', uri: target }];
   const dataMap = { 'data': data };
   const result = evaluateExpression(boundFiles, dataMap, expr);
-  pushHistory(context, expr);
+  await pushHistory(context, expr);
   // For this command we still open a new tab (handy for diffs)
   const doc = await vscode.workspace.openTextDocument({ content: stringify(result) + '\n', language: 'json' });
   await vscode.window.showTextDocument(doc, { preview: false });
@@ -452,11 +452,11 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         }
 
         const result = evaluateExpression(boundFiles, dataMap, expr);
-        if (msg.save) { pushHistory(context, expr); sendHistory(); }
+        if (msg.save) { await pushHistory(context, expr); sendHistory(); }
         // Use streaming for large results
         await sendResultStreaming(stringify(result), result);
       } else if (msg.type === 'save') {
-        pushHistory(context, String(msg.expr || ''));
+        await pushHistory(context, String(msg.expr || ''));
         sendHistory();
       } else if (msg.type === 'importQuery') {
         const uris = await vscode.window.showOpenDialog({

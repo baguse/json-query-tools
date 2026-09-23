@@ -11,17 +11,23 @@ export function normalizeHistory(raw: StoredHistory): History {
   });
 }
 
-export function pushHistory(context: vscode.ExtensionContext, expr: string) {
+export function pushHistory(context: vscode.ExtensionContext, expr: string): Thenable<void> {
   let list = normalizeHistory(context.globalState.get<StoredHistory>(HISTORY_KEY) ?? []);
 
   const existingIdx = list.findIndex(e => e.expr === expr);
   let isFav = false;
+  let existingName: string | undefined;
   if (existingIdx !== -1) {
     isFav = list[existingIdx].isFavorite;
+    existingName = list[existingIdx].name;
     list.splice(existingIdx, 1);
   }
 
-  list.push({ expr, isFavorite: isFav });
+  const newItem: HistoryItem = { expr, isFavorite: isFav };
+  if (existingName !== undefined) {
+    newItem.name = existingName;
+  }
+  list.push(newItem);
 
   // Enforce limit
   if (list.length > HISTORY_LIMIT) {
@@ -46,7 +52,7 @@ export function pushHistory(context: vscode.ExtensionContext, expr: string) {
     list = list.filter((_, i) => !toDelete.has(i));
   }
 
-  context.globalState.update(HISTORY_KEY, list);
+  return context.globalState.update(HISTORY_KEY, list);
 }
 
 export function getHistory(context: vscode.ExtensionContext): History {
