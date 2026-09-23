@@ -124,7 +124,10 @@ export async function fetchGeminiModels(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${baseUrl}/v1beta/models?key=${apiKey}`, {
+    const res = await fetch(`${baseUrl}/v1beta/models`, {
+      headers: {
+        'x-goog-api-key': apiKey
+      },
       signal: controller.signal
     });
     if (!res.ok) throw new Error(`Gemini API Error: ${res.status}`);
@@ -159,7 +162,7 @@ Rules:
 4. Ensure the expression returns the result (e.g. \`return data.items.filter(...)\`).
 `;
 
-  const url = `${baseUrl}/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const url = `${baseUrl}/v1beta/models/${model}:generateContent`;
 
   const body = {
     contents: [{
@@ -192,7 +195,10 @@ Rules:
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey
+      },
       body: JSON.stringify(body),
       signal: controller.signal
     });
