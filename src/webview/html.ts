@@ -2576,19 +2576,79 @@ export function getQueryEditorHtml(
       vscode.postMessage({ type: 'exportQuery', expr: getEditorValue() });
     };
     rebindBtn.onclick = () => vscode.postMessage({ type: 'rebind' });
+    function escapeCsvCell(val) {
+      if (val === null || val === undefined) return '';
+      const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+      const nl = String.fromCharCode(10);
+      const cr = String.fromCharCode(13);
+      if (str.includes(',') || str.includes('"') || str.includes(nl) || str.includes(cr)) {
+        return '"' + str.split('"').join('""') + '"';
+      }
+      return str;
+    }
+
+    function generateCsv(data) {
+      if (!Array.isArray(data) || data.length === 0) {
+        if (resultTableHead && resultTableBody) {
+          const rows = [];
+          const headerCells = Array.from(resultTableHead.querySelectorAll('th')).map(function(th) {
+            return escapeCsvCell(th.textContent);
+          });
+          if (headerCells.length > 0) rows.push(headerCells.join(','));
+          Array.from(resultTableBody.querySelectorAll('tr')).forEach(function(tr) {
+            const cells = Array.from(tr.querySelectorAll('td')).map(function(td) {
+              return escapeCsvCell(td.textContent);
+            });
+            rows.push(cells.join(','));
+          });
+          return rows.join(String.fromCharCode(10));
+        }
+        return '';
+      }
+
+      var hasObjects = false;
+      var allKeys = new Set();
+      for (var checkIdx = 0; checkIdx < data.length; checkIdx++) {
+        var checkItem = data[checkIdx];
+        if (typeof checkItem === 'object' && checkItem !== null && !Array.isArray(checkItem)) {
+          hasObjects = true;
+          var itemKeys = Object.keys(checkItem);
+          for (var keyIdx = 0; keyIdx < itemKeys.length; keyIdx++) {
+            allKeys.add(itemKeys[keyIdx]);
+          }
+        }
+      }
+
+      var rows = [];
+      if (hasObjects && allKeys.size > 0) {
+        var keys = Array.from(allKeys);
+        rows.push(keys.map(escapeCsvCell).join(','));
+        for (var j = 0; j < data.length; j++) {
+          var item = data[j];
+          var row = [];
+          for (var k = 0; k < keys.length; k++) {
+            var val = item && typeof item === 'object' ? item[keys[k]] : '';
+            row.push(escapeCsvCell(val));
+          }
+          rows.push(row.join(','));
+        }
+      } else {
+        // Array of primitives
+        rows.push('Value');
+        for (var j = 0; j < data.length; j++) {
+          rows.push(escapeCsvCell(data[j]));
+        }
+      }
+      return rows.join(String.fromCharCode(10));
+    }
+
     copyResultBtn.onclick = () => {
       let text = '';
       if (resultTable.style.display === 'table') {
-        // Copy table as CSV
-        const rows = [];
-        const headerRow = Array.from(resultTableHead.querySelectorAll('th')).map(th => th.textContent);
-        rows.push(headerRow.join(','));
-        Array.from(resultTableBody.querySelectorAll('tr')).forEach(tr => {
-          const cells = Array.from(tr.querySelectorAll('td')).map(td => td.textContent);
-          rows.push(cells.join(','));
-        });
-        const newlineChar = String.fromCharCode(10);
-        text = rows.join(newlineChar);
+        const dataToUse = currentResultData !== null && currentResultData !== undefined 
+          ? currentResultData 
+          : (streamingData && streamingData.length > 0 ? streamingData : null);
+        text = generateCsv(dataToUse);
       } else {
         text = resultPre.textContent || '';
       }
@@ -2608,14 +2668,10 @@ export function getQueryEditorHtml(
       openResultInEditorBtn.onclick = () => {
         let text = '';
         if (resultTable && resultTable.style.display === 'table') {
-          const rows = [];
-          const headerRow = Array.from(resultTableHead.querySelectorAll('th')).map(th => th.textContent);
-          rows.push(headerRow.join(','));
-          Array.from(resultTableBody.querySelectorAll('tr')).forEach(tr => {
-            const cells = Array.from(tr.querySelectorAll('td')).map(td => td.textContent);
-            rows.push(cells.join(','));
-          });
-          text = rows.join(String.fromCharCode(10));
+          const dataToUse = currentResultData !== null && currentResultData !== undefined 
+            ? currentResultData 
+            : (streamingData && streamingData.length > 0 ? streamingData : null);
+          text = generateCsv(dataToUse);
           vscode.postMessage({ type: 'openInEditor', text, language: 'csv' });
           return;
         }
@@ -3312,54 +3368,12 @@ export function getQueryEditorHtml(
     });
 
     saveCsvBtn.addEventListener('click', () => {
-      if (currentResultData !== undefined && Array.isArray(currentResultData)) {
-         // Reuse table generation logic or similar for CSV
-         // For simplicity, let's regenerate the CSV content here
-         // This logic is duplicated from copy functionality, ideally refuted
-         const data = currentResultData;
-         var hasObjects = false;
-         var allKeys = new Set();
-         for (var checkIdx = 0; checkIdx < data.length; checkIdx++) {
-            var checkItem = data[checkIdx];
-            if (typeof checkItem === 'object' && checkItem !== null && !Array.isArray(checkItem)) {
-               hasObjects = true;
-               var itemKeys = Object.keys(checkItem);
-               for (var keyIdx = 0; keyIdx < itemKeys.length; keyIdx++) {
-                  allKeys.add(itemKeys[keyIdx]);
-               }
-            }
-         }
-         
-         let csvContent = '';
-         if (hasObjects && allKeys.size > 0) {
-            const keys = Array.from(allKeys);
-            csvContent += keys.join(',') + '\\n';
-            for (var j = 0; j < data.length; j++) {
-               var item = data[j];
-               var row = [];
-               for (var k = 0; k < keys.length; k++) {
-                  var val = item && typeof item === 'object' ? item[keys[k]] : '';
-                  // Basic CSV escaping
-                  val = val === null ? 'null' : val === undefined ? '' : String(val);
-                  if (val.includes(',') || val.includes('\\n') || val.includes('"')) {
-                      val = '"' + val.replace(/"/g, '""') + '"';
-                  }
-                  row.push(val);
-               }
-               csvContent += row.join(',') + '\\n';
-            }
-         } else {
-             // Array of primitives
-             csvContent += 'Value\\n';
-             for (var j = 0; j < data.length; j++) {
-                 let val = String(data[j]);
-                 if (val.includes(',') || val.includes('\\n') || val.includes('"')) {
-                      val = '"' + val.replace(/"/g, '""') + '"';
-                  }
-                 csvContent += val + '\\n';
-             }
-         }
-         vscode.postMessage({ type: 'saveData', fileType: 'csv', text: csvContent });
+      const dataToUse = currentResultData !== null && currentResultData !== undefined 
+        ? currentResultData 
+        : (streamingData && streamingData.length > 0 ? streamingData : null);
+      if (dataToUse !== null && dataToUse !== undefined) {
+        const csvContent = generateCsv(dataToUse);
+        vscode.postMessage({ type: 'saveData', fileType: 'csv', text: csvContent });
       }
     });
 
