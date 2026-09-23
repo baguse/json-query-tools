@@ -59,6 +59,12 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
     { enableScripts: true, retainContextWhenHidden: true }
   );
 
+  let activeAiController: AbortController | null = null;
+  panel.onDidDispose(() => {
+    activeAiController?.abort();
+    activeAiController = null;
+  });
+
   let boundFiles: BoundFile[] = [];
   if (targetUri) {
     boundFiles.push({ type: 'file', alias: 'data', uri: targetUri, label: label(targetUri) });
@@ -656,18 +662,26 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         } catch (e) { /* ignore */ }
 
 
+        activeAiController?.abort();
+        activeAiController = new AbortController();
+        const currentController = activeAiController;
+
         try {
             let code = '';
             if (provider === 'gemini') {
                 if (!apiKey) throw new Error('API Key required for Gemini');
-                code = await callGemini(apiKey, model, msg.prompt, dataSample);
+                code = await callGemini(apiKey, model, msg.prompt, dataSample, 30000, currentController.signal);
             } else {
-                code = await callOllama(endpoint, model, msg.prompt, dataSample);
+                code = await callOllama(endpoint, model, msg.prompt, dataSample, 30000, currentController.signal);
             }
             panel.webview.postMessage({ type: 'insert', expr: code });
         } catch (err: any) {
             vscode.window.showErrorMessage('AI generation failed: ' + err.message);
             panel.webview.postMessage({ type: 'aiError', error: err.message });
+        } finally {
+            if (activeAiController === currentController) {
+                activeAiController = null;
+            }
         }
       }
     } catch (err: any) {
