@@ -6,12 +6,18 @@ export function getTemplateVariables(targetUri?: vscode.Uri): Record<string, str
   const custom = config.get<Record<string, string>>('templateVariables') ?? {};
   const builtins: Record<string, string> = { ...custom };
   if (targetUri) {
-    const parts = targetUri.fsPath.split(/[/\\]/);
+    const normalizedFsPath = targetUri.fsPath.replace(/\\/g, '/');
+    const parts = normalizedFsPath.split('/');
     builtins['fileName'] = parts[parts.length - 1] ?? '';
-    builtins['filePath'] = targetUri.fsPath;
-    builtins['fileDir'] = parts.slice(0, -1).join('/');
-    const wf = vscode.workspace.getWorkspaceFolder(targetUri);
-    if (wf) builtins['workspaceFolder'] = wf.uri.fsPath;
+    builtins['filePath'] = normalizedFsPath;
+    const dirParts = parts.slice(0, -1);
+    builtins['fileDir'] = dirParts.length === 1 && dirParts[0] === '' ? '/' : dirParts.join('/');
+  }
+  const wf = targetUri 
+    ? vscode.workspace.getWorkspaceFolder(targetUri) 
+    : vscode.workspace.workspaceFolders?.[0];
+  if (wf) {
+    builtins['workspaceFolder'] = wf.uri.fsPath.replace(/\\/g, '/');
   }
   return builtins;
 }
