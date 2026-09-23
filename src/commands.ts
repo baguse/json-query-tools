@@ -10,23 +10,40 @@ import { fetchUrlData, fetchUrlWithDetails, parseHeaders } from './fetcher';
 
 
 export async function commandTransformWithExpression(context: vscode.ExtensionContext) {
-  const target = pickInitialTargetUri();
-  if (!target) {
-    vscode.window.showErrorMessage('Open a JSON file first.');
-    return;
+  try {
+    const target = pickInitialTargetUri();
+    if (!target) {
+      vscode.window.showErrorMessage('Open a JSON file first.');
+      return;
+    }
+    const expr = await vscode.window.showInputBox({
+      prompt: 'Enter JS expression. Use variable `data`; optional template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}'
+    });
+    if (!expr) return;
+
+    const warning = checkForMaliciousExpression(expr);
+    if (warning) {
+      const choice = await vscode.window.showWarningMessage(
+        `Security Warning: ${warning}. Are you sure you want to run this expression?`,
+        { modal: true },
+        'Run Anyway'
+      );
+      if (choice !== 'Run Anyway') {
+        return;
+      }
+    }
+
+    const data = await readJsonFromUri(target);
+    const boundFiles: BoundFile[] = [{ alias: 'data', uri: target }];
+    const dataMap = { 'data': data };
+    const result = evaluateExpression(boundFiles, dataMap, expr);
+    await pushHistory(context, expr);
+    // For this command we still open a new tab (handy for diffs)
+    const doc = await vscode.workspace.openTextDocument({ content: stringify(result) + '\n', language: 'json' });
+    await vscode.window.showTextDocument(doc, { preview: false });
+  } catch (err: any) {
+    vscode.window.showErrorMessage(`Failed to transform with expression: ${err.message || err}`);
   }
-  const expr = await vscode.window.showInputBox({
-    prompt: 'Enter JS expression. Use variable `data`; optional template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}'
-  });
-  if (!expr) return;
-  const data = await readJsonFromUri(target);
-  const boundFiles: BoundFile[] = [{ alias: 'data', uri: target }];
-  const dataMap = { 'data': data };
-  const result = evaluateExpression(boundFiles, dataMap, expr);
-  await pushHistory(context, expr);
-  // For this command we still open a new tab (handy for diffs)
-  const doc = await vscode.workspace.openTextDocument({ content: stringify(result) + '\n', language: 'json' });
-  await vscode.window.showTextDocument(doc, { preview: false });
 }
 
 export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
