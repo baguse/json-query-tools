@@ -50,14 +50,23 @@ export function evaluateExpression(boundFiles: BoundFile[], dataMap: Record<stri
   const fn = new Function(...fnArgs);
 
   // First evaluation: run the expression against (data1, data2, ..., require)
-  const firstResult = fn(...dataValues, req) as unknown;
+  let firstResult = fn(...dataValues, req) as unknown;
 
-  // If the expression itself evaluates to a function (e.g. (data) => { ... }),
-  // treat that as the "query function" and invoke it with the same arguments.
-  // Note: For functions, we pass the data mapped to 'data' if it exists, otherwise the first bound file's data.
+  // If result is undefined, attempt implicit return for single expressions (e.g. `data.map(...)` or `(a, b) => ...`)
+  if (typeof firstResult === 'undefined') {
+    try {
+      const implicitReturnFn = new Function(...aliases, 'require', `return (${resolvedExpr});`);
+      firstResult = implicitReturnFn(...dataValues, req);
+    } catch {
+      // Expression was not a single expression statement (e.g. multi-statement block without return)
+    }
+  }
+
+  // If the expression itself evaluates to a function (e.g. (data) => { ... } or (users, orders) => { ... }),
+  // treat that as the "query function" and invoke it with all bound data source values and require.
   const finalResult =
     typeof firstResult === 'function'
-      ? (firstResult as (data: unknown, requireFn: NodeRequire) => unknown)(dataMap['data'] ?? dataValues[0], req)
+      ? (firstResult as (...args: unknown[]) => unknown)(...dataValues, req)
       : firstResult;
 
   if (typeof finalResult === 'undefined') {
