@@ -596,11 +596,17 @@ export async function commandOpenQueryEditor(
           sendSources();
           sendSchema();
       } else if (msg.type === 'removeSource') {
+          let removedUrl = false;
           if (msg.id) {
+            const prevLen = boundUrls.length;
             boundUrls = boundUrls.filter(u => u.id !== msg.id);
-            urlDataCache.delete(msg.id);
-            await savePersistedUrls(boundUrls);
-          } else if (msg.alias) {
+            if (boundUrls.length !== prevLen) {
+              removedUrl = true;
+              urlDataCache.delete(msg.id);
+              await savePersistedUrls(boundUrls);
+            }
+          }
+          if (!removedUrl && msg.alias) {
             boundFiles = boundFiles.filter(f => f.alias !== msg.alias);
             const urlIdx = boundUrls.findIndex(u => u.alias === msg.alias);
             if (urlIdx !== -1) {

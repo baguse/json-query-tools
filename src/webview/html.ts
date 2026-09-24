@@ -42,14 +42,14 @@ export function getQueryEditorHtml(
         <button class="copy-url-curl-btn" data-id="${escapeHtmlStr(s.id || '')}" title="Copy as cURL command">📋</button>
         <button class="refresh-url-btn" data-id="${escapeHtmlStr(s.id || '')}" title="Re-fetch data from URL">🔄</button>
         <button class="edit-url-btn" data-id="${escapeHtmlStr(s.id || '')}" title="Edit URL, headers, or method">✏️</button>
-        <button class="remove-source" data-alias="${escapeHtmlStr(s.alias)}" data-id="${escapeHtmlStr(s.id || '')}" title="Remove source">×</button>
+        <button class="remove-source" data-alias="${escapeHtmlStr(s.alias)}" data-id="${escapeHtmlStr(s.id || '')}" title="Remove source" aria-label="Remove source">×</button>
       </span>`;
     }
     return `<span class="bound-file" data-alias="${escapeHtmlStr(s.alias)}" title="${escapeHtmlStr(s.label)}">
       <span class="file-icon">📁</span>
       <span class="file-alias">${escapeHtmlStr(s.alias)}</span>: ${escapeHtmlStr(s.label.split('/').pop() || s.label)}
       <button class="inspect-source-btn" data-alias="${escapeHtmlStr(s.alias)}" title="View JSON data">👁️</button>
-      <button class="remove-source" data-alias="${escapeHtmlStr(s.alias)}" title="Remove source">×</button>
+      <button class="remove-source" data-alias="${escapeHtmlStr(s.alias)}" title="Remove source" aria-label="Remove source">×</button>
     </span>`;
   }).join('') : '<span class="bound-file standalone-tag" style="opacity: 0.75; font-style: italic; background: transparent; border: 1px dashed var(--vscode-input-border, #3e3e42); padding: 3px 8px; border-radius: 3px;" title="Standalone Mode: No data sources bound. You can generate data or run standalone JavaScript expressions.">⚡ Standalone Mode</span>';
 
@@ -1549,14 +1549,14 @@ export function getQueryEditorHtml(
             '<button class="copy-url-curl-btn" data-id="' + escapeHtml(s.id || '') + '" title="Copy as cURL command">📋</button>' +
             '<button class="refresh-url-btn" data-id="' + escapeHtml(s.id || '') + '" title="Re-fetch data from URL">🔄</button>' +
             '<button class="edit-url-btn" data-id="' + escapeHtml(s.id || '') + '" title="Edit URL, headers, or method">✏️</button>' +
-            '<button class="remove-source" data-alias="' + escapeHtml(s.alias) + '" data-id="' + escapeHtml(s.id || '') + '" title="Remove source">×</button>' +
+            '<button class="remove-source" data-alias="' + escapeHtml(s.alias) + '" data-id="' + escapeHtml(s.id || '') + '" title="Remove source" aria-label="Remove source">×</button>' +
           '</span>';
         }
         return '<span class="bound-file" data-alias="' + escapeHtml(s.alias) + '" title="' + escapeHtml(s.label) + '">' +
           '<span class="file-icon">📁</span> ' +
           '<span class="file-alias">' + escapeHtml(s.alias) + '</span>: ' + escapeHtml(s.label.split('/').pop() || s.label) +
           '<button class="inspect-source-btn" data-alias="' + escapeHtml(s.alias) + '" title="View JSON data">👁️</button>' +
-          '<button class="remove-source" data-alias="' + escapeHtml(s.alias) + '" title="Remove source">×</button>' +
+          '<button class="remove-source" data-alias="' + escapeHtml(s.alias) + '" title="Remove source" aria-label="Remove source">×</button>' +
         '</span>';
       }).join('');
 
@@ -3054,8 +3054,8 @@ export function getQueryEditorHtml(
         openUrlModal();
       } else if (target.classList && (target.classList.contains('remove-file') || target.classList.contains('remove-source'))) {
         const span = target.closest('.bound-file');
-        const alias = span?.getAttribute('data-alias');
-        const id = span?.getAttribute('data-id');
+        const alias = target.getAttribute('data-alias') || span?.getAttribute('data-alias');
+        const id = target.getAttribute('data-id') || span?.getAttribute('data-id');
         vscode.postMessage({ type: 'removeSource', alias, id });
       } else if (target.classList && target.classList.contains('refresh-url-btn')) {
         const id = target.getAttribute('data-id');
