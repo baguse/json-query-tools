@@ -4,6 +4,7 @@ import { LruCache } from './cache';
 import { BoundFile, BoundUrl, SerializedBoundSource } from './types';
 import { getHistory, pushHistory } from './history';
 import { evaluateExpression, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression } from './evaluator';
+export { evaluateExpression };
 import { inferSchemaFromData } from './schema';
 import { getQueryEditorHtml, nonce } from './webview/html';
 import { callGemini, callOllama, fetchGeminiModels, fetchOllamaModels } from './ai';
@@ -48,6 +49,7 @@ export async function commandTransformWithExpression(context: vscode.ExtensionCo
 }
 
 export let currentPanel: vscode.WebviewPanel | undefined;
+let panelSwitchToScratchpad: (() => void) | undefined;
 
 export function getCurrentPanel(): vscode.WebviewPanel | undefined {
   return currentPanel;
@@ -57,20 +59,32 @@ export function setCurrentPanel(panel: vscode.WebviewPanel | undefined): void {
   currentPanel = panel;
 }
 
-export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
+export interface QueryEditorOptions {
+  standalone?: boolean;
+}
+
+export async function commandOpenQueryEditor(
+  context: vscode.ExtensionContext,
+  options?: QueryEditorOptions
+) {
   const column = vscode.window.activeTextEditor ? vscode.ViewColumn.Beside : vscode.ViewColumn.One;
 
   if (currentPanel) {
     currentPanel.reveal(currentPanel.viewColumn ?? column);
+    if (options?.standalone) {
+      panelSwitchToScratchpad?.();
+      vscode.window.showInformationMessage('Switched to Standalone Scratchpad Mode.');
+    }
     return;
   }
 
-  let targetUri: vscode.Uri | null = pickInitialTargetUri();
+  const isStandalone = !!options?.standalone;
+  let targetUri: vscode.Uri | null = isStandalone ? null : pickInitialTargetUri();
   const label = (u: vscode.Uri | null) => u ? vscode.workspace.asRelativePath(u) : '(none)';
 
   const panel = vscode.window.createWebviewPanel(
     'jsonQueryTools.queryEditor',
-    'JSON Tools — Query Editor',
+    isStandalone ? 'JSON Tools — JS Scratchpad' : 'JSON Tools — Query Editor',
     column,
     { enableScripts: true, retainContextWhenHidden: true }
   );
@@ -82,6 +96,7 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
     activeAiController = null;
     urlDataCache.clear();
     currentPanel = undefined;
+    panelSwitchToScratchpad = undefined;
   });
 
   let boundFiles: BoundFile[] = [];
@@ -105,7 +120,7 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
     }
   }
 
-  let boundUrls: BoundUrl[] = getPersistedUrls();
+  let boundUrls: BoundUrl[] = isStandalone ? [] : getPersistedUrls();
   const urlDataCache = new LruCache<string, unknown>({
     maxSize: URL_CACHE_MAX_SIZE,
     defaultTtlMs: URL_CACHE_DEFAULT_TTL_MS
@@ -151,6 +166,15 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
     sources: getSerializedSources(),
     boundFiles: boundFiles.map(f => ({ alias: f.alias, label: label(f.uri) }))
   });
+
+  panelSwitchToScratchpad = () => {
+    boundFiles = [];
+    boundUrls = [];
+    urlDataCache.clear();
+    sendSources();
+    sendSchema();
+    panel.title = 'JSON Tools — JS Scratchpad';
+  };
 
   async function getOrFetchUrlData(source: BoundUrl, forceRefresh = false): Promise<unknown> {
     if (!forceRefresh && urlDataCache.has(source.id)) {
@@ -258,6 +282,14 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
             // Ignore background fetch failure on init
           }
         })();
+      } else if (msg.type === 'switchToScratchpad') {
+        boundFiles = [];
+        boundUrls = [];
+        urlDataCache.clear();
+        sendSources();
+        sendSchema();
+        panel.title = 'JSON Tools — JS Scratchpad';
+        vscode.window.showInformationMessage('Switched to Standalone Scratchpad Mode.');
       } else if (msg.type === 'rebind') {
         const initialUri = pickInitialTargetUri();
         if (initialUri) {
@@ -268,6 +300,7 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
           } else {
             boundFiles.unshift({ type: 'file', alias: 'data', uri: initialUri, label: label(initialUri) });
           }
+          panel.title = 'JSON Tools — Query Editor';
           sendSources();
           sendSchema();
         } else {
@@ -736,4 +769,8 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
 export async function copyToClipBoard(text: string) {
   await vscode.env.clipboard.writeText(text);
   vscode.window.showInformationMessage('Copied to clipboard');
+}
+
+export async function commandOpenScratchpad(context: vscode.ExtensionContext) {
+  return commandOpenQueryEditor(context, { standalone: true });
 }

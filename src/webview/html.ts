@@ -902,13 +902,16 @@ export function getQueryEditorHtml(
 </head>
 <body>
   <header>
-    <strong>JSON Tools — Query Editor</strong>
+    <strong id="editorHeaderTitle">JSON Tools — Query Editor</strong>
     <div class="bound-files-container" id="boundFilesContainer">
         ${sourcesHtml}
         <button id="addFile" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Bind another JSON file from workspace or disk">+ Add File</button>
         <button id="addUrl" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Fetch data directly from an HTTP/HTTPS URL with custom headers">+ Add URL</button>
     </div>
-    <button id="rebind" class="secondary" style="margin-left: auto;" title="Rebind 'data' to currently focused editor">🔄 Rebind</button>
+    <div style="margin-left: auto; display: flex; gap: 6px; align-items: center;">
+      <button id="scratchpadBtn" class="secondary" title="Switch to Standalone Scratchpad Mode (generate mocks, test expressions without bound sources)">⚡ Scratchpad</button>
+      <button id="rebind" class="secondary" title="Rebind 'data' to currently focused editor">🔄 Rebind</button>
+    </div>
   </header>
 
 
@@ -1269,6 +1272,20 @@ export function getQueryEditorHtml(
       container.innerHTML = sourcesHtml +
         '<button id="addFile" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Bind another JSON file from workspace or disk">+ Add File</button>' +
         '<button id="addUrl" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Fetch data directly from an HTTP/HTTPS URL with custom headers">+ Add URL</button>';
+
+      const headerTitle = document.getElementById('editorHeaderTitle');
+      const exprInput = document.getElementById('expr');
+      if (currentSources.length === 0) {
+        if (headerTitle) headerTitle.textContent = 'JSON Tools — JS Scratchpad';
+        if (exprInput && (!editor || !editor.getValue())) {
+          exprInput.placeholder = "⚡ Standalone Scratchpad: return mocks, math, or regexes (e.g. Array.from({length: 5}, (_, i) => ({ id: i + 1 })))";
+        }
+      } else {
+        if (headerTitle) headerTitle.textContent = 'JSON Tools — Query Editor';
+        if (exprInput) {
+          exprInput.placeholder = ".filter(x=>x.active).map(x=>({name:x.name})) — Template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}";
+        }
+      }
 
     }
 
@@ -2762,6 +2779,10 @@ export function getQueryEditorHtml(
       vscode.postMessage({ type: 'exportQuery', expr: getEditorValue() });
     };
     rebindBtn.onclick = () => vscode.postMessage({ type: 'rebind' });
+    const scratchpadBtn = document.getElementById('scratchpadBtn');
+    if (scratchpadBtn) {
+      scratchpadBtn.onclick = () => vscode.postMessage({ type: 'switchToScratchpad' });
+    }
     function escapeCsvCell(val) {
       if (val === null || val === undefined) return '';
       const str = typeof val === 'object' ? JSON.stringify(val) : String(val);

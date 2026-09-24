@@ -17,7 +17,8 @@
   ],
   "activationEvents": [
     "onCommand:jsonQueryTools.openHistory",
-    "onCommand:jsonQueryTools.transformWithExpression"
+    "onCommand:jsonQueryTools.transformWithExpression",
+    "onCommand:jsonQueryTools.openScratchpad"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -25,6 +26,10 @@
       {
         "command": "jsonQueryTools.openHistory",
         "title": "JSON Tools: Open Query Editor"
+      },
+      {
+        "command": "jsonQueryTools.openScratchpad",
+        "title": "JSON Tools: Open JS Scratchpad (Standalone Mode)"
       },
       {
         "command": "jsonQueryTools.transformWithExpression",
