@@ -3,9 +3,9 @@ const path = require('path');
 const fs = require('fs');
 
 async function runStreamingTests() {
-  console.log('Testing Result Streaming without artificial delay...');
+  console.log('Testing Result Streaming without artificial delay and without redundant full data re-transmission...');
 
-  // 1. Verify commands.ts source code has removed the artificial 10ms delay
+  // 1. Verify commands.ts source code has removed artificial 10ms delay and redundant data re-transmission
   const commandsPath = path.join(__dirname, '../src/commands.ts');
   const commandsSrc = fs.readFileSync(commandsPath, 'utf8');
 
@@ -18,6 +18,19 @@ async function runStreamingTests() {
     'Expected setImmediate event-loop yield in sendResultStreaming in commands.ts'
   );
   console.log('  ✓ Verified commands.ts uses setImmediate event-loop yield instead of artificial 10ms sleep');
+
+  // Verify resultComplete does not include "data: data"
+  const resultCompleteMatch = commandsSrc.match(/type:\s*['"]resultComplete['"][\s\S]*?\}/);
+  assert.ok(resultCompleteMatch, 'Expected resultComplete message in commands.ts');
+  assert.ok(
+    !resultCompleteMatch[0].includes('data: data'),
+    'Expected resultComplete to omit redundant data: data payload'
+  );
+  assert.ok(
+    resultCompleteMatch[0].includes('isComplete: true'),
+    'Expected resultComplete to pass metadata { isComplete: true }'
+  );
+  console.log('  ✓ Verified commands.ts sends metadata only on resultComplete without redundant data payload');
 
   // 2. Simulate sendResultStreaming implementation directly
   const STREAMING_THRESHOLD = 1000;
@@ -49,10 +62,11 @@ async function runStreamingTests() {
         await new Promise(resolve => typeof setImmediate === 'function' ? setImmediate(resolve) : setTimeout(resolve, 0));
       }
 
+      // Send final completion message with metadata only
       postMessageFn({
         type: 'resultComplete',
-        text: 'done',
-        data
+        isComplete: true,
+        totalItems: data.length
       });
     } else {
       postMessageFn({
@@ -63,13 +77,30 @@ async function runStreamingTests() {
   }
 
   // Test 10,000 items (20 chunks)
-  // With 10ms delay: 20 * 10ms = 200ms+
-  // With setImmediate: < 30ms
   const messages = [];
   const testData = Array.from({ length: 10000 }, (_, i) => ({ id: i, name: `Item ${i}` }));
 
+  // Simulate webview client side state
+  let clientStreamingData = null;
+  let clientCurrentResultData = null;
+
+  function webviewOnMessage(msg) {
+    messages.push(msg);
+    if (msg.type === 'resultStart') {
+      clientStreamingData = [];
+      clientCurrentResultData = null;
+    } else if (msg.type === 'resultChunk') {
+      if (!clientStreamingData) clientStreamingData = [];
+      clientStreamingData.push(...msg.chunk);
+    } else if (msg.type === 'resultComplete') {
+      // Finalize aggregated streaming data without requiring msg.data
+      clientCurrentResultData = msg.data || clientStreamingData || null;
+      clientStreamingData = null;
+    }
+  }
+
   const start = Date.now();
-  await simulateSendResultStreaming(testData, (msg) => messages.push(msg));
+  await simulateSendResultStreaming(testData, webviewOnMessage);
   const elapsed = Date.now() - start;
 
   assert.strictEqual(messages[0].type, 'resultStart');
@@ -91,10 +122,20 @@ async function runStreamingTests() {
   assert.strictEqual(lastChunk.isLast, true);
   assert.strictEqual(lastChunk.chunk.length, 500);
 
-  // Check resultComplete
+  // Check resultComplete metadata only
   const lastMsg = messages[messages.length - 1];
   assert.strictEqual(lastMsg.type, 'resultComplete');
-  assert.strictEqual(lastMsg.data.length, 10000);
+  assert.strictEqual(lastMsg.isComplete, true);
+  assert.strictEqual(lastMsg.totalItems, 10000);
+  assert.strictEqual(lastMsg.data, undefined, 'resultComplete must not retransmit data payload');
+
+  // Verify webview aggregated all 10,000 items from chunks
+  assert.ok(Array.isArray(clientCurrentResultData), 'Expected clientCurrentResultData to be an array');
+  assert.strictEqual(clientCurrentResultData.length, 10000);
+  assert.strictEqual(clientCurrentResultData[0].name, 'Item 0');
+  assert.strictEqual(clientCurrentResultData[9999].name, 'Item 9999');
+  assert.strictEqual(clientStreamingData, null, 'Expected clientStreamingData buffer to be cleared after finalization');
+  console.log('  ✓ Webview successfully finalizes aggregated streaming chunks upon receiving metadata-only resultComplete');
 
   console.log(`  ✓ 10,000 items (20 chunks) streamed in ${elapsed}ms (fast, < 50ms)`);
   assert.ok(elapsed < 100, `Streaming 10,000 items took too long: ${elapsed}ms`);

@@ -202,11 +202,11 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         await new Promise(resolve => typeof setImmediate === 'function' ? setImmediate(resolve) : setTimeout(resolve, 0));
       }
       
-      // Send final complete result for operations that need full data
+      // Send final completion message with metadata only (avoid re-transmitting entire dataset)
       panel.webview.postMessage({
         type: 'resultComplete',
-        text: text,
-        data: data
+        isComplete: true,
+        totalItems: data.length
       });
     } else {
       // Small results - send normally
@@ -478,8 +478,9 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
 
         const result = evaluateExpression(boundFiles, dataMap, expr);
         if (msg.save) { await pushHistory(context, expr); sendHistory(); }
-        // Use streaming for large results
-        await sendResultStreaming(stringify(result), result);
+        // Use streaming for large results (skip expensive full stringify in host)
+        const isStreaming = Array.isArray(result) && result.length >= STREAMING_THRESHOLD;
+        await sendResultStreaming(isStreaming ? '' : stringify(result), result);
       } else if (msg.type === 'save') {
         await pushHistory(context, String(msg.expr || ''));
         sendHistory();

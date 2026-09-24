@@ -3419,6 +3419,13 @@ export function getQueryEditorHtml(
         if (isArray) info += ', ' + data.length + ' item' + (data.length !== 1 ? 's' : '');
         if (isObject) info += ', ' + Object.keys(data).length + ' key' + (Object.keys(data).length !== 1 ? 's' : '');
         resultInfo.textContent = info;
+      } else if (data) {
+        const isArray = Array.isArray(data);
+        const isObject = typeof data === 'object' && !Array.isArray(data) && data !== null;
+        let info = '';
+        if (isArray) info = data.length.toLocaleString() + ' item' + (data.length !== 1 ? 's' : '');
+        else if (isObject) info = Object.keys(data).length + ' key' + (Object.keys(data).length !== 1 ? 's' : '');
+        resultInfo.textContent = info;
       } else {
         resultInfo.textContent = '';
       }
