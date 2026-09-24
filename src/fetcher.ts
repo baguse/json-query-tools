@@ -1,5 +1,6 @@
 import { HttpMethod } from './types';
 import { stripJsoncComments } from './jsonc';
+import { resolveFetchOptions, TemplateResolutionOptions } from './template';
 
 export interface FetchOptions {
   url: string;
@@ -7,6 +8,8 @@ export interface FetchOptions {
   headers?: Record<string, string> | string;
   body?: string;
   timeoutMs?: number;
+  templateVariables?: Record<string, string>;
+  templateOptions?: TemplateResolutionOptions;
 }
 
 /**
@@ -87,7 +90,8 @@ export interface FetchDetailsResult {
  * returning full response status, timing, headers, and parsed data.
  */
 export async function fetchUrlWithDetails(options: FetchOptions): Promise<FetchDetailsResult> {
-  const urlStr = (options.url || '').trim();
+  const resolved = resolveFetchOptions(options);
+  const urlStr = (resolved.url || '').trim();
   if (!urlStr) {
     throw new Error('URL cannot be empty.');
   }
@@ -103,8 +107,8 @@ export async function fetchUrlWithDetails(options: FetchOptions): Promise<FetchD
     throw new Error(`Unsupported protocol: "${parsedUrl.protocol}". Only http:// and https:// are supported.`);
   }
 
-  const method = (options.method || 'GET').toUpperCase() as HttpMethod;
-  const parsedHeaders = parseHeaders(options.headers);
+  const method = (resolved.method || 'GET').toUpperCase() as HttpMethod;
+  const parsedHeaders = parseHeaders(resolved.headers);
 
   // Set default Accept header if not explicitly defined
   const hasAccept = Object.keys(parsedHeaders).some(k => k.toLowerCase() === 'accept');
@@ -112,7 +116,7 @@ export async function fetchUrlWithDetails(options: FetchOptions): Promise<FetchD
     parsedHeaders['Accept'] = 'application/json, text/plain, */*';
   }
 
-  const timeoutMs = options.timeoutMs ?? 15000;
+  const timeoutMs = resolved.timeoutMs ?? 15000;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -123,11 +127,11 @@ export async function fetchUrlWithDetails(options: FetchOptions): Promise<FetchD
   };
 
   // Attach body for methods that support payload
-  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && options.body !== undefined && options.body.trim() !== '') {
-    fetchInit.body = options.body;
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) && resolved.body !== undefined && resolved.body.trim() !== '') {
+    fetchInit.body = resolved.body;
     const hasContentType = Object.keys(parsedHeaders).some(k => k.toLowerCase() === 'content-type');
     if (!hasContentType) {
-      const trimmedBody = options.body.trim();
+      const trimmedBody = resolved.body.trim();
       if (trimmedBody.startsWith('{') || trimmedBody.startsWith('[')) {
         (fetchInit.headers as Record<string, string>)['Content-Type'] = 'application/json';
       }

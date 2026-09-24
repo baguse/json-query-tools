@@ -133,6 +133,121 @@ async function runTemplateVarsTests() {
   assert.strictEqual(new Function(multiResolved)(), true);
   console.log('  ✓ Multiple variable occurrences all replaced');
 
+  // 8. Environment variables resolution ($env.VAR and env.VAR)
+  process.env.JSON_TOOLS_TEST_KEY = 'secret-token-12345';
+  process.env.JSON_TOOLS_TEST_PORT = '9000';
+
+  const envExpr1 = 'Bearer {{$env.JSON_TOOLS_TEST_KEY}}';
+  assert.strictEqual(resolveTemplateVariables(envExpr1), 'Bearer secret-token-12345');
+
+  const envExpr2 = 'Bearer {{env.JSON_TOOLS_TEST_KEY}}';
+  assert.strictEqual(resolveTemplateVariables(envExpr2), 'Bearer secret-token-12345');
+
+  const envExprSpaces = 'Bearer {{  $env.JSON_TOOLS_TEST_KEY   }}';
+  assert.strictEqual(resolveTemplateVariables(envExprSpaces), 'Bearer secret-token-12345');
+
+  const envUndefined = 'Key: {{$env.UNDEFINED_VAR_XYZ}}';
+  assert.strictEqual(resolveTemplateVariables(envUndefined), 'Key: ');
+  console.log('  ✓ Environment variables ($env.VAR and env.VAR with spaces) resolved properly');
+
+  // 9. URL Context built-in variables (url, host, hostname, origin, pathname, port, method, alias)
+  const urlContext = {
+    url: 'https://api.example.com:8443/v1/orders/export?limit=10',
+    method: 'POST',
+    alias: 'ordersApi'
+  };
+  const urlVars = getTemplateVariables(undefined, urlContext);
+  assert.strictEqual(urlVars.url, 'https://api.example.com:8443/v1/orders/export?limit=10');
+  assert.strictEqual(urlVars.host, 'api.example.com:8443');
+  assert.strictEqual(urlVars.hostname, 'api.example.com');
+  assert.strictEqual(urlVars.origin, 'https://api.example.com:8443');
+  assert.strictEqual(urlVars.pathname, '/v1/orders/export');
+  assert.strictEqual(urlVars.port, '8443');
+  assert.strictEqual(urlVars.method, 'POST');
+  assert.strictEqual(urlVars.alias, 'ordersApi');
+
+  const urlSubstituted = resolveTemplateVariables(
+    'Host is {{host}}, method is {{method}}, alias is {{alias}}',
+    undefined,
+    urlContext
+  );
+  assert.strictEqual(urlSubstituted, 'Host is api.example.com:8443, method is POST, alias is ordersApi');
+  console.log('  ✓ URL context built-in variables (url, host, pathname, port, method, alias) resolved correctly');
+
+  // 10. resolveFetchOptions with URL template substitution
+  const { resolveFetchOptions } = mod.exports;
+  const rawFetchOpts = {
+    url: '{{baseUrl}}/users/{{$env.JSON_TOOLS_TEST_PORT}}?api_key={{$env.JSON_TOOLS_TEST_KEY}}',
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer {{$env.JSON_TOOLS_TEST_KEY}}',
+      'X-Forwarded-Host': '{{host}}',
+      'X-Method': '{{method}}'
+    },
+    body: '{"service": "json-tools", "folder": "{{workspaceFolder}}", "token": "{{$env.JSON_TOOLS_TEST_KEY}}"}',
+    templateVariables: {
+      baseUrl: 'https://api.internal.net'
+    }
+  };
+
+  const resolvedOpts = resolveFetchOptions(rawFetchOpts, {
+    workspaceFolder: 'C:/Test/Workspace'
+  });
+
+  assert.strictEqual(
+    resolvedOpts.url,
+    'https://api.internal.net/users/9000?api_key=secret-token-12345'
+  );
+  assert.strictEqual(resolvedOpts.headers['Authorization'], 'Bearer secret-token-12345');
+  assert.strictEqual(resolvedOpts.headers['X-Forwarded-Host'], 'api.internal.net');
+  assert.strictEqual(resolvedOpts.headers['X-Method'], 'POST');
+  assert.strictEqual(
+    resolvedOpts.body,
+    '{"service": "json-tools", "folder": "C:/Test/Workspace", "token": "secret-token-12345"}'
+  );
+  console.log('  ✓ resolveFetchOptions resolves URL, headers, and body with cascading context');
+
+  // 11. Percent-encoded URL braces (%7B%7B...%7D%7D)
+  const encodedUrlExpr = 'https://api.example.com/v1?token=%7B%7B$env.JSON_TOOLS_TEST_KEY%7D%7D';
+  const encodedResolved = mod.exports.resolveVariables(encodedUrlExpr);
+  assert.strictEqual(encodedResolved, 'https://api.example.com/v1?token=secret-token-12345');
+  console.log('  ✓ Percent-encoded braces (%7B%7B...%7D%7D) in URLs properly resolved');
+
+  // 12. Preservation of unmatched template variables
+  const unmatchedExpr = 'Hello {{unknownVar}}, your order {{order_id}} is ready: {{$env.JSON_TOOLS_TEST_KEY}}';
+  const unmatchedResolved = mod.exports.resolveVariables(unmatchedExpr);
+  assert.strictEqual(
+    unmatchedResolved,
+    'Hello {{unknownVar}}, your order {{order_id}} is ready: secret-token-12345'
+  );
+  console.log('  ✓ Unmatched template variables preserved intact without corruption');
+
+  // 13. Direct zero-dependency bundle verification for src/template.ts
+  const templateResult = await esbuild.build({
+    entryPoints: [path.join(__dirname, '../src/template.ts')],
+    bundle: true,
+    platform: 'node',
+    write: false,
+    format: 'cjs'
+  });
+  const standaloneTemplateMod = { exports: {} };
+  new Function('module', 'exports', 'require', '__dirname', templateResult.outputFiles[0].text)(
+    standaloneTemplateMod,
+    standaloneTemplateMod.exports,
+    require,
+    path.join(__dirname, '../src')
+  );
+
+  const directResolved = standaloneTemplateMod.exports.resolveVariables(
+    '{{baseUrl}}/status',
+    { customVariables: { baseUrl: 'https://status.io' } }
+  );
+  assert.strictEqual(directResolved, 'https://status.io/status');
+  console.log('  ✓ src/template.ts functions standalone without vscode runtime dependency');
+
+  delete process.env.JSON_TOOLS_TEST_KEY;
+  delete process.env.JSON_TOOLS_TEST_PORT;
+
   console.log('\n✅ All template variable tests passed successfully!');
 }
 

@@ -58,7 +58,7 @@
         "jsonQueryTools.templateVariables": {
           "type": "object",
           "default": {},
-          "description": "Custom template variables for expressions. Use {{variableName}} in your JS expression; values are substituted before evaluation. Built-ins: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}."
+          "description": "Custom template variables for expressions, URLs, headers, and bodies. Use {{variableName}}, {{$env.VAR_NAME}}, or built-ins: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}, {{url}}, {{host}}, {{method}}, {{alias}}."
         }
       }
     }

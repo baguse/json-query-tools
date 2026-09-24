@@ -9,6 +9,7 @@ import { inferSchemaFromData } from './schema';
 import { getQueryEditorHtml, nonce } from './webview/html';
 import { callGemini, callOllama, fetchGeminiModels, fetchOllamaModels } from './ai';
 import { fetchUrlData, fetchUrlWithDetails, parseHeaders } from './fetcher';
+import { getTemplateVariables } from './config';
 
 
 export async function commandTransformWithExpression(context: vscode.ExtensionContext) {
@@ -19,7 +20,7 @@ export async function commandTransformWithExpression(context: vscode.ExtensionCo
       return;
     }
     const expr = await vscode.window.showInputBox({
-      prompt: 'Enter JS expression. Use variable `data`; optional template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}'
+      prompt: 'Enter JS expression. Use variable `data`; optional template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}, {{$env.VAR}}'
     });
     if (!expr) return;
 
@@ -180,11 +181,17 @@ export async function commandOpenQueryEditor(
     if (!forceRefresh && urlDataCache.has(source.id)) {
       return urlDataCache.get(source.id);
     }
+    const templateVariables = getTemplateVariables(undefined, {
+      url: source.url,
+      method: source.method,
+      alias: source.alias
+    });
     const data = await fetchUrlData({
       url: source.url,
       method: source.method,
       headers: source.headers,
-      body: source.body
+      body: source.body,
+      templateVariables
     });
     source.lastFetched = Date.now();
     urlDataCache.set(source.id, data);
@@ -388,11 +395,17 @@ export async function commandOpenQueryEditor(
 
           try {
             const parsedHeaders = parseHeaders(src.headers);
+            const templateVariables = getTemplateVariables(undefined, {
+              url: src.url,
+              method: src.method || 'GET',
+              alias
+            });
             const data = await fetchUrlData({
               url: src.url,
               method: src.method || 'GET',
               headers: parsedHeaders,
-              body: src.body
+              body: src.body,
+              templateVariables
             });
 
             const boundUrl: BoundUrl = {
@@ -442,11 +455,17 @@ export async function commandOpenQueryEditor(
           }
           try {
             const parsedHeaders = parseHeaders(src.headers);
+            const templateVariables = getTemplateVariables(undefined, {
+              url: src.url,
+              method: src.method || 'GET',
+              alias: src.alias || 'data'
+            });
             const details = await fetchUrlWithDetails({
               url: src.url,
               method: src.method || 'GET',
               headers: parsedHeaders,
-              body: src.body
+              body: src.body,
+              templateVariables
             });
 
             // Avoid transferring massive payloads across IPC for a small preview pane

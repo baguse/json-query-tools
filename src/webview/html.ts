@@ -1094,7 +1094,8 @@ export function getQueryEditorHtml(
           </div>
           <div class="form-group" style="flex: 1;">
             <label for="urlEndpoint">URL</label>
-            <input type="text" id="urlEndpoint" placeholder="https://api.example.com/v1/data">
+            <input type="text" id="urlEndpoint" placeholder="https://api.example.com/v1/data or {{baseUrl}}/users">
+            <span class="form-hint" style="font-size: 10px; margin-top: 2px;">Supports <code>{{$env.VAR_NAME}}</code> and <code>{{baseUrl}}</code></span>
           </div>
         </div>
 
@@ -1138,8 +1139,8 @@ export function getQueryEditorHtml(
         <div id="tabPaneHeaders" class="request-tab-pane" style="display: none;">
           <div class="form-group">
             <label for="urlHeaders">Custom Headers</label>
-            <textarea id="urlHeaders" rows="4" placeholder="Authorization: Bearer your-token&#10;Accept: application/json&#10;X-Custom-Header: value"></textarea>
-            <span class="form-hint">Enter one header per line as <code>Header-Name: value</code> or as a JSON object.</span>
+            <textarea id="urlHeaders" rows="4" placeholder="Authorization: Bearer {{$env.API_KEY}}&#10;Accept: application/json&#10;X-Custom-Header: value"></textarea>
+            <span class="form-hint">Enter one header per line as <code>Header-Name: value</code> or as JSON. Supports <code>{{$env.VAR}}</code>.</span>
           </div>
         </div>
 
@@ -1148,7 +1149,7 @@ export function getQueryEditorHtml(
           <div class="form-group" id="urlBodyGroup">
             <label for="urlBody">Request Body</label>
             <textarea id="urlBody" rows="5" placeholder="{&#10;  &quot;query&quot;: &quot;value&quot;&#10;}"></textarea>
-            <span class="form-hint">Payload for POST, PUT, PATCH, DELETE requests.</span>
+            <span class="form-hint">Payload for POST, PUT, PATCH, DELETE requests. Supports <code>{{$env.VAR}}</code> and <code>{{baseUrl}}</code>.</span>
           </div>
         </div>
 
@@ -4569,12 +4570,19 @@ export function getQueryEditorHtml(
         base = base.slice(0, qIdx);
       }
 
+      function safeEncodeParam(str) {
+        return encodeURIComponent(str)
+          .replace(/%7B%7B/gi, '{{')
+          .replace(/%7D%7D/gi, '}}')
+          .replace(/%24/g, '$');
+      }
+
       const activePairs = [];
       for (let i = 0; i < params.length; i++) {
         const p = params[i];
         if (p.enabled && (p.key.trim() || p.value.trim())) {
-          const k = encodeURIComponent(p.key);
-          const v = encodeURIComponent(p.value);
+          const k = safeEncodeParam(p.key);
+          const v = safeEncodeParam(p.value);
           if (p.value !== '') {
             activePairs.push(k + '=' + v);
           } else {
@@ -5012,8 +5020,9 @@ export function getQueryEditorHtml(
           return;
         }
         const lowerUrl = url.toLowerCase();
-        if (!lowerUrl.startsWith('http://') && !lowerUrl.startsWith('https://')) {
-          showUrlModalAlert('Invalid URL: must start with http:// or https://');
+        const hasTemplatePrefix = lowerUrl.startsWith('{{') || lowerUrl.startsWith('%7b%7b');
+        if (!lowerUrl.startsWith('http://') && !lowerUrl.startsWith('https://') && !hasTemplatePrefix) {
+          showUrlModalAlert('Invalid URL: must start with http://, https://, or a variable template like {{baseUrl}}');
           if (urlEndpoint) urlEndpoint.focus();
           return;
         }
@@ -5059,8 +5068,9 @@ export function getQueryEditorHtml(
           return;
         }
         const lowerUrl = url.toLowerCase();
-        if (!lowerUrl.startsWith('http://') && !lowerUrl.startsWith('https://')) {
-          showUrlModalAlert('Invalid URL: must start with http:// or https://');
+        const hasTemplatePrefix = lowerUrl.startsWith('{{') || lowerUrl.startsWith('%7b%7b');
+        if (!lowerUrl.startsWith('http://') && !lowerUrl.startsWith('https://') && !hasTemplatePrefix) {
+          showUrlModalAlert('Invalid URL: must start with http://, https://, or a variable template like {{baseUrl}}');
           if (urlEndpoint) urlEndpoint.focus();
           return;
         }

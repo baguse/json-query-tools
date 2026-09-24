@@ -1,33 +1,60 @@
 import * as vscode from 'vscode';
+import {
+  getBuiltinVariables,
+  resolveVariables,
+  resolveFetchOptions,
+  UrlTemplateContext,
+  TemplateResolutionOptions
+} from './template';
 
-/** Template variable syntax: {{variableName}}. Built-ins: fileName, filePath, fileDir, workspaceFolder. */
-export function getTemplateVariables(targetUri?: vscode.Uri): Record<string, string> {
+export {
+  getBuiltinVariables,
+  resolveVariables,
+  resolveFetchOptions,
+  UrlTemplateContext,
+  TemplateResolutionOptions
+};
+
+/**
+ * Returns all active template variables including custom variables,
+ * workspace folder, active file paths, and URL context (if provided).
+ */
+export function getTemplateVariables(
+  targetUri?: vscode.Uri,
+  urlContext?: UrlTemplateContext
+): Record<string, string> {
   const config = vscode.workspace.getConfiguration('jsonQueryTools');
   const custom = config.get<Record<string, string>>('templateVariables') ?? {};
-  const builtins: Record<string, string> = { ...custom };
+
+  let targetPath: string | undefined;
   if (targetUri) {
-    const normalizedFsPath = targetUri.fsPath.replace(/\\/g, '/');
-    const parts = normalizedFsPath.split('/');
-    builtins['fileName'] = parts[parts.length - 1] ?? '';
-    builtins['filePath'] = normalizedFsPath;
-    const dirParts = parts.slice(0, -1);
-    builtins['fileDir'] = dirParts.length === 1 && dirParts[0] === '' ? '/' : dirParts.join('/');
+    targetPath = targetUri.fsPath;
   }
-  const wf = targetUri 
-    ? vscode.workspace.getWorkspaceFolder(targetUri) 
+
+  let workspaceFolder: string | undefined;
+  const wf = targetUri
+    ? vscode.workspace.getWorkspaceFolder(targetUri)
     : vscode.workspace.workspaceFolders?.[0];
   if (wf) {
-    builtins['workspaceFolder'] = wf.uri.fsPath.replace(/\\/g, '/');
+    workspaceFolder = wf.uri.fsPath;
   }
-  return builtins;
+
+  return getBuiltinVariables({
+    targetPath,
+    workspaceFolder,
+    urlContext,
+    customVariables: custom
+  });
 }
 
-export function resolveTemplateVariables(expr: string, targetUri?: vscode.Uri): string {
-  const vars = getTemplateVariables(targetUri);
-  let out = expr;
-  for (const [name, value] of Object.entries(vars)) {
-    const placeholder = `{{${name}}}`;
-    out = out.split(placeholder).join(value);
-  }
-  return out;
+/**
+ * Substitutes template variables in an expression or string using VS Code workspace context.
+ */
+export function resolveTemplateVariables(
+  expr: string,
+  targetUri?: vscode.Uri,
+  urlContext?: UrlTemplateContext
+): string {
+  const vars = getTemplateVariables(targetUri, urlContext);
+  return resolveVariables(expr, vars);
 }

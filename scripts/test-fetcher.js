@@ -172,6 +172,28 @@ async function runFetcherTests() {
     );
     console.log('  ✓ fetchUrlData throws on non-2xx response');
 
+    // Test template variables in URL, headers, and body
+    process.env.JSON_TOOLS_FETCHER_KEY = 'secret-fetcher-token';
+    const templatedRes = await fetchUrlWithDetails({
+      url: '{{mockBase}}/echo',
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer {{$env.JSON_TOOLS_FETCHER_KEY}}',
+        'X-Service': '{{serviceName}}'
+      },
+      body: JSON.stringify({ path: '{{pathname}}', token: '{{$env.JSON_TOOLS_FETCHER_KEY}}' }),
+      templateVariables: {
+        mockBase: baseUrl,
+        serviceName: 'my-microservice'
+      }
+    });
+    assert.strictEqual(templatedRes.status, 200);
+    assert.strictEqual(templatedRes.data.headers['authorization'], 'Bearer secret-fetcher-token');
+    assert.strictEqual(templatedRes.data.headers['x-service'], 'my-microservice');
+    assert.deepStrictEqual(templatedRes.data.body, { path: '/echo', token: 'secret-fetcher-token' });
+    delete process.env.JSON_TOOLS_FETCHER_KEY;
+    console.log('  ✓ fetchUrlWithDetails dynamically resolves template variables in URL, headers, and body');
+
   } finally {
     server.close();
   }
