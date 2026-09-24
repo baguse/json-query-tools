@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { HISTORY_KEY, URL_SOURCES_KEY } from './constants';
+import { HISTORY_KEY, URL_SOURCES_KEY, URL_CACHE_MAX_SIZE, URL_CACHE_DEFAULT_TTL_MS } from './constants';
+import { LruCache } from './cache';
 import { BoundFile, BoundUrl, SerializedBoundSource } from './types';
 import { getHistory, pushHistory } from './history';
 import { evaluateExpression, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression } from './evaluator';
@@ -63,6 +64,7 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
   panel.onDidDispose(() => {
     activeAiController?.abort();
     activeAiController = null;
+    urlDataCache.clear();
   });
 
   let boundFiles: BoundFile[] = [];
@@ -87,7 +89,10 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
   }
 
   let boundUrls: BoundUrl[] = getPersistedUrls();
-  const urlDataCache = new Map<string, unknown>();
+  const urlDataCache = new LruCache<string, unknown>({
+    maxSize: URL_CACHE_MAX_SIZE,
+    defaultTtlMs: URL_CACHE_DEFAULT_TTL_MS
+  });
 
   function getSerializedSources(): SerializedBoundSource[] {
     const list: SerializedBoundSource[] = [];
