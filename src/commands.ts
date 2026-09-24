@@ -1006,7 +1006,7 @@ export async function commandOpenQueryEditor(
           }
         }
       } else if (msg.type === 'copyToClipboard') {
-        await copyToClipBoard(String(msg.text || ''));
+        await copyToClipboard(String(msg.text || ''));
       } else if (msg.type === 'saveImage') {
         const base64 = msg.data;
         const buf = Buffer.from(base64, 'base64');
@@ -1163,10 +1163,15 @@ export async function commandOpenQueryEditor(
   });
 }
 
-export async function copyToClipBoard(text: string) {
+export async function copyToClipboard(text: string) {
   await vscode.env.clipboard.writeText(text);
   vscode.window.showInformationMessage('Copied to clipboard');
 }
+
+/**
+ * Backward compatibility alias for copyToClipboard.
+ */
+export const copyToClipBoard = copyToClipboard;
 
 export async function commandOpenScratchpad(context: vscode.ExtensionContext) {
   return commandOpenQueryEditor(context, { standalone: true });

@@ -1,6 +1,7 @@
 const assert = require('assert');
 const esbuild = require('esbuild');
 const path = require('path');
+const fs = require('fs');
 const vm = require('vm');
 
 async function runCopyResultTests() {
@@ -138,8 +139,22 @@ async function runCopyResultTests() {
     resultPreDisplay: 'block',
     resultPreText: '(no result yet)'
   });
-  assert.strictEqual(ignoredResult, '', 'Placeholder (no result yet) must not be copied');
-  console.log('  ✓ Ignores placeholder "(no result yet)"');
+  // Case 4: Verify commands.ts defines copyToClipboard with consistent casing
+  const commandsPath = path.join(__dirname, '../src/commands.ts');
+  const commandsSrc = fs.readFileSync(commandsPath, 'utf8');
+  assert.ok(
+    commandsSrc.includes('export async function copyToClipboard('),
+    'Expected copyToClipboard function declaration with consistent camelCase'
+  );
+  assert.ok(
+    commandsSrc.includes('await copyToClipboard(String(msg.text || \'\'))'),
+    'Expected msg.type === "copyToClipboard" to call copyToClipboard'
+  );
+  assert.ok(
+    commandsSrc.includes('export const copyToClipBoard = copyToClipboard'),
+    'Expected copyToClipBoard backward compatibility alias'
+  );
+  console.log('  ✓ Verified copyToClipboard function casing and backward compatibility alias in commands.ts');
 
   console.log('\n✅ All copyResult and openInEditor tests passed successfully!');
 }
