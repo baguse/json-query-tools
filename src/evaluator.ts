@@ -43,7 +43,13 @@ export function checkForMaliciousExpression(expr: string): string | null {
   return null;
 }
 
-export function evaluateExpression(boundFiles: BoundFile[], dataMap: Record<string, unknown>, expr: string): unknown {
+const AsyncFunction: new (...args: string[]) => Function = Object.getPrototypeOf(async function () {}).constructor;
+
+export function evaluateExpression(
+  boundFiles: BoundFile[],
+  dataMap: Record<string, unknown>,
+  expr: string
+): unknown | Promise<unknown> {
   const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
   const resolvedExpr = resolveTemplateVariables(expr, primaryUri);
   const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
@@ -60,35 +66,92 @@ export function evaluateExpression(boundFiles: BoundFile[], dataMap: Record<stri
 
   // Construct function with dynamic argument names based on aliases
   const fnArgs = [...aliases, 'require', `${resolvedExpr}`];
-  const fn = new Function(...fnArgs);
+  let fn: Function;
+  try {
+    fn = new Function(...fnArgs);
+  } catch (err: any) {
+    if (err instanceof SyntaxError && /\bawait\b/.test(resolvedExpr)) {
+      fn = new AsyncFunction(...fnArgs);
+    } else {
+      throw err;
+    }
+  }
 
   // First evaluation: run the expression against (data1, data2, ..., require)
   let firstResult = fn(...dataValues, req) as unknown;
 
+  const resolveResult = (res: unknown): unknown | Promise<unknown> => {
+    const finalResult =
+      typeof res === 'function'
+        ? (res as (...args: unknown[]) => unknown)(...dataValues, req)
+        : res;
+
+    if (finalResult && (finalResult instanceof Promise || typeof (finalResult as any).then === 'function')) {
+      return (async () => {
+        const resolved = await finalResult;
+        if (typeof resolved === 'undefined') {
+          vscode.window.showWarningMessage(
+            'Expression returned void (undefined). Ensure your expression or query function includes a `return` statement to provide a result.'
+          );
+        }
+        return resolved;
+      })();
+    }
+
+    if (typeof finalResult === 'undefined') {
+      vscode.window.showWarningMessage(
+        'Expression returned void (undefined). Ensure your expression or query function includes a `return` statement to provide a result.'
+      );
+    }
+
+    return finalResult;
+  };
+
+  // If firstResult is a Promise/Thenable, await it before checking if implicit return is required
+  if (firstResult && (firstResult instanceof Promise || typeof (firstResult as any).then === 'function')) {
+    return (async () => {
+      let awaitedFirst = await firstResult;
+      if (typeof awaitedFirst === 'undefined') {
+        try {
+          let implicitReturnFn: Function;
+          try {
+            implicitReturnFn = new Function(...aliases, 'require', `return (${resolvedExpr});`);
+          } catch (err: any) {
+            if (err instanceof SyntaxError && /\bawait\b/.test(resolvedExpr)) {
+              implicitReturnFn = new AsyncFunction(...aliases, 'require', `return (${resolvedExpr});`);
+            } else {
+              throw err;
+            }
+          }
+          awaitedFirst = await implicitReturnFn(...dataValues, req);
+        } catch {
+          // Expression was not a single expression statement
+        }
+      }
+      return resolveResult(awaitedFirst);
+    })();
+  }
+
   // If result is undefined, attempt implicit return for single expressions (e.g. `data.map(...)` or `(a, b) => ...`)
   if (typeof firstResult === 'undefined') {
     try {
-      const implicitReturnFn = new Function(...aliases, 'require', `return (${resolvedExpr});`);
+      let implicitReturnFn: Function;
+      try {
+        implicitReturnFn = new Function(...aliases, 'require', `return (${resolvedExpr});`);
+      } catch (err: any) {
+        if (err instanceof SyntaxError && /\bawait\b/.test(resolvedExpr)) {
+          implicitReturnFn = new AsyncFunction(...aliases, 'require', `return (${resolvedExpr});`);
+        } else {
+          throw err;
+        }
+      }
       firstResult = implicitReturnFn(...dataValues, req);
     } catch {
       // Expression was not a single expression statement (e.g. multi-statement block without return)
     }
   }
 
-  // If the expression itself evaluates to a function (e.g. (data) => { ... } or (users, orders) => { ... }),
-  // treat that as the "query function" and invoke it with all bound data source values and require.
-  const finalResult =
-    typeof firstResult === 'function'
-      ? (firstResult as (...args: unknown[]) => unknown)(...dataValues, req)
-      : firstResult;
-
-  if (typeof finalResult === 'undefined') {
-    vscode.window.showWarningMessage(
-      'Expression returned void (undefined). Ensure your expression or query function includes a `return` statement to provide a result.'
-    );
-  }
-
-  return finalResult;
+  return resolveResult(firstResult);
 }
 
 // --- Helpers to read JSON document by URI (works even when webview focused)
