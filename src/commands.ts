@@ -8,7 +8,7 @@ export { evaluateExpression };
 import { inferSchemaFromData } from './schema';
 import { getQueryEditorHtml, nonce } from './webview/html';
 import { callGemini, callOllama, fetchGeminiModels, fetchOllamaModels } from './ai';
-import { fetchUrlData, fetchUrlWithDetails, parseHeaders } from './fetcher';
+import { fetchUrlWithDetails, parseHeaders } from './fetcher';
 import { getTemplateVariables } from './config';
 import { formatData, getFileExtension, getFormatFilters } from './export';
 
@@ -152,7 +152,10 @@ export async function commandOpenQueryEditor(
         method: u.method,
         headers: u.headers,
         body: u.body,
-        lastFetched: u.lastFetched
+        lastFetched: u.lastFetched,
+        lastResponseHeaders: u.lastResponseHeaders,
+        lastStatus: u.lastStatus,
+        lastStatusText: u.lastStatusText
       });
     }
     return list;
@@ -187,7 +190,7 @@ export async function commandOpenQueryEditor(
       method: source.method,
       alias: source.alias
     });
-    const data = await fetchUrlData({
+    const result = await fetchUrlWithDetails({
       url: source.url,
       method: source.method,
       headers: source.headers,
@@ -195,9 +198,21 @@ export async function commandOpenQueryEditor(
       templateVariables
     });
     source.lastFetched = Date.now();
-    urlDataCache.set(source.id, data);
-    return data;
+    source.lastResponseHeaders = result.headers;
+    source.lastStatus = result.status;
+    source.lastStatusText = result.statusText;
+    if (!result.ok) {
+      let errSnippet = '';
+      if (result.data !== null && result.data !== undefined) {
+        const s = typeof result.data === 'string' ? result.data : JSON.stringify(result.data);
+        if (s) errSnippet = `: ${s.slice(0, 300)}${s.length > 300 ? '...' : ''}`;
+      }
+      throw new Error(`HTTP ${result.status} ${result.statusText}${errSnippet}`);
+    }
+    urlDataCache.set(source.id, result.data);
+    return result.data;
   }
+
 
   async function buildDataMap(): Promise<Record<string, unknown>> {
     const dataMap: Record<string, unknown> = {};
@@ -401,13 +416,21 @@ export async function commandOpenQueryEditor(
               method: src.method || 'GET',
               alias
             });
-            const data = await fetchUrlData({
+            const result = await fetchUrlWithDetails({
               url: src.url,
               method: src.method || 'GET',
               headers: parsedHeaders,
               body: src.body,
               templateVariables
             });
+            if (!result.ok) {
+              let errSnippet = '';
+              if (result.data !== null && result.data !== undefined) {
+                const s = typeof result.data === 'string' ? result.data : JSON.stringify(result.data);
+                if (s) errSnippet = `: ${s.slice(0, 300)}${s.length > 300 ? '...' : ''}`;
+              }
+              throw new Error(`HTTP ${result.status} ${result.statusText}${errSnippet}`);
+            }
 
             const boundUrl: BoundUrl = {
               type: 'url',
@@ -417,10 +440,13 @@ export async function commandOpenQueryEditor(
               method: (src.method || 'GET').toUpperCase() as any,
               headers: parsedHeaders,
               body: src.body,
-              lastFetched: Date.now()
+              lastFetched: Date.now(),
+              lastResponseHeaders: result.headers,
+              lastStatus: result.status,
+              lastStatusText: result.statusText
             };
 
-            urlDataCache.set(sourceId, data);
+            urlDataCache.set(sourceId, result.data);
             const existingIdx = boundUrls.findIndex(u => u.id === sourceId);
             if (existingIdx !== -1) {
               boundUrls[existingIdx] = boundUrl;
@@ -496,7 +522,12 @@ export async function commandOpenQueryEditor(
             if (msg.id) {
               const u = boundUrls.find(item => item.id === msg.id);
               if (u) {
-                const data = await getOrFetchUrlData(u, false);
+                let data: unknown;
+                try {
+                  data = await getOrFetchUrlData(u, false);
+                } catch (fetchErr: any) {
+                  data = { error: fetchErr.message };
+                }
                 panel.webview.postMessage({
                   type: 'showSourceInspection',
                   source: {
@@ -506,7 +537,10 @@ export async function commandOpenQueryEditor(
                     url: u.url,
                     method: u.method,
                     headers: u.headers,
-                    lastFetched: u.lastFetched
+                    lastFetched: u.lastFetched,
+                    lastResponseHeaders: u.lastResponseHeaders,
+                    lastStatus: u.lastStatus,
+                    lastStatusText: u.lastStatusText
                   },
                   data
                 });

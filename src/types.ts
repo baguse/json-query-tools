@@ -18,6 +18,9 @@ export interface BoundUrl {
   headers: Record<string, string>;
   body?: string;
   lastFetched?: number;
+  lastResponseHeaders?: Record<string, string>;
+  lastStatus?: number;
+  lastStatusText?: string;
 }
 
 export type BoundSource = BoundFile | BoundUrl;
@@ -32,6 +35,9 @@ export interface SerializedBoundSource {
   headers?: Record<string, string>;
   body?: string;
   lastFetched?: number;
+  lastResponseHeaders?: Record<string, string>;
+  lastStatus?: number;
+  lastStatusText?: string;
 }
 
 

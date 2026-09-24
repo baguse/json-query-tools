@@ -1179,7 +1179,42 @@ export function getQueryEditorHtml(
             </div>
             <span id="previewMeta" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585);"></span>
           </div>
-          <pre id="urlPreviewPre" style="margin: 0; max-height: 180px; overflow: auto; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace; font-size: 11px; line-height: 1.4; padding: 8px; background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; color: var(--vscode-editor-foreground, #d4d4d4); white-space: pre; contain: content;"></pre>
+
+          <!-- Preview Tab Bar -->
+          <div id="previewTabBar" class="request-tabs-bar" style="margin-bottom: 6px;">
+            <button type="button" class="request-tab-btn active" data-preview-tab="body" id="previewTabBody">
+              Body
+            </button>
+            <button type="button" class="request-tab-btn" data-preview-tab="headers" id="previewTabHeaders">
+              Response Headers <span id="previewHeadersCount" class="tab-badge" style="display: none;">0</span>
+            </button>
+          </div>
+
+          <!-- Tab: Preview Body -->
+          <div id="previewPaneBody">
+            <pre id="urlPreviewPre" style="margin: 0; max-height: 180px; overflow: auto; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace; font-size: 11px; line-height: 1.4; padding: 8px; background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; color: var(--vscode-editor-foreground, #d4d4d4); white-space: pre; contain: content;"></pre>
+          </div>
+
+          <!-- Tab: Preview Response Headers -->
+          <div id="previewPaneHeaders" style="display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+              <input id="previewHeadersSearch" type="text" placeholder="Filter headers…" style="padding: 4px 8px; font-size: 11px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #ccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; flex: 1; margin-right: 8px;" />
+              <button type="button" id="copyAllPreviewHeadersBtn" class="secondary" style="padding: 3px 8px; font-size: 11px; white-space: nowrap;">📋 Copy All</button>
+            </div>
+            <div style="max-height: 180px; overflow-y: auto; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; background: var(--vscode-textCodeBlock-background, #252526);">
+              <table id="previewHeadersTable" style="width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;">
+                <thead>
+                  <tr style="background: rgba(255,255,255,0.05); border-bottom: 2px solid var(--vscode-input-border, #3e3e42); color: var(--vscode-descriptionForeground, #858585); text-align: left; position: sticky; top: 0; z-index: 1;">
+                    <th id="previewHeaderSortName" style="padding: 6px 8px; font-weight: 600; cursor: pointer; user-select: none; width: 38%;">Header Name <span id="previewSortNameIcon">↕</span></th>
+                    <th style="padding: 6px 8px; font-weight: 600;">Value</th>
+                  </tr>
+                </thead>
+                <tbody id="previewHeadersBody">
+                </tbody>
+              </table>
+            </div>
+            <div id="previewNoHeaders" style="display: none; text-align: center; padding: 15px; color: var(--vscode-descriptionForeground, #858585); font-style: italic; font-size: 11px;">No response headers available</div>
+          </div>
         </div>
       </div>
 
@@ -1210,12 +1245,49 @@ export function getQueryEditorHtml(
         <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
           <h3 id="inspectModalTitle" style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 0;">Inspect Source</h3>
           <span id="inspectModalTypeBadge" class="status-badge status-3xx" style="display: none;">URL</span>
+          <span id="inspectStatusBadge" class="status-badge status-2xx" style="display: none;"></span>
         </div>
         <button id="closeInspectModal" class="modal-close-btn" title="Close dialog">&times;</button>
       </div>
       <div class="modal-body" style="gap: 8px;">
         <div id="inspectSourceDetails" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585); line-height: 1.4; word-break: break-all; background: rgba(255,255,255,0.03); padding: 6px 10px; border-radius: 4px; border: 1px solid var(--vscode-panel-border, #3e3e42);"></div>
-        <pre id="inspectDataPre" style="margin: 0; max-height: 55vh; min-height: 150px; overflow: auto; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace; font-size: 11px; line-height: 1.4; padding: 10px; background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; color: var(--vscode-editor-foreground, #d4d4d4); white-space: pre; contain: content;"></pre>
+
+        <!-- Inspect Tab Bar -->
+        <div id="inspectTabBar" class="request-tabs-bar">
+          <button type="button" class="request-tab-btn active" data-inspect-tab="body" id="inspectTabBody">
+            Body
+          </button>
+          <button type="button" class="request-tab-btn" data-inspect-tab="headers" id="inspectTabHeaders" style="display: none;">
+            Response Headers <span id="inspectHeadersCount" class="tab-badge" style="display: none;">0</span>
+          </button>
+        </div>
+
+        <!-- Tab: Body -->
+        <div id="inspectPaneBody">
+          <pre id="inspectDataPre" style="margin: 0; max-height: 55vh; min-height: 150px; overflow: auto; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace; font-size: 11px; line-height: 1.4; padding: 10px; background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; color: var(--vscode-editor-foreground, #d4d4d4); white-space: pre; contain: content;"></pre>
+        </div>
+
+        <!-- Tab: Response Headers -->
+        <div id="inspectPaneHeaders" style="display: none;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <input id="inspectHeadersSearch" type="text" placeholder="Filter headers…" style="padding: 4px 8px; font-size: 11px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #ccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; flex: 1; margin-right: 8px;" />
+            <button type="button" id="copyAllHeadersBtn" class="secondary" style="padding: 3px 8px; font-size: 11px; white-space: nowrap;">📋 Copy All</button>
+          </div>
+          <div style="max-height: 55vh; min-height: 150px; overflow-y: auto; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; background: var(--vscode-textCodeBlock-background, #252526);">
+            <table id="inspectHeadersTable" style="width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace;">
+              <thead>
+                <tr style="background: rgba(255,255,255,0.05); border-bottom: 2px solid var(--vscode-input-border, #3e3e42); color: var(--vscode-descriptionForeground, #858585); text-align: left; position: sticky; top: 0; z-index: 1;">
+                  <th id="inspectHeaderSortName" style="padding: 7px 10px; font-weight: 600; cursor: pointer; user-select: none; width: 38%;">Header Name <span id="inspectSortNameIcon">↕</span></th>
+                  <th style="padding: 7px 10px; font-weight: 600;">Value</th>
+                </tr>
+              </thead>
+              <tbody id="inspectHeadersBody">
+              </tbody>
+            </table>
+          </div>
+          <div id="inspectNoHeaders" style="display: none; text-align: center; padding: 20px; color: var(--vscode-descriptionForeground, #858585); font-style: italic; font-size: 12px;">No response headers available</div>
+        </div>
+
       </div>
       <div class="modal-footer" style="justify-content: space-between; align-items: center;">
         <span id="inspectDataMeta" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585);"></span>
@@ -5320,13 +5392,92 @@ export function getQueryEditorHtml(
       return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
+    function renderHeadersTable(tbody, noHeadersEl, headers, filterText, sortAsc) {
+      if (!tbody) return;
+      tbody.innerHTML = '';
+
+      const entries = Object.entries(headers || {});
+      let filtered = filterText
+        ? entries.filter(([k, v]) =>
+            k.toLowerCase().includes(filterText.toLowerCase()) ||
+            v.toLowerCase().includes(filterText.toLowerCase()))
+        : entries;
+
+      filtered.sort(([a], [b]) =>
+        sortAsc ? a.localeCompare(b) : b.localeCompare(a)
+      );
+
+      if (filtered.length === 0) {
+        if (noHeadersEl) noHeadersEl.style.display = 'block';
+        const table = tbody.closest('table');
+        if (table) table.style.display = 'none';
+        return;
+      }
+      if (noHeadersEl) noHeadersEl.style.display = 'none';
+      const table = tbody.closest('table');
+      if (table) table.style.display = '';
+
+      // Highlight important headers
+      const important = new Set([
+        'content-type', 'cache-control', 'content-length', 'authorization',
+        'x-ratelimit-limit', 'x-ratelimit-remaining', 'x-ratelimit-reset',
+        'retry-after', 'set-cookie', 'etag', 'last-modified', 'expires',
+        'access-control-allow-origin', 'strict-transport-security'
+      ]);
+
+      for (const [key, val] of filtered) {
+        const tr = document.createElement('tr');
+        tr.style.cssText = 'border-bottom: 1px solid var(--vscode-input-border, #3e3e42);';
+        const lowerKey = key.toLowerCase();
+        const isImportant = important.has(lowerKey) || lowerKey.startsWith('x-ratelimit-') || lowerKey.startsWith('ratelimit-');
+
+        const tdKey = document.createElement('td');
+        tdKey.style.cssText = 'padding: 6px 10px; vertical-align: top; word-break: break-all; color: ' +
+          (isImportant ? 'var(--vscode-textLink-foreground, #3794ff)' : 'var(--vscode-editor-foreground, #d4d4d4)') +
+          '; font-weight: ' + (isImportant ? '600' : '400') + ';';
+        tdKey.textContent = key;
+
+        const tdVal = document.createElement('td');
+        tdVal.style.cssText = 'padding: 6px 10px; vertical-align: top; word-break: break-all; color: var(--vscode-editor-foreground, #d4d4d4);';
+        tdVal.textContent = val;
+
+        tr.appendChild(tdKey);
+        tr.appendChild(tdVal);
+        tbody.appendChild(tr);
+      }
+    }
+
     const testUrlModal = document.getElementById('testUrlModal');
     const testUrlSpinner = document.getElementById('testUrlSpinner');
     const testUrlText = document.getElementById('testUrlText');
     const urlModalPreview = document.getElementById('urlModalPreview');
     const previewStatusBadge = document.getElementById('previewStatusBadge');
     const previewMeta = document.getElementById('previewMeta');
+    const previewTabBar = document.getElementById('previewTabBar');
+    const previewTabBody = document.getElementById('previewTabBody');
+    const previewTabHeaders = document.getElementById('previewTabHeaders');
+    const previewHeadersCount = document.getElementById('previewHeadersCount');
+    const previewPaneBody = document.getElementById('previewPaneBody');
+    const previewPaneHeaders = document.getElementById('previewPaneHeaders');
     const urlPreviewPre = document.getElementById('urlPreviewPre');
+    const previewHeadersSearch = document.getElementById('previewHeadersSearch');
+    const copyAllPreviewHeadersBtn = document.getElementById('copyAllPreviewHeadersBtn');
+    const previewHeaderSortName = document.getElementById('previewHeaderSortName');
+    const previewSortNameIcon = document.getElementById('previewSortNameIcon');
+    const previewHeadersBody = document.getElementById('previewHeadersBody');
+    const previewNoHeaders = document.getElementById('previewNoHeaders');
+
+    let currentPreviewHeaders = null;
+    let previewHeadersSortAsc = true;
+    let previewHeadersFilterText = '';
+
+    function switchPreviewTab(tab) {
+      const isBody = tab === 'body';
+      if (previewTabBody) previewTabBody.classList.toggle('active', isBody);
+      if (previewTabHeaders) previewTabHeaders.classList.toggle('active', !isBody);
+      if (previewPaneBody) previewPaneBody.style.display = isBody ? 'block' : 'none';
+      if (previewPaneHeaders) previewPaneHeaders.style.display = isBody ? 'none' : 'block';
+    }
 
     function setTestLoading(isLoading) {
       if (testUrlModal) testUrlModal.disabled = isLoading;
@@ -5338,6 +5489,13 @@ export function getQueryEditorHtml(
       if (urlModalPreview) urlModalPreview.style.display = 'none';
       if (urlPreviewPre) urlPreviewPre.textContent = '';
       if (previewMeta) previewMeta.textContent = '';
+      currentPreviewHeaders = null;
+      previewHeadersSortAsc = true;
+      previewHeadersFilterText = '';
+      if (previewSortNameIcon) previewSortNameIcon.textContent = '\u2195';
+      if (previewHeadersSearch) previewHeadersSearch.value = '';
+      if (previewHeadersCount) previewHeadersCount.style.display = 'none';
+      switchPreviewTab('body');
     }
 
     function renderUrlPreview(details) {
@@ -5377,6 +5535,27 @@ export function getQueryEditorHtml(
       }
 
       urlPreviewPre.textContent = bodyStr;
+
+      // Response headers setup
+      currentPreviewHeaders = details.headers || null;
+      const headerCount = currentPreviewHeaders ? Object.keys(currentPreviewHeaders).length : 0;
+      if (previewHeadersCount) {
+        if (headerCount > 0) {
+          previewHeadersCount.textContent = String(headerCount);
+          previewHeadersCount.style.display = 'inline-block';
+        } else {
+          previewHeadersCount.style.display = 'none';
+        }
+      }
+      previewHeadersSortAsc = true;
+      previewHeadersFilterText = '';
+      if (previewSortNameIcon) previewSortNameIcon.textContent = '\u2195';
+      if (previewHeadersSearch) previewHeadersSearch.value = '';
+      switchPreviewTab('body');
+      if (currentPreviewHeaders) {
+        renderHeadersTable(previewHeadersBody, previewNoHeaders, currentPreviewHeaders, '', true);
+      }
+
       urlModalPreview.style.opacity = '1';
       urlModalPreview.style.display = 'block';
     }
@@ -5385,6 +5564,42 @@ export function getQueryEditorHtml(
       setTestLoading(false);
       showUrlModalAlert('Test failed: ' + (error || 'Unknown error'));
       clearUrlPreview();
+    }
+
+    if (previewTabBody) {
+      previewTabBody.addEventListener('click', () => switchPreviewTab('body'));
+    }
+    if (previewTabHeaders) {
+      previewTabHeaders.addEventListener('click', () => switchPreviewTab('headers'));
+    }
+    if (previewHeaderSortName) {
+      previewHeaderSortName.addEventListener('click', () => {
+        previewHeadersSortAsc = !previewHeadersSortAsc;
+        if (previewSortNameIcon) previewSortNameIcon.textContent = previewHeadersSortAsc ? '\u2191' : '\u2193';
+        if (currentPreviewHeaders) {
+          renderHeadersTable(previewHeadersBody, previewNoHeaders, currentPreviewHeaders, previewHeadersFilterText, previewHeadersSortAsc);
+        }
+      });
+    }
+    if (previewHeadersSearch) {
+      previewHeadersSearch.addEventListener('input', (e) => {
+        previewHeadersFilterText = e.target.value;
+        if (currentPreviewHeaders) {
+          renderHeadersTable(previewHeadersBody, previewNoHeaders, currentPreviewHeaders, previewHeadersFilterText, previewHeadersSortAsc);
+        }
+      });
+    }
+    if (copyAllPreviewHeadersBtn) {
+      copyAllPreviewHeadersBtn.addEventListener('click', () => {
+        if (!currentPreviewHeaders) return;
+        const text = Object.entries(currentPreviewHeaders)
+          .map(([k, v]) => k + ': ' + v)
+          .join(String.fromCharCode(10));
+        vscode.postMessage({ type: 'copyToClipboard', text });
+        const origText = copyAllPreviewHeadersBtn.textContent;
+        copyAllPreviewHeadersBtn.textContent = '\u2713 Copied!';
+        setTimeout(() => { copyAllPreviewHeadersBtn.textContent = origText; }, 1500);
+      });
     }
 
     function openUrlModal(source) {
@@ -5658,6 +5873,7 @@ export function getQueryEditorHtml(
     const sourceInspectModal = document.getElementById('sourceInspectModal');
     const inspectModalTitle = document.getElementById('inspectModalTitle');
     const inspectModalTypeBadge = document.getElementById('inspectModalTypeBadge');
+    const inspectStatusBadge = document.getElementById('inspectStatusBadge');
     const closeInspectModalBtn = document.getElementById('closeInspectModal');
     const inspectSourceDetails = document.getElementById('inspectSourceDetails');
     const inspectDataPre = document.getElementById('inspectDataPre');
@@ -5666,13 +5882,54 @@ export function getQueryEditorHtml(
     const copyInspectCurlBtn = document.getElementById('copyInspectCurlBtn');
     const openInspectInEditorBtn = document.getElementById('openInspectInEditorBtn');
     const dismissInspectBtn = document.getElementById('dismissInspectBtn');
+    const inspectTabBody = document.getElementById('inspectTabBody');
+    const inspectTabHeaders = document.getElementById('inspectTabHeaders');
+    const inspectPaneBody = document.getElementById('inspectPaneBody');
+    const inspectPaneHeaders = document.getElementById('inspectPaneHeaders');
+    const inspectHeadersBody = document.getElementById('inspectHeadersBody');
+    const inspectHeadersCount = document.getElementById('inspectHeadersCount');
+    const inspectHeadersSearch = document.getElementById('inspectHeadersSearch');
+    const inspectNoHeaders = document.getElementById('inspectNoHeaders');
+    const copyAllHeadersBtn = document.getElementById('copyAllHeadersBtn');
+    const inspectHeaderSortName = document.getElementById('inspectHeaderSortName');
+    const inspectSortNameIcon = document.getElementById('inspectSortNameIcon');
 
     let currentInspectDataText = '';
     let currentInspectSource = null;
+    let currentInspectHeaders = null; // Record<string, string> | null
+    let inspectHeadersSortAsc = true;
+    let inspectHeadersFilterText = '';
+
+    function switchInspectTab(tab) {
+      const isBody = tab === 'body';
+      if (inspectTabBody) inspectTabBody.classList.toggle('active', isBody);
+      if (inspectTabHeaders) inspectTabHeaders.classList.toggle('active', !isBody);
+      if (inspectPaneBody) inspectPaneBody.style.display = isBody ? 'block' : 'none';
+      if (inspectPaneHeaders) inspectPaneHeaders.style.display = isBody ? 'none' : 'block';
+      // Update Copy button label when tab changes
+      if (copyInspectBtn) {
+        var clipEmoji = String.fromCodePoint(0x1F4CB);
+        copyInspectBtn.textContent = isBody ? clipEmoji + ' Copy' : clipEmoji + ' Copy Headers';
+      }
+      if (openInspectInEditorBtn) {
+        openInspectInEditorBtn.title = isBody ? 'Open this data in a new VS Code editor tab' : 'Open response headers in a new VS Code editor tab';
+      }
+    }
+
+    function renderInspectHeadersTable(headers, filterText, sortAsc) {
+      renderHeadersTable(inspectHeadersBody, inspectNoHeaders, headers, filterText, sortAsc);
+    }
 
     function openSourceInspectModal(source, data) {
       if (!sourceInspectModal) return;
       currentInspectSource = source;
+      inspectHeadersSortAsc = true;
+      inspectHeadersFilterText = '';
+      if (inspectSortNameIcon) inspectSortNameIcon.textContent = '\u2195';
+      if (inspectHeadersSearch) inspectHeadersSearch.value = '';
+
+      // Always start on body tab
+      switchInspectTab('body');
 
       const isUrl = source.type === 'url' || !!source.url;
       if (copyInspectCurlBtn) {
@@ -5690,6 +5947,42 @@ export function getQueryEditorHtml(
           inspectModalTypeBadge.textContent = 'FILE';
           inspectModalTypeBadge.className = 'status-badge status-2xx';
         }
+      }
+
+      // HTTP status badge
+      const status = source.lastStatus;
+      if (inspectStatusBadge) {
+        if (isUrl && status) {
+          const statusText = source.lastStatusText || 'OK';
+          inspectStatusBadge.textContent = status + ' ' + statusText;
+          let cls = 'status-badge status-2xx';
+          if (status >= 300 && status < 400) cls = 'status-badge status-3xx';
+          else if (status >= 400 && status < 500) cls = 'status-badge status-4xx';
+          else if (status >= 500) cls = 'status-badge status-5xx';
+          inspectStatusBadge.className = cls;
+          inspectStatusBadge.style.display = 'inline-block';
+        } else {
+          inspectStatusBadge.style.display = 'none';
+        }
+      }
+
+      // Response headers tab visibility
+      const responseHeaders = isUrl ? (source.lastResponseHeaders || null) : null;
+      currentInspectHeaders = responseHeaders;
+      const headerCount = responseHeaders ? Object.keys(responseHeaders).length : 0;
+      if (inspectTabHeaders) {
+        inspectTabHeaders.style.display = isUrl ? 'inline-flex' : 'none';
+      }
+      if (inspectHeadersCount) {
+        if (headerCount > 0) {
+          inspectHeadersCount.textContent = String(headerCount);
+          inspectHeadersCount.style.display = 'inline-block';
+        } else {
+          inspectHeadersCount.style.display = 'none';
+        }
+      }
+      if (responseHeaders) {
+        renderInspectHeadersTable(responseHeaders, '', true);
       }
 
       if (inspectSourceDetails) {
@@ -5722,7 +6015,7 @@ export function getQueryEditorHtml(
       let displayContent = formatted;
       if (formatted.length > MAX_INSPECT_CHARS) {
         displayContent = formatted.slice(0, MAX_INSPECT_CHARS) + String.fromCharCode(10) + String.fromCharCode(10) +
-          '... [Display truncated for performance. Showing first 100KB of ' + formatBytes(formatted.length) + '. Click "↗ Open in VS Code Tab" to view all ' + formatted.split(String.fromCharCode(10)).length + ' lines in editor]';
+          '... [Display truncated for performance. Showing first 100KB of ' + formatBytes(formatted.length) + '. Click "\u2197 Open in VS Code Tab" to view all ' + formatted.split(String.fromCharCode(10)).length + ' lines in editor]';
       }
 
       if (inspectDataPre) {
@@ -5740,7 +6033,9 @@ export function getQueryEditorHtml(
       if (sourceInspectModal) sourceInspectModal.style.display = 'none';
       currentInspectDataText = '';
       currentInspectSource = null;
+      currentInspectHeaders = null;
     }
+
 
     if (closeInspectModalBtn) closeInspectModalBtn.onclick = closeSourceInspectModal;
     if (dismissInspectBtn) dismissInspectBtn.onclick = closeSourceInspectModal;
@@ -5752,12 +6047,64 @@ export function getQueryEditorHtml(
       });
     }
 
+    // Tab switching
+    if (inspectTabBody) {
+      inspectTabBody.addEventListener('click', () => switchInspectTab('body'));
+    }
+    if (inspectTabHeaders) {
+      inspectTabHeaders.addEventListener('click', () => switchInspectTab('headers'));
+    }
+
+    // Sort by name toggle
+    if (inspectHeaderSortName) {
+      inspectHeaderSortName.addEventListener('click', () => {
+        inspectHeadersSortAsc = !inspectHeadersSortAsc;
+        if (inspectSortNameIcon) inspectSortNameIcon.textContent = inspectHeadersSortAsc ? '\u2191' : '\u2193';
+        if (currentInspectHeaders) {
+          renderInspectHeadersTable(currentInspectHeaders, inspectHeadersFilterText, inspectHeadersSortAsc);
+        }
+      });
+    }
+
+    // Filter input
+    if (inspectHeadersSearch) {
+      inspectHeadersSearch.addEventListener('input', (e) => {
+        inspectHeadersFilterText = e.target.value;
+        if (currentInspectHeaders) {
+          renderInspectHeadersTable(currentInspectHeaders, inspectHeadersFilterText, inspectHeadersSortAsc);
+        }
+      });
+    }
+
+    // Copy all headers as "Header-Name: value" lines
+    if (copyAllHeadersBtn) {
+      copyAllHeadersBtn.addEventListener('click', () => {
+        if (!currentInspectHeaders) return;
+        const text = Object.entries(currentInspectHeaders)
+          .map(([k, v]) => k + ': ' + v)
+          .join(String.fromCharCode(10));
+        vscode.postMessage({ type: 'copyToClipboard', text });
+        const origText = copyAllHeadersBtn.textContent;
+        copyAllHeadersBtn.textContent = '\u2713 Copied!';
+        setTimeout(() => { copyAllHeadersBtn.textContent = origText; }, 1500);
+      });
+    }
+
     if (copyInspectBtn) {
       copyInspectBtn.onclick = () => {
-        if (!currentInspectDataText) return;
-        vscode.postMessage({ type: 'copyToClipboard', text: currentInspectDataText });
+        // Determine active tab
+        const isHeadersActive = inspectTabHeaders && inspectTabHeaders.classList.contains('active');
+        if (isHeadersActive && currentInspectHeaders) {
+          const text = Object.entries(currentInspectHeaders)
+            .map(([k, v]) => k + ': ' + v)
+            .join(String.fromCharCode(10));
+          vscode.postMessage({ type: 'copyToClipboard', text });
+        } else {
+          if (!currentInspectDataText) return;
+          vscode.postMessage({ type: 'copyToClipboard', text: currentInspectDataText });
+        }
         const originalText = copyInspectBtn.textContent;
-        copyInspectBtn.textContent = '✓ Copied';
+        copyInspectBtn.textContent = '\u2713 Copied!';
         setTimeout(() => {
           copyInspectBtn.textContent = originalText;
         }, 1500);
@@ -5775,7 +6122,7 @@ export function getQueryEditorHtml(
         });
         vscode.postMessage({ type: 'copyToClipboard', text: curlCmd });
         const originalText = copyInspectCurlBtn.textContent;
-        copyInspectCurlBtn.textContent = '✓ Copied cURL!';
+        copyInspectCurlBtn.textContent = '\u2713 Copied cURL!';
         setTimeout(() => {
           copyInspectCurlBtn.textContent = originalText;
         }, 1500);
@@ -5784,6 +6131,18 @@ export function getQueryEditorHtml(
 
     if (openInspectInEditorBtn) {
       openInspectInEditorBtn.onclick = () => {
+        const isHeadersActive = inspectTabHeaders && inspectTabHeaders.classList.contains('active');
+        if (isHeadersActive && currentInspectHeaders) {
+          const text = Object.entries(currentInspectHeaders)
+            .map(([k, v]) => k + ': ' + v)
+            .join(String.fromCharCode(10));
+          vscode.postMessage({
+            type: 'openInEditor',
+            text: text,
+            language: 'http'
+          });
+          return;
+        }
         if (!currentInspectDataText) return;
         vscode.postMessage({
           type: 'openInEditor',
@@ -5792,6 +6151,7 @@ export function getQueryEditorHtml(
         });
       };
     }
+
 
   </script>
 </body>

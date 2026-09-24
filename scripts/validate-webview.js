@@ -116,6 +116,22 @@ async function validate() {
       'id="copyCurlBtn"',
       'id="curlImportPanel"',
       'id="copyInspectCurlBtn"',
+      'id="inspectTabBar"',
+      'id="inspectTabBody"',
+      'id="inspectTabHeaders"',
+      'id="inspectPaneBody"',
+      'id="inspectPaneHeaders"',
+      'id="inspectHeadersTable"',
+      'id="inspectStatusBadge"',
+      'id="copyAllHeadersBtn"',
+      'id="previewTabBar"',
+      'id="previewTabBody"',
+      'id="previewTabHeaders"',
+      'id="previewPaneBody"',
+      'id="previewPaneHeaders"',
+      'id="previewHeadersTable"',
+      'id="copyAllPreviewHeadersBtn"',
+      'id="previewHeadersSearch"',
       'class="search-icon">&#128269;</span>'
     ];
 
