@@ -59,13 +59,16 @@ async function runTablePaginationTests() {
   assert.ok(html.includes('id="tableTotalPages"'), 'Missing id="tableTotalPages" in webview HTML');
   assert.ok(html.includes('id="resultTableWarning"'), 'Missing id="resultTableWarning" in webview HTML');
   assert.ok(html.includes('Data must be an array to render a table.'), 'Missing warning text for table');
+  assert.ok(html.includes('id="resultChartWarning"'), 'Missing id="resultChartWarning" in webview HTML');
+  assert.ok(html.includes('Data must be an array to render a chart.'), 'Missing warning text for chart');
   assert.ok(!html.includes('<option value="raw">'), 'raw format option should be removed from resultFormat');
-  console.log('  ✓ Webview HTML contains table pagination and warning DOM elements (raw format removed)');
+  console.log('  ✓ Webview HTML contains table & chart pagination and warning DOM elements (raw format removed)');
 
-  // Verify renderTablePage and hideTable exist in script
+  // Verify renderTablePage, hideTable, and hideChart exist in script
   assert.ok(html.includes('function renderTablePage()'), 'Missing function renderTablePage in webview script');
   assert.ok(html.includes('function hideTable()'), 'Missing function hideTable in webview script');
-  console.log('  ✓ Webview script includes renderTablePage and hideTable');
+  assert.ok(html.includes('function hideChart()'), 'Missing function hideChart in webview script');
+  console.log('  ✓ Webview script includes renderTablePage, hideTable, and hideChart');
 
   // 2. Test pagination logic in a simulated DOM environment
   const mockTableHead = { innerHTML: '', children: [] };

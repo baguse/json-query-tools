@@ -1049,6 +1049,7 @@ export function getQueryEditorHtml(
           </div>
         </div>
       </div>
+      <div id="resultChartWarning" style="display: none; padding: 20px; color: var(--vscode-descriptionForeground, #858585);">Data must be an array to render a chart.</div>
       <div id="resultChartContainer">
         <canvas id="resultChart"></canvas>
       </div>
@@ -1260,6 +1261,7 @@ export function getQueryEditorHtml(
     const tablePageInput = document.getElementById('tablePageInput');
     const tableTotalPages = document.getElementById('tableTotalPages');
     const resultChartContainer = document.getElementById('resultChartContainer');
+    const resultChartWarning = document.getElementById('resultChartWarning');
     const chartCanvas = document.getElementById('resultChart');
     const resultJsonEditorTextarea = document.getElementById('resultJsonEditor');
 
@@ -1267,6 +1269,13 @@ export function getQueryEditorHtml(
       if (resultTable) resultTable.style.display = 'none';
       if (tablePagination) tablePagination.style.display = 'none';
       if (resultTableWarning) resultTableWarning.style.display = 'none';
+    }
+
+    function hideChart() {
+      if (resultChartContainer) resultChartContainer.style.display = 'none';
+      if (resultChartWarning) resultChartWarning.style.display = 'none';
+      if (chartType) chartType.style.display = 'none';
+      if (downloadChartBtn) downloadChartBtn.style.display = 'none';
     }
 
     let currentTableData = null;
@@ -3817,8 +3826,7 @@ export function getQueryEditorHtml(
         // Table view
         resultPre.style.display = 'none';
         if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
-        resultChartContainer.style.display = 'none';
-        chartType.style.display = 'none';
+        hideChart();
 
         if (!data || !Array.isArray(data)) {
           hideTable();
@@ -3840,15 +3848,28 @@ export function getQueryEditorHtml(
         currentTableData = data;
         renderTablePage();
       } else if (format === 'chart') {
-         // Show chart view
-         resultPre.style.display = 'none';
-         if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
-         hideTable();
-         resultChartContainer.style.display = 'block';
-         chartType.style.display = 'inline-block';
-         copyResultBtn.style.display = 'none';
-         updateExportButtons('chart', true);
-         renderChart(data);
+        // Show chart view
+        resultPre.style.display = 'none';
+        if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
+        hideTable();
+
+        if (!data || !Array.isArray(data)) {
+          hideChart();
+          if (resultChartWarning) {
+            resultChartWarning.style.display = 'block';
+            resultChartWarning.innerHTML = '<div style="padding: 20px; color: var(--vscode-descriptionForeground, #858585);">Data must be an array to render a chart.</div>';
+          }
+          copyResultBtn.style.display = 'none';
+          updateExportButtons('chart', false);
+          return;
+        }
+
+        if (resultChartWarning) resultChartWarning.style.display = 'none';
+        resultChartContainer.style.display = 'block';
+        chartType.style.display = 'inline-block';
+        copyResultBtn.style.display = 'none';
+        updateExportButtons('chart', true);
+        renderChart(data);
       } else if (format === 'yaml') {
         // YAML view
         if (!resultJsonEditor && codeMirrorLoaded) {
@@ -3874,8 +3895,7 @@ export function getQueryEditorHtml(
           resultPre.textContent = yamlText || '';
         }
         hideTable();
-        resultChartContainer.style.display = 'none';
-        chartType.style.display = 'none';
+        hideChart();
         copyResultBtn.style.display = 'inline-block';
         updateExportButtons('yaml', Boolean(yamlText));
         resultPre.className = yamlText ? '' : 'empty';
@@ -3904,8 +3924,7 @@ export function getQueryEditorHtml(
           resultPre.textContent = ndjsonText || '';
         }
         hideTable();
-        resultChartContainer.style.display = 'none';
-        chartType.style.display = 'none';
+        hideChart();
         copyResultBtn.style.display = 'inline-block';
         updateExportButtons('ndjson', Boolean(ndjsonText));
         resultPre.className = ndjsonText ? '' : 'empty';
@@ -3934,8 +3953,7 @@ export function getQueryEditorHtml(
           resultPre.textContent = xmlText || '';
         }
         hideTable();
-        resultChartContainer.style.display = 'none';
-        chartType.style.display = 'none';
+        hideChart();
         copyResultBtn.style.display = 'inline-block';
         updateExportButtons('xml', Boolean(xmlText));
         resultPre.className = xmlText ? '' : 'empty';
@@ -3969,8 +3987,7 @@ export function getQueryEditorHtml(
           resultPre.textContent = jsonText || '';
         }
         hideTable();
-        resultChartContainer.style.display = 'none';
-        chartType.style.display = 'none';
+        hideChart();
         copyResultBtn.style.display = 'inline-block';
         updateExportButtons('json', Boolean(jsonText));
         resultPre.className = jsonText ? '' : 'empty';
@@ -3978,8 +3995,7 @@ export function getQueryEditorHtml(
         // Default text view
         if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
         hideTable();
-        resultChartContainer.style.display = 'none';
-        chartType.style.display = 'none';
+        hideChart();
         copyResultBtn.style.display = 'inline-block';
         resultPre.style.display = 'block';
         
@@ -3991,15 +4007,17 @@ export function getQueryEditorHtml(
 
     function renderChart(data) {
       if (!data || !Array.isArray(data)) {
-         resultChartContainer.innerHTML = '<div style="padding: 20px; color: var(--vscode-descriptionForeground, #858585);">Data must be an array to render a chart.</div>';
+         hideChart();
+         if (resultChartWarning) {
+           resultChartWarning.style.display = 'block';
+           resultChartWarning.innerHTML = '<div style="padding: 20px; color: var(--vscode-descriptionForeground, #858585);">Data must be an array to render a chart.</div>';
+         }
          return;
       }
       
-      // Ensure canvas exists (might have been overwritten by error message)
-      if (!resultChartContainer.querySelector('canvas')) {
-          resultChartContainer.innerHTML = '<canvas id="resultChart"></canvas>';
-      }
-      const ctx = document.getElementById('resultChart').getContext('2d');
+      const canvas = document.getElementById('resultChart');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
       
       if (currentChart) {
           currentChart.destroy();
@@ -4210,7 +4228,7 @@ export function getQueryEditorHtml(
             resultPre.className = '';
             resultPre.style.display = 'block';
             hideTable();
-            resultChartContainer.style.display = 'none';
+            hideChart();
           } else {
             updateResultDisplay('', dataToUse);
           }
@@ -4220,7 +4238,7 @@ export function getQueryEditorHtml(
             resultPre.className = '';
             resultPre.style.display = 'block';
             hideTable();
-            resultChartContainer.style.display = 'none';
+            hideChart();
           } else {
             updateResultDisplay('', dataToUse);
           }
@@ -4232,7 +4250,7 @@ export function getQueryEditorHtml(
             resultPre.style.display = 'block';
             if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
             hideTable();
-            resultChartContainer.style.display = 'none';
+            hideChart();
           } else {
             updateResultDisplay('', dataToUse);
           }
