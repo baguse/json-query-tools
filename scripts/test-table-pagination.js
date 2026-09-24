@@ -57,7 +57,10 @@ async function runTablePaginationTests() {
   assert.ok(html.includes('id="tableLastPage"'), 'Missing id="tableLastPage" in webview HTML');
   assert.ok(html.includes('id="tablePageInput"'), 'Missing id="tablePageInput" in webview HTML');
   assert.ok(html.includes('id="tableTotalPages"'), 'Missing id="tableTotalPages" in webview HTML');
-  console.log('  ✓ Webview HTML contains all table pagination DOM elements');
+  assert.ok(html.includes('id="resultTableWarning"'), 'Missing id="resultTableWarning" in webview HTML');
+  assert.ok(html.includes('Data must be an array to render a table.'), 'Missing warning text for table');
+  assert.ok(!html.includes('<option value="raw">'), 'raw format option should be removed from resultFormat');
+  console.log('  ✓ Webview HTML contains table pagination and warning DOM elements (raw format removed)');
 
   // Verify renderTablePage and hideTable exist in script
   assert.ok(html.includes('function renderTablePage()'), 'Missing function renderTablePage in webview script');
@@ -280,7 +283,44 @@ async function runTablePaginationTests() {
   assert.strictEqual(mockPageInfo.textContent, 'Showing 1–5 of 7 rows');
   const renderedPrimitiveRows = (mockTableBody.innerHTML.match(/<tr>/g) || []).length;
   assert.strictEqual(renderedPrimitiveRows, 5);
-  console.log('  ✓ Primitive arrays correctly paginate with single "Value" column');
+  // Test Case G: Warning when table data is not an array (matches chart warning)
+  const mockTableWarning = { style: { display: 'none' }, innerHTML: '' };
+  function updateTableDisplay(format, data) {
+    if (format === 'table') {
+      if (!data || !Array.isArray(data)) {
+        hideTable();
+        mockTableWarning.style.display = 'block';
+        mockTableWarning.innerHTML = '<div style="padding: 20px; color: var(--vscode-descriptionForeground, #858585);">Data must be an array to render a table.</div>';
+        return;
+      }
+      mockTableWarning.style.display = 'none';
+      mockTable.style.display = 'table';
+      currentTableData = data;
+      renderTablePage();
+    }
+  }
+
+  // Non-array object
+  updateTableDisplay('table', { user: 'Alice', age: 30 });
+  assert.strictEqual(mockTable.style.display, 'none');
+  assert.strictEqual(mockTableWarning.style.display, 'block');
+  assert.ok(mockTableWarning.innerHTML.includes('Data must be an array to render a table.'));
+
+  // Number primitive
+  updateTableDisplay('table', 42);
+  assert.strictEqual(mockTable.style.display, 'none');
+  assert.strictEqual(mockTableWarning.style.display, 'block');
+
+  // Null
+  updateTableDisplay('table', null);
+  assert.strictEqual(mockTable.style.display, 'none');
+  assert.strictEqual(mockTableWarning.style.display, 'block');
+
+  // Valid array restores table and hides warning
+  updateTableDisplay('table', [{ id: 1, name: 'Alice' }]);
+  assert.strictEqual(mockTableWarning.style.display, 'none');
+  assert.strictEqual(mockTable.style.display, 'table');
+  console.log('  ✓ Non-array data displays table warning matching chart warning, valid array restores table');
 
   console.log('\n✅ All table pagination tests passed successfully!\n');
 }

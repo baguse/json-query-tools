@@ -987,7 +987,6 @@ export function getQueryEditorHtml(
           <option value="yaml">YAML</option>
           <option value="ndjson">NDJSON</option>
           <option value="xml">XML</option>
-          <option value="raw">Raw</option>
           <option value="table">Table</option>
           <option value="chart">Chart</option>
         </select>
@@ -1017,6 +1016,7 @@ export function getQueryEditorHtml(
     <div id="resultContainer">
       <textarea id="resultJsonEditor" style="display: none;"></textarea>
       <pre id="resultPre" class="empty">(no result yet)</pre>
+      <div id="resultTableWarning" style="display: none; padding: 20px; color: var(--vscode-descriptionForeground, #858585);">Data must be an array to render a table.</div>
       <table id="resultTable" style="display: none; width: 100%; border-collapse: collapse; background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; overflow: hidden; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace; font-size: 11px;">
         <thead id="resultTableHead" style="background: var(--vscode-titleBar-activeBackground, #2d2d30); color: var(--vscode-titleBar-activeForeground, #ffffff);">
         </thead>
@@ -1249,6 +1249,7 @@ export function getQueryEditorHtml(
     const resultTable = document.getElementById('resultTable');
     const resultTableHead = document.getElementById('resultTableHead');
     const resultTableBody = document.getElementById('resultTableBody');
+    const resultTableWarning = document.getElementById('resultTableWarning');
     const tablePagination = document.getElementById('tablePagination');
     const tablePageInfo = document.getElementById('tablePageInfo');
     const tablePageSize = document.getElementById('tablePageSize');
@@ -1265,6 +1266,7 @@ export function getQueryEditorHtml(
     function hideTable() {
       if (resultTable) resultTable.style.display = 'none';
       if (tablePagination) tablePagination.style.display = 'none';
+      if (resultTableWarning) resultTableWarning.style.display = 'none';
     }
 
     let currentTableData = null;
@@ -3540,7 +3542,7 @@ export function getQueryEditorHtml(
           
           if (resultFormat.value === 'table' && streamingData && streamingData.length > 0) {
             updateResultDisplay('', streamingData, true); // true = isStreaming
-          } else if (resultFormat.value === 'json' || resultFormat.value === 'raw') {
+          } else if (resultFormat.value === 'json') {
             resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items, ' + progress + '%)';
             resultPre.className = '';
             resultPre.style.display = 'block';
@@ -3601,8 +3603,21 @@ export function getQueryEditorHtml(
     });
 
     function renderTablePage() {
-      if (!currentTableData || !Array.isArray(currentTableData) || currentTableData.length === 0) {
+      if (!currentTableData || !Array.isArray(currentTableData)) {
         hideTable();
+        return;
+      }
+
+      if (currentTableData.length === 0) {
+        resultTableHead.innerHTML = '<tr><th style="padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--vscode-input-border, #3e3e42);">Value</th></tr>';
+        resultTableBody.innerHTML = '<tr><td style="padding: 8px 12px; color: var(--vscode-descriptionForeground, #858585);">(empty array)</td></tr>';
+        if (tablePageInfo) tablePageInfo.textContent = 'Showing 0–0 of 0 rows';
+        if (tableTotalPages) tableTotalPages.textContent = '1';
+        if (tablePageInput) tablePageInput.value = 1;
+        if (tableFirstPage) tableFirstPage.disabled = true;
+        if (tablePrevPage) tablePrevPage.disabled = true;
+        if (tableNextPage) tableNextPage.disabled = true;
+        if (tableLastPage) tableLastPage.disabled = true;
         return;
       }
 
@@ -3798,14 +3813,27 @@ export function getQueryEditorHtml(
       }
 
       // Display based on format
-      if (format === 'table' && data && Array.isArray(data) && data.length > 0) {
-        // Show table view
+      if (format === 'table') {
+        // Table view
         resultPre.style.display = 'none';
         if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
-        resultTable.style.display = 'table';
-        if (tablePagination) tablePagination.style.display = 'flex';
         resultChartContainer.style.display = 'none';
         chartType.style.display = 'none';
+
+        if (!data || !Array.isArray(data)) {
+          hideTable();
+          if (resultTableWarning) {
+            resultTableWarning.style.display = 'block';
+            resultTableWarning.innerHTML = '<div style="padding: 20px; color: var(--vscode-descriptionForeground, #858585);">Data must be an array to render a table.</div>';
+          }
+          copyResultBtn.style.display = 'none';
+          updateExportButtons('table', false);
+          return;
+        }
+
+        if (resultTableWarning) resultTableWarning.style.display = 'none';
+        resultTable.style.display = 'table';
+        if (tablePagination) tablePagination.style.display = 'flex';
         copyResultBtn.style.display = 'inline-block';
         updateExportButtons('table', true);
         
@@ -3947,7 +3975,7 @@ export function getQueryEditorHtml(
         updateExportButtons('json', Boolean(jsonText));
         resultPre.className = jsonText ? '' : 'empty';
       } else {
-        // Raw / default text view
+        // Default text view
         if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
         hideTable();
         resultChartContainer.style.display = 'none';
@@ -3955,12 +3983,8 @@ export function getQueryEditorHtml(
         copyResultBtn.style.display = 'inline-block';
         resultPre.style.display = 'block';
         
-        if (format === 'raw' && data !== null && data !== undefined) {
-          resultPre.textContent = String(data);
-        } else {
-          resultPre.textContent = text;
-        }
-        updateExportButtons('raw', Boolean(resultPre.textContent));
+        resultPre.textContent = text;
+        updateExportButtons('json', Boolean(resultPre.textContent));
         resultPre.className = text ? '' : 'empty';
       }
     }
@@ -4180,16 +4204,15 @@ export function getQueryEditorHtml(
         const format = resultFormat.value;
         const isCurrentlyStreaming = streamingIsActive && currentResultData === null;
         
-        if (format === 'table' && Array.isArray(dataToUse) && dataToUse.length > 0) {
-          updateResultDisplay('', dataToUse, isCurrentlyStreaming);
-        } else if (format === 'raw') {
+        if (format === 'table') {
           if (isCurrentlyStreaming) {
-            resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items)';
+            resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items) - Table will render when complete';
             resultPre.className = '';
             resultPre.style.display = 'block';
+            hideTable();
+            resultChartContainer.style.display = 'none';
           } else {
-            const text = String(dataToUse);
-            updateResultDisplay(text, dataToUse);
+            updateResultDisplay('', dataToUse);
           }
         } else if (format === 'chart') {
           if (isCurrentlyStreaming) {
