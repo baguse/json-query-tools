@@ -2521,7 +2521,8 @@ export function getQueryEditorHtml(
         acorn.parse(expr, {
           ecmaVersion: 'latest',
           locations: true,
-          allowReturnOutsideFunction: true
+          allowReturnOutsideFunction: true,
+          allowAwaitOutsideFunction: true
         });
       } catch (e) {
         const anyErr = e;
@@ -2548,7 +2549,8 @@ export function getQueryEditorHtml(
           acorn.parse(expr, {
             ecmaVersion: 'latest',
             locations: true,
-            allowReturnOutsideFunction: true
+            allowReturnOutsideFunction: true,
+            allowAwaitOutsideFunction: true
           });
         } catch (e) {
           const anyErr = e;

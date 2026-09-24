@@ -112,6 +112,18 @@ return { userCount: u.length, grandTotal: total };`;
   assert.deepStrictEqual(resTopLevelAwait, { userCount: 2, grandTotal: 180 });
   console.log('  ✓ Top-level await expression with explicit return works');
 
+  // 6b. Top-level await with setTimeout Promise
+  const exprTimeoutPromise = `const a = new Promise((resolve) => {
+    setTimeout(() => {
+      resolve('hore');
+    }, 10);
+  });
+  const b = await a;
+  return b;`;
+  const resTimeoutPromise = await evaluateExpression([], {}, exprTimeoutPromise);
+  assert.strictEqual(resTimeoutPromise, 'hore');
+  console.log('  ✓ Top-level await on delayed Promise (setTimeout) resolves to expected value');
+
   // 7. Top-level await expression without return keyword (implicit return)
   const exprAwaitImplicit = 'await Promise.resolve(users.map(u => u.name.toUpperCase()))';
   const resAwaitImplicit = await evaluateExpression(boundFiles, dataMap, exprAwaitImplicit);
