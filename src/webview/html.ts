@@ -1291,6 +1291,7 @@ export function getQueryEditorHtml(
     let streamingTotalItems = 0;
     let streamingReceivedItems = 0;
     let streamingIsActive = false;
+    let streamingRafId = null;
 
     // AI Elements
     const aiProvider = document.getElementById('aiProvider');
@@ -3127,6 +3128,10 @@ export function getQueryEditorHtml(
       } else if (msg.type === 'status') {
         // could show status text
       } else if (msg.type === 'result') {
+        if (streamingRafId) {
+          cancelAnimationFrame(streamingRafId);
+          streamingRafId = null;
+        }
         setLoading(false);
         streamingIsActive = false;
         tableCurrentPage = 1;
@@ -3144,6 +3149,10 @@ export function getQueryEditorHtml(
         }
       } else if (msg.type === 'resultStart') {
         // Initialize streaming
+        if (streamingRafId) {
+          cancelAnimationFrame(streamingRafId);
+          streamingRafId = null;
+        }
         setLoading(true);
         streamingIsActive = true;
         streamingData = [];
@@ -3165,28 +3174,45 @@ export function getQueryEditorHtml(
         streamingData.push(...msg.chunk);
         streamingReceivedItems = msg.chunkEnd || streamingData.length;
         
-        // Update progress
-        const progress = Math.round((streamingReceivedItems / streamingTotalItems) * 100);
-        resultInfo.textContent = 'Streaming... ' + streamingReceivedItems + '/' + streamingTotalItems + ' items (' + progress + '%)';
-        
-        // If table format is selected, render progressively
-        if (resultFormat.value === 'table' && streamingData.length > 0) {
-          updateResultDisplay('', streamingData, true); // true = isStreaming
-        } else if (resultFormat.value === 'json' || resultFormat.value === 'raw') {
-          // For JSON/raw, show progress but don't render partial JSON (invalid)
-          const progress = Math.round((streamingReceivedItems / streamingTotalItems) * 100);
-          resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items, ' + progress + '%)';
-          resultPre.className = '';
-          resultPre.style.display = 'block';
-          if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
-          hideTable();
-          resultChartContainer.style.display = 'none';
+        // Progressive UI rendering via requestAnimationFrame to avoid unnecessary reflows
+        const renderProgress = () => {
+          const progress = streamingTotalItems > 0
+            ? Math.round((streamingReceivedItems / streamingTotalItems) * 100)
+            : 100;
+          resultInfo.textContent = 'Streaming... ' + streamingReceivedItems + '/' + streamingTotalItems + ' items (' + progress + '%)';
+          
+          if (resultFormat.value === 'table' && streamingData && streamingData.length > 0) {
+            updateResultDisplay('', streamingData, true); // true = isStreaming
+          } else if (resultFormat.value === 'json' || resultFormat.value === 'raw') {
+            resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items, ' + progress + '%)';
+            resultPre.className = '';
+            resultPre.style.display = 'block';
+            if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
+            hideTable();
+            resultChartContainer.style.display = 'none';
+          } else {
+            resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items)';
+          }
+        };
+
+        if (typeof requestAnimationFrame === 'function') {
+          if (!streamingRafId) {
+            streamingRafId = requestAnimationFrame(() => {
+              streamingRafId = null;
+              if (streamingIsActive && streamingData) {
+                renderProgress();
+              }
+            });
+          }
         } else {
-          // For other formats, show progress
-          resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items)';
+          renderProgress();
         }
       } else if (msg.type === 'resultComplete') {
         // Finalize streaming
+        if (streamingRafId) {
+          cancelAnimationFrame(streamingRafId);
+          streamingRafId = null;
+        }
         setLoading(false);
         streamingIsActive = false;
         currentResultData = msg.data || streamingData || null;

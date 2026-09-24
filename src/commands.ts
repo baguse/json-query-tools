@@ -183,14 +183,11 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         data: null // Full data not sent yet
       });
       
-      // Send chunks progressively
+      // Send chunks progressively without artificial delay
       for (let i = 0; i < data.length; i += CHUNK_SIZE) {
         const chunk = data.slice(i, i + CHUNK_SIZE);
         const chunkEnd = Math.min(i + CHUNK_SIZE, data.length);
         const isLast = chunkEnd >= data.length;
-        
-        // Small delay to allow UI to update
-        await new Promise(resolve => setTimeout(resolve, 10));
         
         panel.webview.postMessage({
           type: 'resultChunk',
@@ -200,6 +197,9 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
           isLast: isLast,
           totalItems: data.length
         });
+
+        // Yield to event loop to allow IPC processing without artificial delay
+        await new Promise(resolve => typeof setImmediate === 'function' ? setImmediate(resolve) : setTimeout(resolve, 0));
       }
       
       // Send final complete result for operations that need full data
