@@ -1,4 +1,5 @@
 import { HttpMethod } from './types';
+import { stripJsoncComments } from './jsonc';
 
 export interface FetchOptions {
   url: string;
@@ -9,7 +10,7 @@ export interface FetchOptions {
 }
 
 /**
- * Parses raw header string (lines of "Key: Value" or JSON) into a Record<string, string>.
+ * Parses raw header string (lines of "Key: Value" or JSON/JSONC) into a Record<string, string>.
  */
 export function parseHeaders(raw: string | Record<string, string> | undefined): Record<string, string> {
   if (!raw) return {};
@@ -30,7 +31,18 @@ export function parseHeaders(raw: string | Record<string, string> | undefined): 
         return result;
       }
     } catch {
-      // Fall through to line-by-line parsing
+      try {
+        const parsed = JSON.parse(stripJsoncComments(trimmed));
+        if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+          const result: Record<string, string> = {};
+          for (const [k, v] of Object.entries(parsed)) {
+            result[String(k).trim()] = String(v);
+          }
+          return result;
+        }
+      } catch {
+        // Fall through to line-by-line parsing
+      }
     }
   }
 
@@ -153,7 +165,11 @@ export async function fetchUrlWithDetails(options: FetchOptions): Promise<FetchD
       try {
         data = JSON.parse(trimmed);
       } catch {
-        data = text;
+        try {
+          data = JSON.parse(stripJsoncComments(trimmed));
+        } catch {
+          data = text;
+        }
       }
     }
 

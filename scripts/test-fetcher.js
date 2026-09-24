@@ -34,6 +34,10 @@ async function runFetcherTests() {
     parseHeaders('{"Authorization": "Bearer json-token", "X-Custom": "123"}'),
     { 'Authorization': 'Bearer json-token', 'X-Custom': '123' }
   );
+  assert.deepStrictEqual(
+    parseHeaders('{\n  // Auth token\n  "Authorization": "Bearer json-token",\n  /* custom header */\n  "X-Custom": "123",\n}'),
+    { 'Authorization': 'Bearer json-token', 'X-Custom': '123' }
+  );
   console.log('  ✓ parseHeaders passes all checks');
 
   // 2. formatHeaders tests
@@ -56,6 +60,23 @@ async function runFetcherTests() {
     if (req.url === '/json') {
       res.writeHead(200, { 'Content-Type': 'application/json', 'X-Server': 'Mock' });
       res.end(JSON.stringify({ status: 'success', items: [1, 2, 3] }));
+    } else if (req.url === '/jsonc') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(`// Configuration file
+{
+  "name": "json-tools",
+  // Single-line comment
+  "features": [
+    "json",
+    "jsonc", // Trailing comma in array
+  ],
+  /* Multi-line
+     comment */
+  "nested": {
+    "url": "https://api.example.com//test/*literal*/",
+    "enabled": true,
+  }, // Trailing comma in object
+}`);
     } else if (req.url === '/no-content') {
       res.writeHead(204);
       res.end();
@@ -93,6 +114,29 @@ async function runFetcherTests() {
     assert(jsonRes.timeMs >= 0);
     assert(jsonRes.sizeBytes > 0);
     console.log('  ✓ fetchUrlWithDetails returns JSON, headers, size, time');
+
+    // Test JSONC response (comments and trailing commas)
+    const jsoncRes = await fetchUrlWithDetails({ url: `${baseUrl}/jsonc` });
+    assert.strictEqual(jsoncRes.status, 200);
+    assert.strictEqual(jsoncRes.ok, true);
+    assert.deepStrictEqual(jsoncRes.data, {
+      name: 'json-tools',
+      features: ['json', 'jsonc'],
+      nested: {
+        url: 'https://api.example.com//test/*literal*/',
+        enabled: true
+      }
+    });
+    const jsoncData = await fetchUrlData({ url: `${baseUrl}/jsonc` });
+    assert.deepStrictEqual(jsoncData, {
+      name: 'json-tools',
+      features: ['json', 'jsonc'],
+      nested: {
+        url: 'https://api.example.com//test/*literal*/',
+        enabled: true
+      }
+    });
+    console.log('  ✓ fetchUrlWithDetails and fetchUrlData parse JSONC payloads with comments & trailing commas');
 
     // Test 204 No Content
     const noContentRes = await fetchUrlWithDetails({ url: `${baseUrl}/no-content` });
