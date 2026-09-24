@@ -1583,6 +1583,7 @@ export function getQueryEditorHtml(
     }
 
     let currentResultData = null;
+    let currentResultText = '';
     let editor;
     let codeMirrorLoaded = false;
     let resultJsonEditor = null;
@@ -2015,6 +2016,14 @@ export function getQueryEditorHtml(
         resultJsonEditorWrapper = resultJsonEditor.getWrapperElement();
         resultJsonEditorWrapper.style.display = 'none';
         resultJsonEditor.setSize('100%', '200px');
+        if (resultFormat && ['json', 'yaml', 'ndjson', 'xml'].includes(resultFormat.value) && resultPre && resultPre.style.display !== 'none' && !resultPre.classList.contains('empty') && !resultPre.classList.contains('error')) {
+          resultJsonEditor.setValue(resultPre.textContent || '');
+          resultJsonEditorWrapper.style.display = 'block';
+          resultPre.style.display = 'none';
+          setTimeout(() => {
+            if (resultJsonEditor) resultJsonEditor.refresh();
+          }, 50);
+        }
       } catch (e) {
         console.error('Failed to initialize result JSON CodeMirror:', e);
         resultJsonEditor = null;
@@ -4202,12 +4211,14 @@ export function getQueryEditorHtml(
           resultChartContainer.style.display = 'none';
           resultInfo.textContent = '';
           currentResultData = null;
+          currentResultText = '';
           if (benchmarkMeter) benchmarkMeter.style.display = 'none';
           lastBenchmark = null;
         } else {
-          currentResultData = msg.data || null;
+          currentResultData = msg.data !== undefined ? msg.data : null;
+          currentResultText = msg.text ?? '';
           updateBenchmarkMeter(msg.durationMs, msg.byteSize, msg.text);
-          updateResultDisplay(msg.text ?? '', msg.data);
+          updateResultDisplay(msg.text ?? '', currentResultData);
         }
       } else if (msg.type === 'resultStart') {
         // Initialize streaming
@@ -4221,6 +4232,7 @@ export function getQueryEditorHtml(
         streamingTotalItems = msg.totalItems || 0;
         streamingReceivedItems = 0;
         currentResultData = null;
+        currentResultText = '';
         tableCurrentPage = 1;
         if (benchmarkMeter) benchmarkMeter.style.display = 'none';
         lastBenchmark = null;
@@ -4279,7 +4291,8 @@ export function getQueryEditorHtml(
         }
         setLoading(false);
         streamingIsActive = false;
-        currentResultData = msg.data || streamingData || null;
+        currentResultData = (msg.data !== undefined && msg.data !== null) ? msg.data : (streamingData || null);
+        currentResultText = msg.text ?? '';
         streamingData = null;
         updateBenchmarkMeter(msg.durationMs, msg.byteSize, msg.text);
         updateResultDisplay(msg.text ?? '', currentResultData);
@@ -4681,6 +4694,9 @@ export function getQueryEditorHtml(
           }
         }
         if (resultJsonEditor && resultJsonEditorWrapper) {
+          try {
+            resultJsonEditor.setOption('mode', { name: 'javascript', json: true });
+          } catch (e) {}
           resultJsonEditor.setValue(jsonText || '');
           resultJsonEditorWrapper.style.display = 'block';
           resultPre.style.display = 'none';
@@ -4928,7 +4944,9 @@ export function getQueryEditorHtml(
         ? currentResultData 
         : (streamingIsActive && streamingData && streamingData.length > 0 ? streamingData : null);
       
-      if (dataToUse !== null && dataToUse !== undefined) {
+      const hasData = (dataToUse !== null && dataToUse !== undefined) || (Boolean(currentResultText) && currentResultText !== '');
+
+      if (hasData) {
         const format = resultFormat.value;
         const isCurrentlyStreaming = streamingIsActive && currentResultData === null;
         
@@ -4937,20 +4955,22 @@ export function getQueryEditorHtml(
             resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items) - Table will render when complete';
             resultPre.className = '';
             resultPre.style.display = 'block';
+            if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
             hideTable();
             hideChart();
           } else {
-            updateResultDisplay('', dataToUse);
+            updateResultDisplay(currentResultText, dataToUse);
           }
         } else if (format === 'chart') {
           if (isCurrentlyStreaming) {
             resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items) - Chart will render when complete';
             resultPre.className = '';
             resultPre.style.display = 'block';
+            if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
             hideTable();
             hideChart();
           } else {
-            updateResultDisplay('', dataToUse);
+            updateResultDisplay(currentResultText, dataToUse);
           }
         } else {
           // JSON, YAML, NDJSON, XML formats
@@ -4962,7 +4982,7 @@ export function getQueryEditorHtml(
             hideTable();
             hideChart();
           } else {
-            updateResultDisplay('', dataToUse);
+            updateResultDisplay(currentResultText, dataToUse);
           }
         }
       }

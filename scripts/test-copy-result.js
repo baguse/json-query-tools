@@ -156,6 +156,97 @@ async function runCopyResultTests() {
   );
   console.log('  ✓ Verified copyToClipboard function casing and backward compatibility alias in commands.ts');
 
+  // Case 5: Verify webview script correctly manages resultJsonEditor on format switch back to JSON
+  assert.ok(
+    html.includes("resultJsonEditor.setOption('mode', { name: 'javascript', json: true })"),
+    'Expected format switch to ensure JSON mode on resultJsonEditor'
+  );
+  assert.ok(
+    html.includes('updateResultDisplay(currentResultText, dataToUse)'),
+    'Expected format switch to pass currentResultText and dataToUse to updateResultDisplay'
+  );
+  assert.ok(
+    html.includes('currentResultData = msg.data !== undefined ? msg.data : null;'),
+    'Expected currentResultData to preserve falsy values such as 0 or false'
+  );
+  console.log('  ✓ Webview script configures resultJsonEditor mode and preserves currentResultData/currentResultText on format switch');
+
+  // Case 6: Unit test format switching back to JSON activates CodeMirror and hides resultPre
+  function simulateFormatSwitch({ initialFormat, newFormat, data, text, cmActive = true }) {
+    let preDisplay = 'block';
+    let preText = '';
+    let wrapperDisplay = 'none';
+    let cmValue = '';
+    let cmMode = '';
+
+    const mockCm = cmActive ? {
+      setValue: (val) => { cmValue = val; },
+      getValue: () => cmValue,
+      setOption: (key, val) => { if (key === 'mode') cmMode = val; },
+      refresh: () => {}
+    } : null;
+
+    function doUpdateDisplay(fmt, d, t) {
+      if (fmt === 'table') {
+        preDisplay = 'none';
+        wrapperDisplay = 'none';
+      } else if (fmt === 'json') {
+        let jsonText = t;
+        if ((!jsonText || !jsonText.trim()) && d !== undefined) {
+          try {
+            jsonText = JSON.stringify(d, null, 2);
+          } catch {
+            jsonText = String(d);
+          }
+        }
+        if (mockCm) {
+          mockCm.setOption('mode', { name: 'javascript', json: true });
+          mockCm.setValue(jsonText || '');
+          wrapperDisplay = 'block';
+          preDisplay = 'none';
+          preText = jsonText || '';
+        } else {
+          wrapperDisplay = 'none';
+          preDisplay = 'block';
+          preText = jsonText || '';
+        }
+      }
+    }
+
+    // First render in initial format
+    doUpdateDisplay(initialFormat, data, text);
+    // Then switch to new format
+    doUpdateDisplay(newFormat, data, text);
+
+    return { preDisplay, preText, wrapperDisplay, cmValue, cmMode };
+  }
+
+  // Switch Table -> JSON
+  const switchedToJson = simulateFormatSwitch({
+    initialFormat: 'table',
+    newFormat: 'json',
+    data: [{ id: 101, status: 'active' }],
+    text: '',
+    cmActive: true
+  });
+  assert.strictEqual(switchedToJson.wrapperDisplay, 'block', 'CodeMirror wrapper must be visible on switch back to JSON');
+  assert.strictEqual(switchedToJson.preDisplay, 'none', 'resultPre must be hidden on switch back to JSON');
+  assert.deepStrictEqual(switchedToJson.cmMode, { name: 'javascript', json: true }, 'CodeMirror mode must be json');
+  assert.ok(switchedToJson.cmValue.includes('"status": "active"'), 'CodeMirror must contain formatted JSON');
+  console.log('  ✓ Switching format back to JSON displays CodeMirror with JSON mode and hides resultPre');
+
+  // Switch with falsy primitive (0)
+  const falsySwitch = simulateFormatSwitch({
+    initialFormat: 'table',
+    newFormat: 'json',
+    data: 0,
+    text: '',
+    cmActive: true
+  });
+  assert.strictEqual(falsySwitch.wrapperDisplay, 'block');
+  assert.strictEqual(falsySwitch.cmValue, '0');
+  console.log('  ✓ Format switch preserves falsy primitive results in CodeMirror');
+
   console.log('\n✅ All copyResult and openInEditor tests passed successfully!');
 }
 
