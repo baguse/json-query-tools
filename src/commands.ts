@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { performance } from 'perf_hooks';
 import { HISTORY_KEY, URL_SOURCES_KEY, URL_CACHE_MAX_SIZE, URL_CACHE_DEFAULT_TTL_MS, AI_API_KEY_SECRET } from './constants';
 import { LruCache } from './cache';
 import { BoundFile, BoundUrl, SerializedBoundSource } from './types';
@@ -12,6 +13,21 @@ import { fetchUrlWithDetails, parseHeaders } from './fetcher';
 import { getTemplateVariables } from './config';
 import { formatData, getFileExtension, getFormatFilters } from './export';
 import { JsonDiffProvider, showJsonDiff } from './diff';
+
+export function formatBytes(bytes: number): string {
+  if (bytes === 0 || !bytes) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+export function formatDuration(ms: number): string {
+  if (typeof ms !== 'number' || isNaN(ms)) return '0ms';
+  if (ms < 1) return (Math.round(ms * 10) / 10) + 'ms';
+  if (ms < 1000) return (Math.round(ms * 10) / 10) + 'ms';
+  return (ms / 1000).toFixed(2) + 's';
+}
 
 export const diffProvider = new JsonDiffProvider();
 
@@ -245,11 +261,39 @@ export async function commandOpenQueryEditor(
   );
   currentPanel = panel;
 
+  const benchmarkStatusBar = (typeof vscode?.window?.createStatusBarItem === 'function')
+    ? vscode.window.createStatusBarItem(vscode?.StatusBarAlignment?.Right ?? 2, 100)
+    : undefined;
+  if (benchmarkStatusBar) {
+    benchmarkStatusBar.name = 'JSON Tools Query Benchmark';
+  }
+
+  let lastBenchmark: { durationMs: number; byteSize: number } | undefined;
+
+  function updateBenchmarkStatus(durationMs: number, byteSize: number) {
+    lastBenchmark = { durationMs, byteSize };
+    if (!benchmarkStatusBar) return;
+    const formattedBytes = formatBytes(byteSize);
+    const formattedDuration = formatDuration(durationMs);
+    benchmarkStatusBar.text = `$(watch) ${formattedDuration} | $(database) ${formattedBytes}`;
+    benchmarkStatusBar.tooltip = `Query Execution: ${formattedDuration}\nResult Size: ${formattedBytes} (${byteSize.toLocaleString()} bytes)`;
+    benchmarkStatusBar.show();
+  }
+
+  panel.onDidChangeViewState?.((e) => {
+    if (e.webviewPanel.visible && lastBenchmark) {
+      benchmarkStatusBar?.show();
+    } else {
+      benchmarkStatusBar?.hide();
+    }
+  });
+
   let activeAiController: AbortController | null = null;
   let lastResultData: unknown = undefined;
   let hasEvaluatedResult = false;
 
   panel.onDidDispose(() => {
+    benchmarkStatusBar?.dispose();
     activeAiController?.abort();
     activeAiController = null;
     urlDataCache.clear();
@@ -323,7 +367,18 @@ export async function commandOpenQueryEditor(
   panel.webview.html = getQueryEditorHtml(panel.webview, { sources: getSerializedSources(), scriptNonce });
 
   const sendHistory = () => panel.webview.postMessage({ type: 'hydrate', history: getHistory(context) });
-  const sendResult = (text: string, data?: unknown) => panel.webview.postMessage({ type: 'result', text, data });
+  const sendResult = (text: string, data?: unknown, benchmark?: { durationMs: number; byteSize: number }) => {
+    if (benchmark && benchmark.durationMs !== undefined && benchmark.byteSize !== undefined) {
+      updateBenchmarkStatus(benchmark.durationMs, benchmark.byteSize);
+    }
+    panel.webview.postMessage({
+      type: 'result',
+      text,
+      data,
+      durationMs: benchmark?.durationMs,
+      byteSize: benchmark?.byteSize
+    });
+  };
   const sendSources = () => panel.webview.postMessage({
     type: 'updateTargets',
     sources: getSerializedSources(),
@@ -399,7 +454,7 @@ export async function commandOpenQueryEditor(
   const STREAMING_THRESHOLD = 1000; // Start streaming for arrays with 1000+ items
   const CHUNK_SIZE = 500; // Send 500 items per chunk
   
-  async function sendResultStreaming(text: string, data?: unknown) {
+  async function sendResultStreaming(text: string, data?: unknown, durationMs?: number, byteSize?: number) {
     // Check if we should stream (large array)
     if (data && Array.isArray(data) && data.length >= STREAMING_THRESHOLD) {
       // Send initial metadata
@@ -410,12 +465,16 @@ export async function commandOpenQueryEditor(
         data: null // Full data not sent yet
       });
       
+      let totalStreamBytes = 2; // For outer brackets [ ]
       // Send chunks progressively without artificial delay
       for (let i = 0; i < data.length; i += CHUNK_SIZE) {
         const chunk = data.slice(i, i + CHUNK_SIZE);
         const chunkEnd = Math.min(i + CHUNK_SIZE, data.length);
         const isLast = chunkEnd >= data.length;
         
+        const chunkJson = JSON.stringify(chunk);
+        totalStreamBytes += Buffer.byteLength(chunkJson, 'utf-8') - 2 + (i > 0 ? 1 : 0);
+
         panel.webview.postMessage({
           type: 'resultChunk',
           chunk: chunk,
@@ -429,15 +488,23 @@ export async function commandOpenQueryEditor(
         await new Promise(resolve => typeof setImmediate === 'function' ? setImmediate(resolve) : setTimeout(resolve, 0));
       }
       
+      const finalByteSize = byteSize !== undefined && byteSize > 0 ? byteSize : Math.max(0, totalStreamBytes);
+      if (durationMs !== undefined) {
+        updateBenchmarkStatus(durationMs, finalByteSize);
+      }
+
       // Send final completion message with metadata only (avoid re-transmitting entire dataset)
       panel.webview.postMessage({
         type: 'resultComplete',
         isComplete: true,
-        totalItems: data.length
+        totalItems: data.length,
+        durationMs,
+        byteSize: finalByteSize
       });
     } else {
+      const finalByteSize = byteSize !== undefined ? byteSize : (text ? Buffer.byteLength(text, 'utf-8') : 0);
       // Small results - send normally
-      sendResult(text, data);
+      sendResult(text, data, durationMs !== undefined ? { durationMs, byteSize: finalByteSize } : undefined);
     }
   }
 
@@ -858,13 +925,17 @@ export async function commandOpenQueryEditor(
           }
         }
 
+        const startTime = performance.now();
         const result = await evaluateExpression(boundFiles, dataMap, expr);
+        const durationMs = Math.round((performance.now() - startTime) * 10) / 10;
         lastResultData = result;
         hasEvaluatedResult = true;
         if (msg.save) { await pushHistory(context, expr); sendHistory(); }
         // Use streaming for large results (skip expensive full stringify in host)
         const isStreaming = Array.isArray(result) && result.length >= STREAMING_THRESHOLD;
-        await sendResultStreaming(isStreaming ? '' : stringify(result), result);
+        const text = isStreaming ? '' : stringify(result);
+        const byteSize = isStreaming ? 0 : Buffer.byteLength(text, 'utf-8');
+        await sendResultStreaming(text, result, durationMs, byteSize);
       } else if (msg.type === 'save') {
         await pushHistory(context, String(msg.expr || ''));
         sendHistory();

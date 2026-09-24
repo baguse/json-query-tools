@@ -93,6 +93,9 @@ async function validate() {
 
     // Verify key UI elements exist in HTML
     const requiredElements = [
+      'id="benchmarkMeter"',
+      'id="benchmarkDuration"',
+      'id="benchmarkByteSize"',
       'id="urlModalPreview"',
       'id="testUrlModal"',
       'id="sourceInspectModal"',

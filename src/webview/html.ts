@@ -181,6 +181,20 @@ export function getQueryEditorHtml(
     .status-3xx { background: #0e639c; }
     .status-4xx { background: #d29922; color: #1e1e1e; }
     .status-5xx { background: #da3633; }
+    .benchmark-meter {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      background: var(--vscode-badge-background, rgba(128, 128, 128, 0.15));
+      border: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.25));
+      color: var(--vscode-badge-foreground, var(--vscode-foreground, #cccccc));
+      font-family: var(--vscode-editor-font-family, monospace);
+      user-select: none;
+      line-height: 1.3;
+    }
 
 
     /* URL Modal Styles */
@@ -1017,8 +1031,13 @@ export function getQueryEditorHtml(
 
   <div id="result">
     <div class="result-header">
-      <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+      <div style="display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap;">
         <h4 style="margin: 0;">Result</h4>
+        <div id="benchmarkMeter" class="benchmark-meter" title="Execution Benchmark">
+          <span id="benchmarkDuration" title="Query execution time">⏱️ 0ms</span>
+          <span style="opacity: 0.4;">•</span>
+          <span id="benchmarkByteSize" title="Data byte size">💾 0 B</span>
+        </div>
         <span id="resultInfo" style="font-size: 10px; color: var(--vscode-descriptionForeground, #858585);"></span>
       </div>
       <div style="display: flex; gap: 6px; flex-wrap: wrap;">
@@ -1406,6 +1425,9 @@ export function getQueryEditorHtml(
     const saveXmlBtn = document.getElementById('saveXml');
     const exportDropdown = document.getElementById('exportDropdown');
     const resultInfo = document.getElementById('resultInfo');
+    const benchmarkMeter = document.getElementById('benchmarkMeter');
+    const benchmarkDuration = document.getElementById('benchmarkDuration');
+    const benchmarkByteSize = document.getElementById('benchmarkByteSize');
     const resultTable = document.getElementById('resultTable');
     const resultTableHead = document.getElementById('resultTableHead');
     const resultTableBody = document.getElementById('resultTableBody');
@@ -1435,6 +1457,65 @@ export function getQueryEditorHtml(
       if (resultChartWarning) resultChartWarning.style.display = 'none';
       if (chartType) chartType.style.display = 'none';
       if (downloadChartBtn) downloadChartBtn.style.display = 'none';
+    }
+
+    let lastBenchmark = null;
+
+    function formatDuration(ms) {
+      if (typeof ms !== 'number' || isNaN(ms)) return '0ms';
+      if (ms < 1) return (Math.round(ms * 10) / 10) + 'ms';
+      if (ms < 1000) return (Math.round(ms * 10) / 10) + 'ms';
+      return (ms / 1000).toFixed(2) + 's';
+    }
+
+    function formatBytes(bytes) {
+      if (bytes === 0 || !bytes) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    }
+
+    function updateBenchmarkMeter(durationMs, byteSize, text) {
+      if (durationMs !== undefined && durationMs !== null) {
+        if (!lastBenchmark) lastBenchmark = {};
+        lastBenchmark.durationMs = durationMs;
+      }
+      if (byteSize !== undefined && byteSize !== null) {
+        if (!lastBenchmark) lastBenchmark = {};
+        lastBenchmark.byteSize = byteSize;
+      } else if (text && text.length > 0) {
+        if (!lastBenchmark) lastBenchmark = {};
+        try {
+          lastBenchmark.byteSize = (typeof TextEncoder !== 'undefined')
+            ? new TextEncoder().encode(text).length
+            : text.length;
+        } catch (e) {
+          lastBenchmark.byteSize = text.length;
+        }
+      }
+
+      if (!lastBenchmark || (lastBenchmark.durationMs === undefined && lastBenchmark.byteSize === undefined)) {
+        if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+        return;
+      }
+
+      const durText = lastBenchmark.durationMs !== undefined ? formatDuration(lastBenchmark.durationMs) : '0ms';
+      const sizeText = lastBenchmark.byteSize !== undefined ? formatBytes(lastBenchmark.byteSize) : '0 B';
+
+      if (benchmarkDuration) benchmarkDuration.textContent = '⏱️ ' + durText;
+      if (benchmarkByteSize) benchmarkByteSize.textContent = '💾 ' + sizeText;
+      if (benchmarkMeter) {
+        benchmarkMeter.style.display = 'inline-flex';
+        benchmarkMeter.title = 'Execution time: ' + durText + ' | Size: ' + sizeText + 
+          (lastBenchmark.byteSize !== undefined ? ' (' + lastBenchmark.byteSize.toLocaleString() + ' bytes)' : '');
+      }
+
+      if (resultInfo) {
+        resultInfo.setAttribute('data-duration', durText);
+        resultInfo.setAttribute('data-bytes', String(lastBenchmark.byteSize ?? 0));
+        resultInfo.title = 'Query execution: ' + durText + ' | Size: ' + sizeText;
+      }
     }
 
     let currentTableData = null;
@@ -2751,6 +2832,9 @@ export function getQueryEditorHtml(
       if (!expr) {
         resultPre.textContent = 'Error: Expression is empty';
         resultPre.className = 'error';
+        if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+        if (resultInfo) resultInfo.textContent = '';
+        lastBenchmark = null;
         return;
       }
       
@@ -2773,6 +2857,9 @@ export function getQueryEditorHtml(
           showSyntaxError(msg, line, column);
           resultPre.textContent = 'Syntax error: ' + msg + ' (' + line + ':' + (column + 1) + ')';
           resultPre.className = 'error';
+          if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+          if (resultInfo) resultInfo.textContent = '';
+          lastBenchmark = null;
           return;
         }
       }
@@ -2780,6 +2867,9 @@ export function getQueryEditorHtml(
       setLoading(true);
       resultPre.textContent = 'Running...';
       resultPre.className = '';
+      if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+      if (resultInfo) resultInfo.textContent = '';
+      lastBenchmark = null;
       vscode.postMessage({ type: 'run', expr, save: true });
     }
 
@@ -4112,8 +4202,11 @@ export function getQueryEditorHtml(
           resultChartContainer.style.display = 'none';
           resultInfo.textContent = '';
           currentResultData = null;
+          if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+          lastBenchmark = null;
         } else {
           currentResultData = msg.data || null;
+          updateBenchmarkMeter(msg.durationMs, msg.byteSize, msg.text);
           updateResultDisplay(msg.text ?? '', msg.data);
         }
       } else if (msg.type === 'resultStart') {
@@ -4129,6 +4222,8 @@ export function getQueryEditorHtml(
         streamingReceivedItems = 0;
         currentResultData = null;
         tableCurrentPage = 1;
+        if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+        lastBenchmark = null;
         
         // Show initial loading state
         resultPre.textContent = 'Loading... (0/' + streamingTotalItems + ' items)';
@@ -4186,6 +4281,7 @@ export function getQueryEditorHtml(
         streamingIsActive = false;
         currentResultData = msg.data || streamingData || null;
         streamingData = null;
+        updateBenchmarkMeter(msg.durationMs, msg.byteSize, msg.text);
         updateResultDisplay(msg.text ?? '', currentResultData);
       } else if (msg.type === 'updateModels') {
         aiModel.innerHTML = '<option value="" disabled selected>Select Model...</option>';
@@ -4412,6 +4508,17 @@ export function getQueryEditorHtml(
         resultInfo.textContent = info;
       } else {
         resultInfo.textContent = '';
+      }
+
+      if (lastBenchmark) {
+        if (text && !text.includes('(no result yet)') && !text.includes('Running...')) {
+          try {
+            const currentBytes = (typeof TextEncoder !== 'undefined') ? new TextEncoder().encode(text).length : text.length;
+            if (benchmarkByteSize) benchmarkByteSize.textContent = '💾 ' + formatBytes(currentBytes);
+          } catch {}
+        } else if (lastBenchmark.byteSize !== undefined) {
+          if (benchmarkByteSize) benchmarkByteSize.textContent = '💾 ' + formatBytes(lastBenchmark.byteSize);
+        }
       }
       
       function updateExportButtons(fmt, hasData) {
@@ -4999,6 +5106,9 @@ export function getQueryEditorHtml(
           setLoading(true);
           resultPre.textContent = 'Running...';
           resultPre.className = '';
+          if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+          if (resultInfo) resultInfo.textContent = '';
+          lastBenchmark = null;
           vscode.postMessage({ type: 'run', expr, save: true });
         };
         delBtn.onclick = () => {
@@ -5927,14 +6037,6 @@ export function getQueryEditorHtml(
       if (cancelUrlModal) cancelUrlModal.disabled = isLoading;
       if (submitUrlSpinner) submitUrlSpinner.style.display = isLoading ? 'inline-block' : 'none';
       if (submitUrlText) submitUrlText.textContent = isLoading ? 'Fetching...' : 'Fetch & Bind';
-    }
-
-    function formatBytes(bytes) {
-      if (bytes === 0 || !bytes) return '0 B';
-      const k = 1024;
-      const sizes = ['B', 'KB', 'MB', 'GB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(k));
-      return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
     }
 
     function renderHeadersTable(tbody, noHeadersEl, headers, filterText, sortAsc) {
