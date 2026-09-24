@@ -984,6 +984,9 @@ export function getQueryEditorHtml(
       <div style="display: flex; gap: 6px; flex-wrap: wrap;">
         <select id="resultFormat" style="padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;">
           <option value="json">JSON</option>
+          <option value="yaml">YAML</option>
+          <option value="ndjson">NDJSON</option>
+          <option value="xml">XML</option>
           <option value="raw">Raw</option>
           <option value="table">Table</option>
           <option value="chart">Chart</option>
@@ -996,6 +999,17 @@ export function getQueryEditorHtml(
         <button id="downloadChart" class="secondary" style="display: none; padding: 6px 10px;">📥 png</button>
         <button id="saveJson" class="secondary" style="display: none; padding: 6px 10px;">📥 json</button>
         <button id="saveCsv" class="secondary" style="display: none; padding: 6px 10px;">📥 csv</button>
+        <button id="saveYaml" class="secondary" style="display: none; padding: 6px 10px;">📥 yaml</button>
+        <button id="saveNdjson" class="secondary" style="display: none; padding: 6px 10px;">📥 ndjson</button>
+        <button id="saveXml" class="secondary" style="display: none; padding: 6px 10px;">📥 xml</button>
+        <select id="exportDropdown" style="display: none; padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;" title="Export result to file">
+          <option value="" disabled selected>📥 Export...</option>
+          <option value="json">JSON (.json)</option>
+          <option value="csv">CSV (.csv)</option>
+          <option value="yaml">YAML (.yaml)</option>
+          <option value="ndjson">NDJSON (.ndjson)</option>
+          <option value="xml">XML (.xml)</option>
+        </select>
         <button id="copy-result-to-clipboard" class="secondary" style="padding: 6px 10px;">📋 Copy</button>
         <button id="openResultInEditorBtn" class="secondary" style="padding: 6px 10px;" title="Open result in a new VS Code editor tab">↗ In Editor</button>
       </div>
@@ -1227,6 +1241,10 @@ export function getQueryEditorHtml(
     const downloadChartBtn = document.getElementById('downloadChart');
     const saveJsonBtn = document.getElementById('saveJson');
     const saveCsvBtn = document.getElementById('saveCsv');
+    const saveYamlBtn = document.getElementById('saveYaml');
+    const saveNdjsonBtn = document.getElementById('saveNdjson');
+    const saveXmlBtn = document.getElementById('saveXml');
+    const exportDropdown = document.getElementById('exportDropdown');
     const resultInfo = document.getElementById('resultInfo');
     const resultTable = document.getElementById('resultTable');
     const resultTableHead = document.getElementById('resultTableHead');
@@ -2892,13 +2910,259 @@ export function getQueryEditorHtml(
       return rows.join(String.fromCharCode(10));
     }
 
+    function escapeXml(str) {
+      return str.replace(/[&<>"']/g, function(ch) {
+        if (ch === '&') return '&amp;';
+        if (ch === '<') return '&lt;';
+        if (ch === '>') return '&gt;';
+        if (ch === '"') return '&quot;';
+        if (ch === "'") return '&apos;';
+        return ch;
+      });
+    }
+
+    function sanitizeXmlTagName(key) {
+      if (!key || typeof key !== 'string') return 'item';
+      var tag = key.trim().replace(/[^a-zA-Z0-9_.-]/g, '_');
+      if (/^[0-9.-]/.test(tag)) {
+        tag = '_' + tag;
+      }
+      return tag || 'item';
+    }
+
+    function generateXml(data, rootTag) {
+      rootTag = rootTag || 'root';
+      var safeRoot = sanitizeXmlTagName(rootTag);
+      var visited = new WeakSet();
+
+      function serializeNode(val, tag, depth) {
+        var spaces = '  '.repeat(depth);
+        var safeTag = sanitizeXmlTagName(tag);
+
+        if (val === null || val === undefined) {
+          return spaces + '<' + safeTag + ' />';
+        }
+
+        if (typeof val === 'boolean' || typeof val === 'number' || typeof val === 'bigint') {
+          return spaces + '<' + safeTag + '>' + val + '</' + safeTag + '>';
+        }
+
+        if (typeof val === 'string') {
+          return spaces + '<' + safeTag + '>' + escapeXml(val) + '</' + safeTag + '>';
+        }
+
+        if (typeof val === 'object') {
+          if (visited.has(val)) {
+            return spaces + '<' + safeTag + '>[Circular]</' + safeTag + '>';
+          }
+          visited.add(val);
+
+          if (Array.isArray(val)) {
+            if (val.length === 0) return spaces + '<' + safeTag + ' />';
+            var arrLines = [];
+            for (var i = 0; i < val.length; i++) {
+              arrLines.push(serializeNode(val[i], 'item', depth));
+            }
+            return arrLines.join('\\n');
+          }
+
+          var entries = Object.entries(val);
+          if (entries.length === 0) return spaces + '<' + safeTag + ' />';
+
+          var innerLines = [];
+          for (var e = 0; e < entries.length; e++) {
+            var k = entries[e][0];
+            var v = entries[e][1];
+            if (Array.isArray(v)) {
+              var itemTag = sanitizeXmlTagName(k);
+              if (v.length === 0) {
+                innerLines.push(spaces + '  <' + itemTag + ' />');
+              } else {
+                for (var j = 0; j < v.length; j++) {
+                  innerLines.push(serializeNode(v[j], itemTag, depth + 1));
+                }
+              }
+            } else {
+              innerLines.push(serializeNode(v, k, depth + 1));
+            }
+          }
+          return spaces + '<' + safeTag + '>\\n' + innerLines.join('\\n') + '\\n' + spaces + '</' + safeTag + '>';
+        }
+
+        return spaces + '<' + safeTag + '>' + escapeXml(String(val)) + '</' + safeTag + '>';
+      }
+
+      var body = '';
+      if (Array.isArray(data)) {
+        if (data.length === 0) {
+          body = '<' + safeRoot + ' />';
+        } else {
+          var items = data.map(function(item) {
+            return serializeNode(item, 'item', 1);
+          }).join('\\n');
+          body = '<' + safeRoot + '>\\n' + items + '\\n</' + safeRoot + '>';
+        }
+      } else if (typeof data === 'object' && data !== null) {
+        body = serializeNode(data, safeRoot, 0);
+      } else {
+        body = '<' + safeRoot + '>' + (data !== null && data !== undefined ? escapeXml(String(data)) : '') + '</' + safeRoot + '>';
+      }
+
+      return '<?xml version="1.0" encoding="UTF-8"?>\\n' + body;
+    }
+
+    function generateNdjson(data) {
+      function replacer(_k, v) {
+        return typeof v === 'bigint' ? v.toString() : v;
+      }
+      if (Array.isArray(data)) {
+        if (data.length === 0) return '';
+        return data.map(function(item) {
+          return JSON.stringify(item, replacer);
+        }).join('\\n');
+      }
+      if (data === undefined || data === null) return '';
+      return JSON.stringify(data, replacer);
+    }
+
+    function generateYaml(data, indent) {
+      indent = indent || 2;
+      var visited = new WeakSet();
+
+      function formatString(str) {
+        if (str === '') return '""';
+        var needsQuotes =
+          /[\\n\\r\\t:#@%&*?|>{}\\[\\],]/.test(str) ||
+          /^[-?]/.test(str) ||
+          /^\\s|\\s$/.test(str) ||
+          /^(true|false|null|yes|no|on|off|\\.nan|\\.inf)$/i.test(str) ||
+          !isNaN(Number(str));
+        if (needsQuotes) {
+          return JSON.stringify(str);
+        }
+        return str;
+      }
+
+      function formatKey(key) {
+        if (/^[a-zA-Z0-9_.-]+$/.test(key) && !/^(true|false|null)$/i.test(key)) {
+          return key;
+        }
+        return JSON.stringify(key);
+      }
+
+      function serialize(val, depth) {
+        if (val === null || val === undefined) return 'null';
+        if (typeof val === 'boolean') return val ? 'true' : 'false';
+        if (typeof val === 'number') {
+          if (isNaN(val)) return '.nan';
+          if (!isFinite(val)) return val > 0 ? '.inf' : '-.inf';
+          return String(val);
+        }
+        if (typeof val === 'bigint') return val.toString();
+        if (typeof val === 'string') return formatString(val);
+
+        if (typeof val === 'object') {
+          if (visited.has(val)) return '"[Circular]"';
+          visited.add(val);
+
+          var spaces = ' '.repeat(depth * indent);
+
+          if (Array.isArray(val)) {
+            if (val.length === 0) return '[]';
+            var lines = [];
+            for (var i = 0; i < val.length; i++) {
+              var item = val[i];
+              if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
+                var keys = Object.keys(item);
+                if (keys.length === 0) {
+                  lines.push(spaces + '- {}');
+                } else {
+                  var firstKey = keys[0];
+                  var firstVal = serialize(item[firstKey], depth + 1);
+                  var isFirstComplex = typeof item[firstKey] === 'object' && item[firstKey] !== null;
+
+                  if (isFirstComplex && !firstVal.startsWith('[]') && !firstVal.startsWith('{}') && !firstVal.startsWith('"[Circular]"')) {
+                    lines.push(spaces + '- ' + formatKey(firstKey) + ':\\n' + firstVal);
+                  } else {
+                    lines.push(spaces + '- ' + formatKey(firstKey) + ': ' + firstVal);
+                  }
+
+                  for (var k = 1; k < keys.length; k++) {
+                    var subKey = keys[k];
+                    var subVal = serialize(item[subKey], depth + 1);
+                    var isSubComplex = typeof item[subKey] === 'object' && item[subKey] !== null;
+                    var subIndent = ' '.repeat(depth * indent + 2);
+                    if (isSubComplex && !subVal.startsWith('[]') && !subVal.startsWith('{}') && !subVal.startsWith('"[Circular]"')) {
+                      lines.push(subIndent + formatKey(subKey) + ':\\n' + subVal);
+                    } else {
+                      lines.push(subIndent + formatKey(subKey) + ': ' + subVal);
+                    }
+                  }
+                }
+              } else {
+                var itemVal = serialize(item, depth + 1);
+                lines.push(spaces + '- ' + itemVal);
+              }
+            }
+            return lines.join('\\n');
+          }
+
+          var entries = Object.entries(val);
+          if (entries.length === 0) return '{}';
+
+          var objLines = [];
+          for (var eIdx = 0; eIdx < entries.length; eIdx++) {
+            var entKey = entries[eIdx][0];
+            var entVal = entries[eIdx][1];
+            var formattedKey = formatKey(entKey);
+            var serializedVal = serialize(entVal, depth + 1);
+            var isComplex = typeof entVal === 'object' && entVal !== null;
+
+            if (isComplex && !serializedVal.startsWith('[]') && !serializedVal.startsWith('{}') && !serializedVal.startsWith('"[Circular]"')) {
+              objLines.push(spaces + formattedKey + ':\\n' + serializedVal);
+            } else {
+              objLines.push(spaces + formattedKey + ': ' + serializedVal);
+            }
+          }
+          return objLines.join('\\n');
+        }
+
+        return String(val);
+      }
+
+      return serialize(data, 0);
+    }
+
+    function formatResultData(data, format) {
+      var fmt = (format || 'json').toLowerCase();
+      if (fmt === 'csv') return generateCsv(data);
+      if (fmt === 'yaml' || fmt === 'yml') return generateYaml(data);
+      if (fmt === 'ndjson' || fmt === 'jsonl') return generateNdjson(data);
+      if (fmt === 'xml') return generateXml(data);
+      try {
+        return JSON.stringify(data, function(_k, v) {
+          return typeof v === 'bigint' ? v.toString() : v;
+        }, 2);
+      } catch (e) {
+        return String(data);
+      }
+    }
+
     copyResultBtn.onclick = () => {
       let text = '';
+      const dataToUse = currentResultData !== null && currentResultData !== undefined 
+        ? currentResultData 
+        : (streamingData && streamingData.length > 0 ? streamingData : null);
+      const fmt = resultFormat ? resultFormat.value : 'json';
+
       if (resultTable && resultTable.style.display === 'table') {
-        const dataToUse = currentResultData !== null && currentResultData !== undefined 
-          ? currentResultData 
-          : (streamingData && streamingData.length > 0 ? streamingData : null);
         text = generateCsv(dataToUse);
+      } else if (fmt === 'yaml' && dataToUse !== null && dataToUse !== undefined) {
+        text = generateYaml(dataToUse);
+      } else if (fmt === 'ndjson' && dataToUse !== null && dataToUse !== undefined) {
+        text = generateNdjson(dataToUse);
+      } else if (fmt === 'xml' && dataToUse !== null && dataToUse !== undefined) {
+        text = generateXml(dataToUse);
       } else if (resultJsonEditor && resultJsonEditorWrapper && resultJsonEditorWrapper.style.display !== 'none') {
         text = resultJsonEditor.getValue();
       } else if (currentResultData !== null && currentResultData !== undefined) {
@@ -2925,27 +3189,40 @@ export function getQueryEditorHtml(
     if (openResultInEditorBtn) {
       openResultInEditorBtn.onclick = () => {
         let text = '';
+        let language = 'json';
+        const dataToUse = currentResultData !== null && currentResultData !== undefined 
+          ? currentResultData 
+          : (streamingData && streamingData.length > 0 ? streamingData : null);
+        const fmt = resultFormat ? resultFormat.value : 'json';
+
         if (resultTable && resultTable.style.display === 'table') {
-          const dataToUse = currentResultData !== null && currentResultData !== undefined 
-            ? currentResultData 
-            : (streamingData && streamingData.length > 0 ? streamingData : null);
           text = generateCsv(dataToUse);
-          vscode.postMessage({ type: 'openInEditor', text, language: 'csv' });
-          return;
-        }
-        if (resultJsonEditor && resultJsonEditorWrapper && resultJsonEditorWrapper.style.display !== 'none') {
+          language = 'csv';
+        } else if (fmt === 'yaml' && dataToUse !== null && dataToUse !== undefined) {
+          text = generateYaml(dataToUse);
+          language = 'yaml';
+        } else if (fmt === 'ndjson' && dataToUse !== null && dataToUse !== undefined) {
+          text = generateNdjson(dataToUse);
+          language = 'jsonl';
+        } else if (fmt === 'xml' && dataToUse !== null && dataToUse !== undefined) {
+          text = generateXml(dataToUse);
+          language = 'xml';
+        } else if (resultJsonEditor && resultJsonEditorWrapper && resultJsonEditorWrapper.style.display !== 'none') {
           text = resultJsonEditor.getValue();
+          language = 'json';
         } else if (currentResultData !== null && currentResultData !== undefined) {
           try {
             text = typeof currentResultData === 'string' ? currentResultData : JSON.stringify(currentResultData, null, 2);
           } catch (e) {
             text = String(currentResultData);
           }
+          language = 'json';
         } else {
           text = resultPre ? (resultPre.textContent || '') : '';
+          language = 'json';
         }
         if (text && !text.includes('(no result yet)') && !text.includes('Running...')) {
-          vscode.postMessage({ type: 'openInEditor', text, language: 'json' });
+          vscode.postMessage({ type: 'openInEditor', text, language });
         }
       };
     };
@@ -3510,6 +3787,16 @@ export function getQueryEditorHtml(
         resultInfo.textContent = '';
       }
       
+      function updateExportButtons(fmt, hasData) {
+        if (saveJsonBtn) saveJsonBtn.style.display = hasData && fmt === 'json' ? 'inline-block' : 'none';
+        if (saveCsvBtn) saveCsvBtn.style.display = hasData && (fmt === 'table' || fmt === 'csv') ? 'inline-block' : 'none';
+        if (saveYamlBtn) saveYamlBtn.style.display = hasData && fmt === 'yaml' ? 'inline-block' : 'none';
+        if (saveNdjsonBtn) saveNdjsonBtn.style.display = hasData && fmt === 'ndjson' ? 'inline-block' : 'none';
+        if (saveXmlBtn) saveXmlBtn.style.display = hasData && fmt === 'xml' ? 'inline-block' : 'none';
+        if (downloadChartBtn) downloadChartBtn.style.display = hasData && fmt === 'chart' ? 'inline-block' : 'none';
+        if (exportDropdown) exportDropdown.style.display = hasData && fmt !== 'chart' ? 'inline-block' : 'none';
+      }
+
       // Display based on format
       if (format === 'table' && data && Array.isArray(data) && data.length > 0) {
         // Show table view
@@ -3519,10 +3806,8 @@ export function getQueryEditorHtml(
         if (tablePagination) tablePagination.style.display = 'flex';
         resultChartContainer.style.display = 'none';
         chartType.style.display = 'none';
-        downloadChartBtn.style.display = 'none';
-        saveJsonBtn.style.display = 'none';
-        saveCsvBtn.style.display = 'inline-block';
         copyResultBtn.style.display = 'inline-block';
+        updateExportButtons('table', true);
         
         currentTableData = data;
         renderTablePage();
@@ -3533,11 +3818,99 @@ export function getQueryEditorHtml(
          hideTable();
          resultChartContainer.style.display = 'block';
          chartType.style.display = 'inline-block';
-         downloadChartBtn.style.display = 'inline-block';
-         saveJsonBtn.style.display = 'none';
-         saveCsvBtn.style.display = 'none';
          copyResultBtn.style.display = 'none';
+         updateExportButtons('chart', true);
          renderChart(data);
+      } else if (format === 'yaml') {
+        // YAML view
+        if (!resultJsonEditor && codeMirrorLoaded) {
+          initResultJsonEditor();
+        }
+        let yamlText = '';
+        if (data !== undefined && data !== null) {
+          yamlText = generateYaml(data);
+        } else if (text) {
+          yamlText = text;
+        }
+        if (resultJsonEditor && resultJsonEditorWrapper) {
+          resultJsonEditor.setValue(yamlText || '');
+          resultJsonEditorWrapper.style.display = 'block';
+          resultPre.style.display = 'none';
+          resultPre.textContent = yamlText || '';
+          setTimeout(() => {
+            if (resultJsonEditor) resultJsonEditor.refresh();
+          }, 50);
+        } else {
+          if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
+          resultPre.style.display = 'block';
+          resultPre.textContent = yamlText || '';
+        }
+        hideTable();
+        resultChartContainer.style.display = 'none';
+        chartType.style.display = 'none';
+        copyResultBtn.style.display = 'inline-block';
+        updateExportButtons('yaml', Boolean(yamlText));
+        resultPre.className = yamlText ? '' : 'empty';
+      } else if (format === 'ndjson') {
+        // NDJSON view
+        if (!resultJsonEditor && codeMirrorLoaded) {
+          initResultJsonEditor();
+        }
+        let ndjsonText = '';
+        if (data !== undefined && data !== null) {
+          ndjsonText = generateNdjson(data);
+        } else if (text) {
+          ndjsonText = text;
+        }
+        if (resultJsonEditor && resultJsonEditorWrapper) {
+          resultJsonEditor.setValue(ndjsonText || '');
+          resultJsonEditorWrapper.style.display = 'block';
+          resultPre.style.display = 'none';
+          resultPre.textContent = ndjsonText || '';
+          setTimeout(() => {
+            if (resultJsonEditor) resultJsonEditor.refresh();
+          }, 50);
+        } else {
+          if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
+          resultPre.style.display = 'block';
+          resultPre.textContent = ndjsonText || '';
+        }
+        hideTable();
+        resultChartContainer.style.display = 'none';
+        chartType.style.display = 'none';
+        copyResultBtn.style.display = 'inline-block';
+        updateExportButtons('ndjson', Boolean(ndjsonText));
+        resultPre.className = ndjsonText ? '' : 'empty';
+      } else if (format === 'xml') {
+        // XML view
+        if (!resultJsonEditor && codeMirrorLoaded) {
+          initResultJsonEditor();
+        }
+        let xmlText = '';
+        if (data !== undefined && data !== null) {
+          xmlText = generateXml(data);
+        } else if (text) {
+          xmlText = text;
+        }
+        if (resultJsonEditor && resultJsonEditorWrapper) {
+          resultJsonEditor.setValue(xmlText || '');
+          resultJsonEditorWrapper.style.display = 'block';
+          resultPre.style.display = 'none';
+          resultPre.textContent = xmlText || '';
+          setTimeout(() => {
+            if (resultJsonEditor) resultJsonEditor.refresh();
+          }, 50);
+        } else {
+          if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
+          resultPre.style.display = 'block';
+          resultPre.textContent = xmlText || '';
+        }
+        hideTable();
+        resultChartContainer.style.display = 'none';
+        chartType.style.display = 'none';
+        copyResultBtn.style.display = 'inline-block';
+        updateExportButtons('xml', Boolean(xmlText));
+        resultPre.className = xmlText ? '' : 'empty';
       } else if (format === 'json') {
         // JSON view with read-only CodeMirror + folding
         if (!resultJsonEditor && codeMirrorLoaded) {
@@ -3570,10 +3943,8 @@ export function getQueryEditorHtml(
         hideTable();
         resultChartContainer.style.display = 'none';
         chartType.style.display = 'none';
-        downloadChartBtn.style.display = 'none';
-        saveJsonBtn.style.display = 'inline-block';
-        saveCsvBtn.style.display = 'none';
         copyResultBtn.style.display = 'inline-block';
+        updateExportButtons('json', Boolean(jsonText));
         resultPre.className = jsonText ? '' : 'empty';
       } else {
         // Raw / default text view
@@ -3581,9 +3952,6 @@ export function getQueryEditorHtml(
         hideTable();
         resultChartContainer.style.display = 'none';
         chartType.style.display = 'none';
-        downloadChartBtn.style.display = 'none';
-        saveJsonBtn.style.display = 'inline-block';
-        saveCsvBtn.style.display = 'none';
         copyResultBtn.style.display = 'inline-block';
         resultPre.style.display = 'block';
         
@@ -3592,6 +3960,7 @@ export function getQueryEditorHtml(
         } else {
           resultPre.textContent = text;
         }
+        updateExportButtons('raw', Boolean(resultPre.textContent));
         resultPre.className = text ? '' : 'empty';
       }
     }
@@ -3730,21 +4099,76 @@ export function getQueryEditorHtml(
       }
     });
 
-    saveJsonBtn.addEventListener('click', () => {
-      if (currentResultData !== undefined) {
-        vscode.postMessage({ type: 'saveData', fileType: 'json', data: currentResultData });
-      }
-    });
+    if (saveJsonBtn) {
+      saveJsonBtn.addEventListener('click', () => {
+        if (currentResultData !== undefined) {
+          vscode.postMessage({ type: 'saveData', fileType: 'json', data: currentResultData });
+        }
+      });
+    }
 
-    saveCsvBtn.addEventListener('click', () => {
-      const dataToUse = currentResultData !== null && currentResultData !== undefined 
-        ? currentResultData 
-        : (streamingData && streamingData.length > 0 ? streamingData : null);
-      if (dataToUse !== null && dataToUse !== undefined) {
-        const csvContent = generateCsv(dataToUse);
-        vscode.postMessage({ type: 'saveData', fileType: 'csv', text: csvContent });
-      }
-    });
+    if (saveCsvBtn) {
+      saveCsvBtn.addEventListener('click', () => {
+        const dataToUse = currentResultData !== null && currentResultData !== undefined 
+          ? currentResultData 
+          : (streamingData && streamingData.length > 0 ? streamingData : null);
+        if (dataToUse !== null && dataToUse !== undefined) {
+          const csvContent = generateCsv(dataToUse);
+          vscode.postMessage({ type: 'saveData', fileType: 'csv', text: csvContent, data: dataToUse });
+        }
+      });
+    }
+
+    if (saveYamlBtn) {
+      saveYamlBtn.addEventListener('click', () => {
+        const dataToUse = currentResultData !== null && currentResultData !== undefined 
+          ? currentResultData 
+          : (streamingData && streamingData.length > 0 ? streamingData : null);
+        if (dataToUse !== null && dataToUse !== undefined) {
+          const yamlContent = generateYaml(dataToUse);
+          vscode.postMessage({ type: 'saveData', fileType: 'yaml', text: yamlContent, data: dataToUse });
+        }
+      });
+    }
+
+    if (saveNdjsonBtn) {
+      saveNdjsonBtn.addEventListener('click', () => {
+        const dataToUse = currentResultData !== null && currentResultData !== undefined 
+          ? currentResultData 
+          : (streamingData && streamingData.length > 0 ? streamingData : null);
+        if (dataToUse !== null && dataToUse !== undefined) {
+          const ndjsonContent = generateNdjson(dataToUse);
+          vscode.postMessage({ type: 'saveData', fileType: 'ndjson', text: ndjsonContent, data: dataToUse });
+        }
+      });
+    }
+
+    if (saveXmlBtn) {
+      saveXmlBtn.addEventListener('click', () => {
+        const dataToUse = currentResultData !== null && currentResultData !== undefined 
+          ? currentResultData 
+          : (streamingData && streamingData.length > 0 ? streamingData : null);
+        if (dataToUse !== null && dataToUse !== undefined) {
+          const xmlContent = generateXml(dataToUse);
+          vscode.postMessage({ type: 'saveData', fileType: 'xml', text: xmlContent, data: dataToUse });
+        }
+      });
+    }
+
+    if (exportDropdown) {
+      exportDropdown.addEventListener('change', () => {
+        const fmt = exportDropdown.value;
+        if (!fmt) return;
+        const dataToUse = currentResultData !== null && currentResultData !== undefined 
+          ? currentResultData 
+          : (streamingData && streamingData.length > 0 ? streamingData : null);
+        if (dataToUse !== null && dataToUse !== undefined) {
+          const formatted = formatResultData(dataToUse, fmt);
+          vscode.postMessage({ type: 'saveData', fileType: fmt, text: formatted, data: dataToUse });
+        }
+        exportDropdown.selectedIndex = 0;
+      });
+    }
 
     resultFormat.addEventListener('change', () => {
       // Handle format change - support both completed and streaming data
@@ -3758,11 +4182,8 @@ export function getQueryEditorHtml(
         
         if (format === 'table' && Array.isArray(dataToUse) && dataToUse.length > 0) {
           updateResultDisplay('', dataToUse, isCurrentlyStreaming);
-          saveJsonBtn.style.display = 'none'; 
-          saveCsvBtn.style.display = 'inline-block';
         } else if (format === 'raw') {
           if (isCurrentlyStreaming) {
-            // During streaming, show progress for raw format
             resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items)';
             resultPre.className = '';
             resultPre.style.display = 'block';
@@ -3772,7 +4193,6 @@ export function getQueryEditorHtml(
           }
         } else if (format === 'chart') {
           if (isCurrentlyStreaming) {
-            // Charts need complete data
             resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items) - Chart will render when complete';
             resultPre.className = '';
             resultPre.style.display = 'block';
@@ -3780,13 +4200,10 @@ export function getQueryEditorHtml(
             resultChartContainer.style.display = 'none';
           } else {
             updateResultDisplay('', dataToUse);
-            saveJsonBtn.style.display = 'none';
-            saveCsvBtn.style.display = 'none';
           }
         } else {
-          // JSON format
+          // JSON, YAML, NDJSON, XML formats
           if (isCurrentlyStreaming) {
-            // During streaming, show progress
             resultPre.textContent = 'Loading... (' + streamingReceivedItems + '/' + streamingTotalItems + ' items)';
             resultPre.className = '';
             resultPre.style.display = 'block';

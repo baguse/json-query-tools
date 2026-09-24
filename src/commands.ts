@@ -10,6 +10,7 @@ import { getQueryEditorHtml, nonce } from './webview/html';
 import { callGemini, callOllama, fetchGeminiModels, fetchOllamaModels } from './ai';
 import { fetchUrlData, fetchUrlWithDetails, parseHeaders } from './fetcher';
 import { getTemplateVariables } from './config';
+import { formatData, getFileExtension, getFormatFilters } from './export';
 
 
 export async function commandTransformWithExpression(context: vscode.ExtensionContext) {
@@ -671,8 +672,9 @@ export async function commandOpenQueryEditor(
             }
         }
       } else if (msg.type === 'saveData') {
-        const isJson = msg.fileType === 'json';
-        const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + (isJson ? '.json' : '.csv');
+        const fileType = (msg.fileType || 'json').toLowerCase();
+        const ext = getFileExtension(fileType);
+        const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + ext;
         let defaultUri: vscode.Uri;
         const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
         if (primaryUri) {
@@ -684,18 +686,14 @@ export async function commandOpenQueryEditor(
         }
         const uri = await vscode.window.showSaveDialog({
             defaultUri,
-            filters: isJson ? { 'JSON': ['json'] } : { 'CSV': ['csv'] }
+            filters: getFormatFilters(fileType)
         });
         if (uri) {
             let content = '';
-            if (isJson) {
-                try {
-                    content = JSON.stringify(msg.data, null, 2);
-                } catch {
-                    content = String(msg.data);
-                }
-            } else {
-                content = String(msg.text || '');
+            if (msg.text !== undefined && typeof msg.text === 'string') {
+                content = msg.text;
+            } else if (msg.data !== undefined) {
+                content = formatData(msg.data, fileType);
             }
             await vscode.workspace.fs.writeFile(uri, Buffer.from(content));
             vscode.window.showInformationMessage('File saved: ' + uri.fsPath);
