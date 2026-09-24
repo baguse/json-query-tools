@@ -38,7 +38,11 @@ async function runSecretStorageTests() {
     commandsSrc.includes("type: 'hydrateAiApiKey'"),
     'commands.ts should hydrate stored API key on webview ready'
   );
-  console.log('  ✓ Verified commands.ts uses context.secrets for AI credentials lifecycle');
+  assert.ok(
+    !commandsSrc.includes('geminiApiKey'),
+    'commands.ts should not reference dead config key geminiApiKey'
+  );
+  console.log('  ✓ Verified commands.ts uses context.secrets for AI credentials lifecycle and removed dead geminiApiKey fallback');
 
   // 3. Static verification of html.ts
   const htmlPath = path.join(__dirname, '../src/webview/html.ts');

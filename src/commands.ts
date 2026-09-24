@@ -1096,7 +1096,7 @@ export async function commandOpenQueryEditor(
             } else if (provider === 'gemini') {
                  const config = vscode.workspace.getConfiguration('jsonQueryTools');
                  const storedKey = await context.secrets.get(AI_API_KEY_SECRET);
-                 const apiKey = msg.apiKey || storedKey || config.get<string>('aiApiKey') || config.get<string>('geminiApiKey');
+                 const apiKey = msg.apiKey || storedKey || config.get<string>('aiApiKey');
                  if (!apiKey) throw new Error('API Key required for Gemini');
                  if (msg.apiKey) {
                    await context.secrets.store(AI_API_KEY_SECRET, msg.apiKey.trim());
@@ -1114,7 +1114,7 @@ export async function commandOpenQueryEditor(
         
         const endpoint = msg.endpoint || config.get<string>('ollamaEndpoint') || 'http://localhost:11434';
         const storedKey = await context.secrets.get(AI_API_KEY_SECRET);
-        const apiKey = msg.apiKey || storedKey || config.get<string>('aiApiKey') || config.get<string>('geminiApiKey');
+        const apiKey = msg.apiKey || storedKey || config.get<string>('aiApiKey');
         if (msg.apiKey && provider === 'gemini') {
           await context.secrets.store(AI_API_KEY_SECRET, msg.apiKey.trim());
         }
