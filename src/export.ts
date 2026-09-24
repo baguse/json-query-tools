@@ -10,17 +10,8 @@
 
 export type ExportFormat = 'json' | 'csv' | 'yaml' | 'ndjson' | 'xml';
 
-const XML_ESCAPE_MAP: Record<string, string> = {
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&apos;'
-};
-
-export function escapeXml(str: string): string {
-  return str.replace(/[&<>"']/g, ch => XML_ESCAPE_MAP[ch] || ch);
-}
+import { escapeXml } from './helpers';
+export { escapeXml };
 
 export function sanitizeXmlTagName(key: string): string {
   if (!key || typeof key !== 'string') return 'item';

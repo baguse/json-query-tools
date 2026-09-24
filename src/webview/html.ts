@@ -9,14 +9,8 @@ export function nonce(): string {
   return crypto.randomBytes(16).toString('hex');
 }
 
-function escapeHtmlStr(text: string): string {
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
-}
+import { escapeHtml } from '../helpers';
+const escapeHtmlStr = escapeHtml;
 
 export function getQueryEditorHtml(
   webview: vscode.Webview,

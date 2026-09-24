@@ -13,21 +13,17 @@ import { fetchUrlWithDetails, parseHeaders } from './fetcher';
 import { getTemplateVariables } from './config';
 import { formatData, getFileExtension, getFormatFilters } from './export';
 import { JsonDiffProvider, showJsonDiff } from './diff';
+import {
+  formatBytes,
+  formatDuration,
+  getPrimaryUri,
+  getDefaultSaveUri,
+  generateTimestampFileName,
+  getUriLabel,
+  isValidJsIdentifier
+} from './helpers';
 
-export function formatBytes(bytes: number): string {
-  if (bytes === 0 || !bytes) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-export function formatDuration(ms: number): string {
-  if (typeof ms !== 'number' || isNaN(ms)) return '0ms';
-  if (ms < 1) return (Math.round(ms * 10) / 10) + 'ms';
-  if (ms < 1000) return (Math.round(ms * 10) / 10) + 'ms';
-  return (ms / 1000).toFixed(2) + 's';
-}
+export { formatBytes, formatDuration };
 
 export const diffProvider = new JsonDiffProvider();
 
@@ -251,7 +247,7 @@ export async function commandOpenQueryEditor(
 
   const isStandalone = !!options?.standalone;
   let targetUri: vscode.Uri | null = isStandalone ? null : pickInitialTargetUri();
-  const label = (u: vscode.Uri | null) => u ? vscode.workspace.asRelativePath(u) : '(none)';
+  const label = getUriLabel;
 
   const panel = vscode.window.createWebviewPanel(
     'jsonQueryTools.queryEditor',
@@ -579,7 +575,7 @@ export async function commandOpenQueryEditor(
          if (selectedUri) {
              const alias = await vscode.window.showInputBox({ 
                  prompt: 'Enter an alias for this file (must be a valid JS identifier, e.g. data1)',
-                 validateInput: (text) => /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(text) ? null : 'Invalid identifier'
+                 validateInput: (text) => isValidJsIdentifier(text) ? null : 'Invalid identifier'
              });
              if (alias) {
                  if (boundFiles.some(f => f.alias === alias) || boundUrls.some(u => u.alias === alias)) {
@@ -625,7 +621,7 @@ export async function commandOpenQueryEditor(
             return;
           }
           const alias = (src.alias || 'data').trim();
-          if (!/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(alias)) {
+          if (!isValidJsIdentifier(alias)) {
             panel.webview.postMessage({ type: 'urlSourceError', error: `Invalid alias "${alias}". Must be a valid JavaScript identifier (e.g. data, api).` });
             return;
           }
@@ -957,16 +953,8 @@ export async function commandOpenQueryEditor(
           panel.webview.postMessage({ type: 'insert', expr: textContent });
         }
       } else if (msg.type === 'exportQuery') {
-        const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + '-query.js';
-        let defaultUri: vscode.Uri;
-        const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
-        if (primaryUri) {
-          defaultUri = vscode.Uri.joinPath(primaryUri, '..', defaultName);
-        } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-          defaultUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName);
-        } else {
-          defaultUri = vscode.Uri.file(defaultName);
-        }
+        const defaultName = generateTimestampFileName('query.js');
+        const defaultUri = getDefaultSaveUri({ defaultName, primaryUri: getPrimaryUri(boundFiles) });
         
         const uri = await vscode.window.showSaveDialog({
           defaultUri,
@@ -1016,16 +1004,8 @@ export async function commandOpenQueryEditor(
       } else if (msg.type === 'saveImage') {
         const base64 = msg.data;
         const buf = Buffer.from(base64, 'base64');
-        const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + '.png';
-        let defaultUri: vscode.Uri;
-        const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
-        if (primaryUri) {
-          defaultUri = vscode.Uri.joinPath(primaryUri, '..', defaultName);
-        } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-          defaultUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName);
-        } else {
-          defaultUri = vscode.Uri.file(defaultName);
-        }
+        const defaultName = generateTimestampFileName('.png');
+        const defaultUri = getDefaultSaveUri({ defaultName, primaryUri: getPrimaryUri(boundFiles) });
         const uri = await vscode.window.showSaveDialog({
           defaultUri,
           filters: { 'Images': ['png'] }
@@ -1060,16 +1040,8 @@ export async function commandOpenQueryEditor(
       } else if (msg.type === 'saveData') {
         const fileType = (msg.fileType || 'json').toLowerCase();
         const ext = getFileExtension(fileType);
-        const defaultName = new Date().toISOString().replace(/[:.]/g, '-') + ext;
-        let defaultUri: vscode.Uri;
-        const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
-        if (primaryUri) {
-            defaultUri = vscode.Uri.joinPath(primaryUri, '..', defaultName);
-        } else if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-            defaultUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultName);
-        } else {
-            defaultUri = vscode.Uri.file(defaultName);
-        }
+        const defaultName = generateTimestampFileName(ext);
+        const defaultUri = getDefaultSaveUri({ defaultName, primaryUri: getPrimaryUri(boundFiles) });
         const uri = await vscode.window.showSaveDialog({
             defaultUri,
             filters: getFormatFilters(fileType)

@@ -9,8 +9,8 @@ async function testBenchmarkMeter() {
   const commandsPath = path.join(__dirname, '../src/commands.ts');
   const commandsSrc = fs.readFileSync(commandsPath, 'utf8');
 
-  assert.ok(commandsSrc.includes('export function formatBytes'), 'Expected formatBytes to be exported from commands.ts');
-  assert.ok(commandsSrc.includes('export function formatDuration'), 'Expected formatDuration to be exported from commands.ts');
+  assert.ok(/export\s+(function\s+formatBytes|\{[^}]*\bformatBytes\b[^}]*\})/.test(commandsSrc), 'Expected formatBytes to be exported from commands.ts');
+  assert.ok(/export\s+(function\s+formatDuration|\{[^}]*\bformatDuration\b[^}]*\})/.test(commandsSrc), 'Expected formatDuration to be exported from commands.ts');
 
   // Evaluate format helpers
   function formatBytes(bytes) {

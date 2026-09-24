@@ -3,6 +3,7 @@ import { createRequire } from 'module';
 import { BoundFile } from './types';
 import { resolveTemplateVariables } from './config';
 import { stripJsoncComments } from './jsonc';
+import { getPrimaryUri } from './helpers';
 
 export { stripJsoncComments };
 
@@ -50,7 +51,7 @@ export function evaluateExpression(
   dataMap: Record<string, unknown>,
   expr: string
 ): unknown | Promise<unknown> {
-  const primaryUri = boundFiles.find(f => f.alias === 'data')?.uri ?? boundFiles[0]?.uri;
+  const primaryUri = getPrimaryUri(boundFiles);
   const resolvedExpr = resolveTemplateVariables(expr, primaryUri);
   const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
   const baseUri = primaryUri ?? workspaceUri;

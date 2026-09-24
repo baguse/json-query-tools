@@ -18,15 +18,8 @@ export interface CurlGenerateOptions {
   body?: string;
 }
 
-function toBase64(str: string): string {
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(str, 'utf-8').toString('base64');
-  }
-  if (typeof btoa === 'function') {
-    return btoa(unescape(encodeURIComponent(str)));
-  }
-  return '';
-}
+import { toBase64 } from './helpers';
+export { toBase64 };
 
 /**
  * Tokenizes a command string into arguments, handling single/double quotes,
