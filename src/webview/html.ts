@@ -5032,7 +5032,7 @@ export function getQueryEditorHtml(
          return 0;
       });
 
-      // Others: maintain original order (Newest at bottom)
+      // Non-favorites: display in reverse chronological order (newest at top)
 
       [...favorites, ...others.reverse()].forEach((item, idx) => {
         const expr = typeof item === 'object' ? item.expr : item;

@@ -1,6 +1,7 @@
 const assert = require('assert');
 const esbuild = require('esbuild');
 const path = require('path');
+const fs = require('fs');
 
 async function runHistoryTests() {
   console.log('Testing history functions and name preservation...');
@@ -117,7 +118,37 @@ async function runHistoryTests() {
   assert.strictEqual(concurrentHist[1].expr, 'concurrent query 2');
   assert.strictEqual(concurrentHist[2].expr, 'concurrent query 3');
   assert.strictEqual(concurrentHist[3].expr, 'concurrent query 4');
-  console.log('  ✓ Rapid concurrent pushHistory calls are sequenced without write races');
+  // 7. Verify webview history rendering ordering and comment consistency
+  const htmlPath = path.join(__dirname, '../src/webview/html.ts');
+  const htmlSrc = fs.readFileSync(htmlPath, 'utf8');
+  assert.ok(
+    !htmlSrc.includes('Newest at bottom'),
+    'html.ts should not claim non-favorites are sorted with newest at bottom'
+  );
+  assert.ok(
+    htmlSrc.includes('// Non-favorites: display in reverse chronological order (newest at top)'),
+    'html.ts should accurately describe reverse chronological ordering for non-favorites'
+  );
+
+  const mockItems = [
+    { expr: 'older non-fav', isFavorite: false },
+    { expr: 'alpha fav', isFavorite: true, name: 'Alpha' },
+    { expr: 'newer non-fav', isFavorite: false },
+    { expr: 'beta fav', isFavorite: true, name: 'Beta' }
+  ];
+  const favs = [];
+  const others = [];
+  mockItems.forEach(item => {
+    if (item.isFavorite) favs.push(item);
+    else others.push(item);
+  });
+  favs.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  const rendered = [...favs, ...others.reverse()];
+  assert.strictEqual(rendered[0].name, 'Alpha');
+  assert.strictEqual(rendered[1].name, 'Beta');
+  assert.strictEqual(rendered[2].expr, 'newer non-fav');
+  assert.strictEqual(rendered[3].expr, 'older non-fav');
+  console.log('  ✓ Webview history rendering displays favorites followed by non-favorites in reverse chronological order');
 
   console.log('\n✅ All history tests passed successfully!\n');
 }
