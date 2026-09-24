@@ -11,7 +11,17 @@ import { callGemini, callOllama, fetchGeminiModels, fetchOllamaModels } from './
 import { fetchUrlWithDetails, parseHeaders } from './fetcher';
 import { getTemplateVariables } from './config';
 import { formatData, getFileExtension, getFormatFilters } from './export';
+import { JsonDiffProvider, showJsonDiff } from './diff';
 
+export const diffProvider = new JsonDiffProvider();
+
+export async function commandDiffResult(): Promise<void> {
+  if (!currentPanel) {
+    vscode.window.showInformationMessage('Please open the JSON Tools Query Editor first.');
+    return;
+  }
+  currentPanel.webview.postMessage({ type: 'triggerDiff' });
+}
 
 export async function commandTransformWithExpression(context: vscode.ExtensionContext) {
   try {
@@ -93,10 +103,15 @@ export async function commandOpenQueryEditor(
   currentPanel = panel;
 
   let activeAiController: AbortController | null = null;
+  let lastResultData: unknown = undefined;
+  let hasEvaluatedResult = false;
+
   panel.onDidDispose(() => {
     activeAiController?.abort();
     activeAiController = null;
     urlDataCache.clear();
+    lastResultData = undefined;
+    hasEvaluatedResult = false;
     currentPanel = undefined;
     panelSwitchToScratchpad = undefined;
   });
@@ -574,6 +589,117 @@ export async function commandOpenQueryEditor(
           } catch (err: any) {
             vscode.window.showErrorMessage(`Failed to open in editor: ${err.message}`);
           }
+      } else if (msg.type === 'diffResultNoResult') {
+        vscode.window.showWarningMessage('No query result to compare. Please run an expression first.');
+      } else if (msg.type === 'diffResult') {
+        try {
+          if (boundFiles.length === 0 && boundUrls.length === 0) {
+            vscode.window.showInformationMessage('Diff View requires at least one bound data source to compare with.');
+            return;
+          }
+
+          let effectiveResultText = typeof msg.resultText === 'string' ? msg.resultText.trim() : '';
+          if (!effectiveResultText || effectiveResultText.includes('(no result yet)') || effectiveResultText.includes('Running...')) {
+            if (hasEvaluatedResult && lastResultData !== undefined) {
+              effectiveResultText = stringify(lastResultData);
+            } else {
+              vscode.window.showWarningMessage('No query result to compare. Please run an expression first.');
+              return;
+            }
+          }
+
+          let selectedSource: { title: string; data: unknown } | null = null;
+
+          if (msg.alias) {
+            const f = boundFiles.find(item => item.alias === msg.alias);
+            if (f) {
+              const data = await readJsonFromUri(f.uri);
+              selectedSource = { title: f.label || f.alias, data };
+            } else {
+              const u = boundUrls.find(item => item.alias === msg.alias);
+              if (u) {
+                const data = await getOrFetchUrlData(u, false);
+                selectedSource = { title: u.alias, data };
+              }
+            }
+          } else if (msg.id) {
+            const u = boundUrls.find(item => item.id === msg.id);
+            if (u) {
+              const data = await getOrFetchUrlData(u, false);
+              selectedSource = { title: u.alias, data };
+            }
+          }
+
+          if (!selectedSource) {
+            const totalSources = boundFiles.length + boundUrls.length;
+            if (totalSources === 1) {
+              if (boundFiles.length === 1) {
+                const f = boundFiles[0];
+                const data = await readJsonFromUri(f.uri);
+                selectedSource = { title: f.label || f.alias, data };
+              } else {
+                const u = boundUrls[0];
+                const data = await getOrFetchUrlData(u, false);
+                selectedSource = { title: u.alias, data };
+              }
+            } else {
+              interface SourcePickItem extends vscode.QuickPickItem {
+                file?: BoundFile;
+                url?: BoundUrl;
+                isAll?: boolean;
+              }
+              const pickItems: SourcePickItem[] = [];
+              for (const f of boundFiles) {
+                pickItems.push({
+                  label: `$(file) ${f.alias}`,
+                  description: f.label || vscode.workspace.asRelativePath(f.uri),
+                  detail: 'Bound JSON file source',
+                  file: f
+                });
+              }
+              for (const u of boundUrls) {
+                pickItems.push({
+                  label: `$(globe) ${u.alias}`,
+                  description: u.url,
+                  detail: 'Bound URL endpoint',
+                  url: u
+                });
+              }
+              pickItems.push({
+                label: `$(layers) All Sources`,
+                description: 'Composite map of all bound sources',
+                detail: '{ ' + [...boundFiles.map(f => f.alias), ...boundUrls.map(u => u.alias)].join(', ') + ' }',
+                isAll: true
+              });
+
+              const picked = await vscode.window.showQuickPick(pickItems, {
+                placeHolder: 'Select a data source to compare with the transformed result'
+              });
+              if (!picked) return;
+
+              if (picked.isAll) {
+                const dataMap = await buildDataMap();
+                selectedSource = { title: 'All Sources', data: dataMap };
+              } else if (picked.file) {
+                const data = await readJsonFromUri(picked.file.uri);
+                selectedSource = { title: picked.file.label || picked.file.alias, data };
+              } else if (picked.url) {
+                const data = await getOrFetchUrlData(picked.url, false);
+                selectedSource = { title: picked.url.alias, data };
+              }
+            }
+          }
+
+          if (!selectedSource) return;
+
+          await showJsonDiff(diffProvider, {
+            sourceName: selectedSource.title,
+            originalData: selectedSource.data,
+            resultText: effectiveResultText
+          });
+        } catch (err: any) {
+          vscode.window.showErrorMessage(`Failed to open diff view: ${err.message}`);
+        }
       } else if (msg.type === 'use') {
 
         panel.webview.postMessage({ type: 'insert', expr: String(msg.expr || '') });
@@ -590,6 +716,8 @@ export async function commandOpenQueryEditor(
         }
 
         const result = await evaluateExpression(boundFiles, dataMap, expr);
+        lastResultData = result;
+        hasEvaluatedResult = true;
         if (msg.save) { await pushHistory(context, expr); sendHistory(); }
         // Use streaming for large results (skip expensive full stringify in host)
         const isStreaming = Array.isArray(result) && result.length >= STREAMING_THRESHOLD;

@@ -139,6 +139,8 @@ async function validate() {
       'id="cheatsheetCategories"',
       'id="cheatsheetList"',
       'id="dismissCheatsheetBtn"',
+      'id="diffResultBtn"',
+      'id="diffInspectWithResultBtn"',
       'class="search-icon">&#128269;</span>'
     ];
 

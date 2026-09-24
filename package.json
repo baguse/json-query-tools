@@ -18,7 +18,8 @@
   "activationEvents": [
     "onCommand:jsonQueryTools.openHistory",
     "onCommand:jsonQueryTools.transformWithExpression",
-    "onCommand:jsonQueryTools.openScratchpad"
+    "onCommand:jsonQueryTools.openScratchpad",
+    "onCommand:jsonQueryTools.diffResult"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -34,6 +35,10 @@
       {
         "command": "jsonQueryTools.transformWithExpression",
         "title": "JSON Tools: Transform with Expression"
+      },
+      {
+        "command": "jsonQueryTools.diffResult",
+        "title": "JSON Tools: Compare Result with Original JSON (Diff View)"
       }
     ],
     "configuration": {

@@ -1051,6 +1051,7 @@ export function getQueryEditorHtml(
         </select>
         <button id="copy-result-to-clipboard" class="secondary" style="padding: 6px 10px;">📋 Copy</button>
         <button id="openResultInEditorBtn" class="secondary" style="padding: 6px 10px;" title="Open result in a new VS Code editor tab">↗ In Editor</button>
+        <button id="diffResultBtn" class="secondary" style="padding: 6px 10px;" title="Compare Original JSON with Transformed Result in Side-by-Side Diff (vscode.diff)">⚖️ Diff</button>
       </div>
     </div>
     <div id="resultContainer">
@@ -1335,6 +1336,7 @@ export function getQueryEditorHtml(
           <button id="copyInspectBtn" class="secondary">📋 Copy</button>
           <button id="copyInspectCurlBtn" class="secondary" style="display: none;" title="Copy this URL request as a cURL command">📋 Copy as cURL</button>
           <button id="openInspectInEditorBtn" class="secondary" title="Open this data in a new VS Code editor tab">↗ Open in VS Code Tab</button>
+          <button id="diffInspectWithResultBtn" class="secondary" style="display: none;" title="Compare this source with Transformed Result in Side-by-Side Diff">⚖️ Diff with Result</button>
           <button id="dismissInspectBtn" class="primary">Close</button>
         </div>
       </div>
@@ -1386,6 +1388,8 @@ export function getQueryEditorHtml(
     const resultPre = document.getElementById('resultPre');
     const rebindBtn = document.getElementById('rebind');
     const copyResultBtn = document.getElementById('copy-result-to-clipboard');
+    const openResultInEditorBtn = document.getElementById('openResultInEditorBtn');
+    const diffResultBtn = document.getElementById('diffResultBtn');
     const resultFormat = document.getElementById('resultFormat');
     const chartType = document.getElementById('chartType');
     const downloadChartBtn = document.getElementById('downloadChart');
@@ -3757,7 +3761,6 @@ export function getQueryEditorHtml(
       }
     };
 
-    const openResultInEditorBtn = document.getElementById('openResultInEditorBtn');
     if (openResultInEditorBtn) {
       openResultInEditorBtn.onclick = () => {
         let text = '';
@@ -3797,7 +3800,38 @@ export function getQueryEditorHtml(
           vscode.postMessage({ type: 'openInEditor', text, language });
         }
       };
-    };
+    }
+
+    function getFormattedResultText() {
+      let text = '';
+      const dataToUse = currentResultData !== null && currentResultData !== undefined 
+        ? currentResultData 
+        : (streamingData && streamingData.length > 0 ? streamingData : null);
+
+      if (resultJsonEditor && resultJsonEditorWrapper && resultJsonEditorWrapper.style.display !== 'none') {
+        text = resultJsonEditor.getValue();
+      } else if (dataToUse !== null && dataToUse !== undefined) {
+        try {
+          text = typeof dataToUse === 'string' ? dataToUse : JSON.stringify(dataToUse, null, 2);
+        } catch (e) {
+          text = String(dataToUse);
+        }
+      } else {
+        text = resultPre ? (resultPre.textContent || '') : '';
+      }
+      return text;
+    }
+
+    if (diffResultBtn) {
+      diffResultBtn.onclick = () => {
+        const text = getFormattedResultText();
+        if (text && !text.includes('(no result yet)') && !text.includes('Running...')) {
+          vscode.postMessage({ type: 'diffResult', resultText: text });
+        } else {
+          vscode.postMessage({ type: 'diffResultNoResult' });
+        }
+      };
+    }
 
     // Setup keyboard shortcuts after editor is initialized
     function setupKeyboardShortcuts() {
@@ -4169,6 +4203,8 @@ export function getQueryEditorHtml(
             console.error('Failed to fetch models:', msg.error);
             showAiAlert('Failed to fetch models: ' + msg.error);
         }
+      } else if (msg.type === 'triggerDiff') {
+        if (diffResultBtn) diffResultBtn.click();
       }
     });
 
@@ -6370,6 +6406,7 @@ export function getQueryEditorHtml(
     const copyInspectBtn = document.getElementById('copyInspectBtn');
     const copyInspectCurlBtn = document.getElementById('copyInspectCurlBtn');
     const openInspectInEditorBtn = document.getElementById('openInspectInEditorBtn');
+    const diffInspectWithResultBtn = document.getElementById('diffInspectWithResultBtn');
     const dismissInspectBtn = document.getElementById('dismissInspectBtn');
     const inspectTabBody = document.getElementById('inspectTabBody');
     const inspectTabHeaders = document.getElementById('inspectTabHeaders');
@@ -6515,11 +6552,17 @@ export function getQueryEditorHtml(
         inspectDataMeta.textContent = lineCount + ' lines | ' + formatBytes(formatted.length);
       }
 
+      if (diffInspectWithResultBtn) {
+        const hasResult = (currentResultData !== null && currentResultData !== undefined) || (streamingData && streamingData.length > 0);
+        diffInspectWithResultBtn.style.display = hasResult ? 'inline-block' : 'none';
+      }
+
       sourceInspectModal.style.display = 'flex';
     }
 
     function closeSourceInspectModal() {
       if (sourceInspectModal) sourceInspectModal.style.display = 'none';
+      if (diffInspectWithResultBtn) diffInspectWithResultBtn.style.display = 'none';
       currentInspectDataText = '';
       currentInspectSource = null;
       currentInspectHeaders = null;
@@ -6638,6 +6681,22 @@ export function getQueryEditorHtml(
           text: currentInspectDataText,
           language: 'json'
         });
+      };
+    }
+
+    if (diffInspectWithResultBtn) {
+      diffInspectWithResultBtn.onclick = () => {
+        const text = getFormattedResultText();
+        if (text && !text.includes('(no result yet)') && !text.includes('Running...')) {
+          vscode.postMessage({
+            type: 'diffResult',
+            resultText: text,
+            alias: currentInspectSource ? currentInspectSource.alias : undefined,
+            id: currentInspectSource ? currentInspectSource.id : undefined
+          });
+        } else {
+          vscode.postMessage({ type: 'diffResultNoResult' });
+        }
       };
     }
 
