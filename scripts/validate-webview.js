@@ -132,6 +132,13 @@ async function validate() {
       'id="previewHeadersTable"',
       'id="copyAllPreviewHeadersBtn"',
       'id="previewHeadersSearch"',
+      'id="snippetSelect"',
+      'id="openCheatsheetBtn"',
+      'id="cheatsheetModal"',
+      'id="cheatsheetSearch"',
+      'id="cheatsheetCategories"',
+      'id="cheatsheetList"',
+      'id="dismissCheatsheetBtn"',
       'class="search-icon">&#128269;</span>'
     ];
 
@@ -145,6 +152,23 @@ async function validate() {
     if (html.includes('\uFFFD')) {
       hasErrors = true;
       console.error(`\n❌ Found corrupted Unicode replacement character (\\uFFFD) in [${tc.name}] HTML output`);
+    }
+
+    // Verify modals are balanced and not nested within each other
+    const modalBackdropIndices = [];
+    const backdropRegex = /class="modal-backdrop"/gi;
+    let bMatch;
+    while ((bMatch = backdropRegex.exec(html)) !== null) {
+      modalBackdropIndices.push(bMatch.index);
+    }
+    for (let i = 0; i < modalBackdropIndices.length - 1; i++) {
+      const section = html.substring(modalBackdropIndices[i], modalBackdropIndices[i + 1]);
+      const openDivs = (section.match(/<div[\s>]/gi) || []).length;
+      const closeDivs = (section.match(/<\/div>/gi) || []).length;
+      if (openDivs !== closeDivs) {
+        hasErrors = true;
+        console.error(`\n❌ Modal nesting error in [${tc.name}]: unbalanced divs between modal ${i + 1} and modal ${i + 2} (open: ${openDivs}, close: ${closeDivs})`);
+      }
     }
 
     // Extract all <script> contents

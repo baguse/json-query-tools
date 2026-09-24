@@ -966,11 +966,51 @@ export function getQueryEditorHtml(
       <div class="keyboard-hint">Press <kbd>Ctrl+Enter</kbd> to run | <kbd>Ctrl+S</kbd> to save</div>
     </div>
   </div>
-  <div class="row" style="gap: 12px;">
+  <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: center;">
     <button id="run" class="primary">▶ Run</button>
     <button id="save" class="secondary">★ Save</button>
     <button id="beautify" class="secondary">✨ Beautify</button>
     <button id="clear" class="secondary">🗑 Clear</button>
+    <select id="snippetSelect" style="padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;" title="Insert common JavaScript transformation snippet">
+      <option value="" disabled selected>💡 Snippets...</option>
+      <optgroup label="Grouping &amp; Counting">
+        <option value="group_by">Group by Property (Object.groupBy)</option>
+        <option value="group_by_reduce">Group by Property (reduce)</option>
+        <option value="group_count">Group and Count Occurrences</option>
+      </optgroup>
+      <optgroup label="Aggregation &amp; Stats">
+        <option value="sum">Sum Property</option>
+        <option value="average">Average Property</option>
+        <option value="min_max">Min &amp; Max Values</option>
+        <option value="stats_summary">Stats Summary (Count, Sum, Avg, Min, Max)</option>
+      </optgroup>
+      <optgroup label="Flattening &amp; Unwinding">
+        <option value="flatten_flatmap">Flatten Nested Arrays (flatMap)</option>
+        <option value="flatten_deep">Flatten Deeply (flat Infinity)</option>
+        <option value="unwind_tags">Unwind Array Property</option>
+      </optgroup>
+      <optgroup label="Filtering &amp; Slicing">
+        <option value="filter_date">Filter by Date Range</option>
+        <option value="filter_recent">Filter Recent (Last 7 Days)</option>
+        <option value="top_n">Top 10 by Property</option>
+      </optgroup>
+      <optgroup label="Pick, Omit &amp; Rename">
+        <option value="pick_keys">Pick Specific Keys</option>
+        <option value="omit_keys">Omit Sensitive Keys</option>
+        <option value="rename_keys">Rename Keys</option>
+      </optgroup>
+      <optgroup label="Deduplication">
+        <option value="unique_by_id">Unique by Key / ID</option>
+        <option value="unique_primitives">Unique Primitive Values (Set)</option>
+      </optgroup>
+      <optgroup label="Objects &amp; Multi-Source">
+        <option value="entries_to_obj">Key-Value Array to Object</option>
+        <option value="obj_to_entries">Object Dictionary to Array</option>
+        <option value="multi_join">Join Two Sources (users + orders)</option>
+      </optgroup>
+      <option value="open_cheatsheet">📖 Open Cheatsheet...</option>
+    </select>
+    <button id="openCheatsheetBtn" class="secondary" title="Open JS transformation snippet library &amp; cheatsheet">📖 Cheatsheet</button>
     <button id="importQuery" class="secondary" title="Import a .js, .ts, or .txt file as the query expression" style="margin-left: auto;">📤 Import File</button>
     <button id="exportQuery" class="secondary" title="Export current query to a file" style="margin-left: 8px;">📥 Export File</button>
   </div>
@@ -1297,6 +1337,43 @@ export function getQueryEditorHtml(
           <button id="openInspectInEditorBtn" class="secondary" title="Open this data in a new VS Code editor tab">↗ Open in VS Code Tab</button>
           <button id="dismissInspectBtn" class="primary">Close</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Snippet Library & Cheatsheet Modal -->
+  <div id="cheatsheetModal" class="modal-backdrop" style="display: none;">
+    <div class="modal-dialog" style="max-width: 780px; width: 92%; max-height: 85vh;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <h3 style="margin: 0; font-size: 14px; font-weight: 600;">💡 JS Query Snippet Library &amp; Cheatsheet</h3>
+        </div>
+        <button id="closeCheatsheetModal" class="modal-close-btn" title="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body" style="gap: 12px; padding: 16px;">
+        <!-- Search & Filter Controls -->
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+          <input id="cheatsheetSearch" type="text" placeholder="Search patterns (e.g. group, sum, flatten, date, omit, unique)…" style="padding: 6px 10px; font-size: 11px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #ccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; flex: 1; min-width: 220px;" />
+          <div id="cheatsheetCategories" style="display: flex; gap: 4px; flex-wrap: wrap;">
+            <button type="button" class="request-tab-btn active" data-cat="all" style="padding: 3px 8px; font-size: 10px;">All</button>
+            <button type="button" class="request-tab-btn" data-cat="grouping" style="padding: 3px 8px; font-size: 10px;">Grouping</button>
+            <button type="button" class="request-tab-btn" data-cat="aggregation" style="padding: 3px 8px; font-size: 10px;">Aggregation</button>
+            <button type="button" class="request-tab-btn" data-cat="flatten" style="padding: 3px 8px; font-size: 10px;">Flatten</button>
+            <button type="button" class="request-tab-btn" data-cat="filtering" style="padding: 3px 8px; font-size: 10px;">Filtering</button>
+            <button type="button" class="request-tab-btn" data-cat="shaping" style="padding: 3px 8px; font-size: 10px;">Pick / Omit</button>
+            <button type="button" class="request-tab-btn" data-cat="dedup" style="padding: 3px 8px; font-size: 10px;">Unique</button>
+            <button type="button" class="request-tab-btn" data-cat="multisource" style="padding: 3px 8px; font-size: 10px;">Multi-Source</button>
+          </div>
+        </div>
+
+        <!-- Snippets List Container -->
+        <div id="cheatsheetList" style="overflow-y: auto; max-height: 52vh; display: flex; flex-direction: column; gap: 10px; padding-right: 2px;">
+        </div>
+        <div id="cheatsheetEmpty" style="display: none; text-align: center; padding: 24px; color: var(--vscode-descriptionForeground, #858585); font-style: italic; font-size: 12px;">No matching snippets found</div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between; align-items: center;">
+        <span style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585);">Tip: Click "📥 Insert" to replace or insert into your query</span>
+        <button id="dismissCheatsheetBtn" class="primary">Close</button>
       </div>
     </div>
   </div>
@@ -2927,6 +3004,418 @@ export function getQueryEditorHtml(
     if (scratchpadBtn) {
       scratchpadBtn.onclick = () => vscode.postMessage({ type: 'switchToScratchpad' });
     }
+
+    // Snippet Library & Cheatsheet System
+    function insertSnippetCode(code) {
+      if (!code) return;
+      if (editor) {
+        const val = editor.getValue();
+        if (!val.trim()) {
+          editor.setValue(code);
+        } else {
+          editor.replaceSelection(code);
+        }
+        editor.focus();
+      } else if (exprTextarea) {
+        const start = exprTextarea.selectionStart;
+        const end = exprTextarea.selectionEnd;
+        const val = exprTextarea.value;
+        if (!val.trim()) {
+          exprTextarea.value = code;
+        } else {
+          exprTextarea.value = val.substring(0, start) + code + val.substring(end);
+        }
+        exprTextarea.focus();
+      }
+    }
+
+    const SNIPPET_LIBRARY = [
+      {
+        id: 'group_by',
+        title: 'Group by Property (Object.groupBy)',
+        category: 'grouping',
+        categoryLabel: 'Grouping',
+        description: 'Group array items by a property key using native Object.groupBy (returns dictionary of arrays)',
+        code: 'Object.groupBy(data, item => item.category)'
+      },
+      {
+        id: 'group_by_reduce',
+        title: 'Group by Property (reduce)',
+        category: 'grouping',
+        categoryLabel: 'Grouping',
+        description: 'Classic reduce pattern to group objects by category into a dictionary',
+        code: [
+          'data.reduce((acc, item) => {',
+          '  const key = item.category || "other";',
+          '  (acc[key] = acc[key] || []).push(item);',
+          '  return acc;',
+          '}, {})'
+        ].join(String.fromCharCode(10))
+      },
+      {
+        id: 'group_count',
+        title: 'Group and Count Occurrences',
+        category: 'grouping',
+        categoryLabel: 'Grouping',
+        description: 'Count items per category, returning an array of { category, count } objects',
+        code: [
+          'Object.entries(Object.groupBy(data, item => item.status))',
+          '  .map(([status, items]) => ({ status, count: items.length }))'
+        ].join(String.fromCharCode(10))
+      },
+      {
+        id: 'sum',
+        title: 'Sum Property',
+        category: 'aggregation',
+        categoryLabel: 'Aggregation',
+        description: 'Calculate the total sum of a numeric property across all items',
+        code: 'data.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)'
+      },
+      {
+        id: 'average',
+        title: 'Average / Mean Property',
+        category: 'aggregation',
+        categoryLabel: 'Aggregation',
+        description: 'Compute the arithmetic mean of a numeric field',
+        code: 'data.length ? data.reduce((sum, item) => sum + (Number(item.score) || 0), 0) / data.length : 0'
+      },
+      {
+        id: 'min_max',
+        title: 'Min & Max Values',
+        category: 'aggregation',
+        categoryLabel: 'Aggregation',
+        description: 'Extract minimum and maximum values of a property in a single pass',
+        code: [
+          'data.reduce((acc, item) => ({',
+          '  min: Math.min(acc.min, Number(item.price) || 0),',
+          '  max: Math.max(acc.max, Number(item.price) || 0)',
+          '}), { min: Infinity, max: -Infinity })'
+        ].join(String.fromCharCode(10))
+      },
+      {
+        id: 'stats_summary',
+        title: 'Stats Summary (Count, Sum, Avg, Min, Max)',
+        category: 'aggregation',
+        categoryLabel: 'Aggregation',
+        description: 'Compute full descriptive statistics for a numeric field',
+        code: [
+          '(() => {',
+          '  const vals = data.map(x => Number(x.value) || 0);',
+          '  const sum = vals.reduce((a, b) => a + b, 0);',
+          '  return {',
+          '    count: vals.length,',
+          '    sum,',
+          '    avg: vals.length ? sum / vals.length : 0,',
+          '    min: vals.length ? Math.min(...vals) : 0,',
+          '    max: vals.length ? Math.max(...vals) : 0',
+          '  };',
+          '})()'
+        ].join(String.fromCharCode(10))
+      },
+      {
+        id: 'flatten_flatmap',
+        title: 'Flatten Nested Arrays (flatMap)',
+        category: 'flatten',
+        categoryLabel: 'Flatten',
+        description: 'Extract and flatten a child array property from each item (e.g. order items)',
+        code: 'data.flatMap(item => item.items || [])'
+      },
+      {
+        id: 'flatten_deep',
+        title: 'Flatten Deeply Nested Array',
+        category: 'flatten',
+        categoryLabel: 'Flatten',
+        description: 'Recursively flatten arbitrarily deep nested arrays using flat(Infinity)',
+        code: 'data.flat(Infinity)'
+      },
+      {
+        id: 'unwind_tags',
+        title: 'Unwind / Explode Array Property',
+        category: 'flatten',
+        categoryLabel: 'Flatten',
+        description: 'Duplicate parent object for each element in an array property (like MongoDB $unwind)',
+        code: 'data.flatMap(item => (item.tags || []).map(tag => ({ ...item, tag })))'
+      },
+      {
+        id: 'filter_date',
+        title: 'Filter by Date Range',
+        category: 'filtering',
+        categoryLabel: 'Filtering',
+        description: 'Filter items where date property falls within start and end timestamps',
+        code: [
+          'data.filter(item => {',
+          '  const d = new Date(item.createdAt || item.date);',
+          '  return d >= new Date("2026-01-01") && d <= new Date("2026-12-31");',
+          '})'
+        ].join(String.fromCharCode(10))
+      },
+      {
+        id: 'filter_recent',
+        title: 'Filter Recent (Last 7 Days)',
+        category: 'filtering',
+        categoryLabel: 'Filtering',
+        description: 'Filter items created within the past 7 days relative to now',
+        code: [
+          'const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);',
+          'data.filter(item => new Date(item.timestamp || item.date) >= cutoff)'
+        ].join(String.fromCharCode(10))
+      },
+      {
+        id: 'top_n',
+        title: 'Top 10 Items by Property',
+        category: 'filtering',
+        categoryLabel: 'Filtering',
+        description: 'Sort descending and take top 10 items without mutating the original array',
+        code: 'data.slice().sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 10)'
+      },
+      {
+        id: 'pick_keys',
+        title: 'Pick Specific Keys',
+        category: 'shaping',
+        categoryLabel: 'Pick / Omit',
+        description: 'Keep only desired properties on each object using object destructuring',
+        code: 'data.map(({ id, name, email }) => ({ id, name, email }))'
+      },
+      {
+        id: 'omit_keys',
+        title: 'Omit Sensitive Keys',
+        category: 'shaping',
+        categoryLabel: 'Pick / Omit',
+        description: 'Exclude unwanted keys (passwords, secrets) using rest parameter syntax',
+        code: 'data.map(({ password, secret, token, ...rest }) => rest)'
+      },
+      {
+        id: 'rename_keys',
+        title: 'Rename Object Keys',
+        category: 'shaping',
+        categoryLabel: 'Pick / Omit',
+        description: 'Transform each item into an object with renamed property keys',
+        code: 'data.map(item => ({ id: item.user_id, name: item.full_name }))'
+      },
+      {
+        id: 'unique_by_id',
+        title: 'Deduplicate by Key / ID',
+        category: 'dedup',
+        categoryLabel: 'Unique',
+        description: 'Remove duplicates by retaining the unique occurrence of each ID using Map',
+        code: 'Array.from(new Map(data.map(item => [item.id, item])).values())'
+      },
+      {
+        id: 'unique_primitives',
+        title: 'Unique Primitive Values',
+        category: 'dedup',
+        categoryLabel: 'Unique',
+        description: 'Extract unique non-duplicate values from an array or property using Set',
+        code: '[...new Set(data.map(item => item.category))]'
+      },
+      {
+        id: 'entries_to_obj',
+        title: 'Key-Value Array to Object',
+        category: 'multisource',
+        categoryLabel: 'Objects',
+        description: 'Convert an array of items into an object dictionary keyed by ID',
+        code: 'Object.fromEntries(data.map(item => [item.id, item]))'
+      },
+      {
+        id: 'obj_to_entries',
+        title: 'Object Dictionary to Array',
+        category: 'multisource',
+        categoryLabel: 'Objects',
+        description: 'Convert a dictionary/map object into an array of entries with keys preserved',
+        code: 'Object.entries(data).map(([key, value]) => ({ key, ...value }))'
+      },
+      {
+        id: 'multi_join',
+        title: 'Join Two Sources (users + orders)',
+        category: 'multisource',
+        categoryLabel: 'Multi-Source',
+        description: 'Relational join between two bound data sources (e.g. users and orders)',
+        code: [
+          '(users, orders) => users.map(u => ({',
+          '  ...u,',
+          '  orders: orders.filter(o => o.userId === u.id)',
+          '}))'
+        ].join(String.fromCharCode(10))
+      }
+    ];
+
+    const snippetSelect = document.getElementById('snippetSelect');
+    const openCheatsheetBtn = document.getElementById('openCheatsheetBtn');
+    const cheatsheetModal = document.getElementById('cheatsheetModal');
+    const closeCheatsheetModalBtn = document.getElementById('closeCheatsheetModal');
+    const dismissCheatsheetBtn = document.getElementById('dismissCheatsheetBtn');
+    const cheatsheetSearch = document.getElementById('cheatsheetSearch');
+    const cheatsheetCategories = document.getElementById('cheatsheetCategories');
+    const cheatsheetList = document.getElementById('cheatsheetList');
+    const cheatsheetEmpty = document.getElementById('cheatsheetEmpty');
+
+    let activeCheatsheetCategory = 'all';
+    let cheatsheetSearchText = '';
+
+    function renderCheatsheetItems() {
+      if (!cheatsheetList) return;
+      cheatsheetList.innerHTML = '';
+
+      const query = (cheatsheetSearchText || '').trim().toLowerCase();
+      const filtered = SNIPPET_LIBRARY.filter(item => {
+        const matchesCategory = activeCheatsheetCategory === 'all' || item.category === activeCheatsheetCategory;
+        if (!matchesCategory) return false;
+        if (!query) return true;
+        return item.title.toLowerCase().includes(query) ||
+          item.description.toLowerCase().includes(query) ||
+          item.categoryLabel.toLowerCase().includes(query) ||
+          item.code.toLowerCase().includes(query);
+      });
+
+      if (filtered.length === 0) {
+        if (cheatsheetEmpty) cheatsheetEmpty.style.display = 'block';
+        return;
+      }
+      if (cheatsheetEmpty) cheatsheetEmpty.style.display = 'none';
+
+      for (const item of filtered) {
+        const card = document.createElement('div');
+        card.style.cssText = 'background: var(--vscode-textCodeBlock-background, #252526); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;';
+
+        const topRow = document.createElement('div');
+        topRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center;';
+
+        const titleDiv = document.createElement('div');
+        titleDiv.style.cssText = 'display: flex; align-items: center; gap: 6px;';
+
+        const titleEl = document.createElement('strong');
+        titleEl.style.cssText = 'font-size: 12px; color: var(--vscode-foreground, #fff);';
+        titleEl.textContent = item.title;
+
+        const catBadge = document.createElement('span');
+        catBadge.className = 'tab-badge';
+        catBadge.style.cssText = 'font-size: 9px; padding: 1px 6px;';
+        catBadge.textContent = item.categoryLabel;
+
+        titleDiv.appendChild(titleEl);
+        titleDiv.appendChild(catBadge);
+
+        const actionsDiv = document.createElement('div');
+        actionsDiv.style.cssText = 'display: flex; gap: 6px;';
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'secondary';
+        copyBtn.style.cssText = 'padding: 2px 8px; font-size: 11px;';
+        copyBtn.textContent = String.fromCodePoint(0x1F4CB) + ' Copy';
+        copyBtn.onclick = () => {
+          vscode.postMessage({ type: 'copyToClipboard', text: item.code });
+          const orig = copyBtn.textContent;
+          copyBtn.textContent = '\u2713 Copied!';
+          setTimeout(() => { copyBtn.textContent = orig; }, 1500);
+        };
+
+        const insertBtn = document.createElement('button');
+        insertBtn.className = 'primary';
+        insertBtn.style.cssText = 'padding: 2px 8px; font-size: 11px;';
+        insertBtn.textContent = '📥 Insert';
+        insertBtn.onclick = () => {
+          insertSnippetCode(item.code);
+          closeCheatsheetModal();
+        };
+
+        actionsDiv.appendChild(copyBtn);
+        actionsDiv.appendChild(insertBtn);
+
+        topRow.appendChild(titleDiv);
+        topRow.appendChild(actionsDiv);
+
+        const desc = document.createElement('div');
+        desc.style.cssText = 'font-size: 11px; color: var(--vscode-descriptionForeground, #858585); line-height: 1.3;';
+        desc.textContent = item.description;
+
+        const codePre = document.createElement('pre');
+        codePre.style.cssText = 'margin: 0; padding: 8px 10px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 3px; font-family: "SF Mono", Monaco, "Cascadia Code", "Roboto Mono", Consolas, monospace; font-size: 11px; line-height: 1.4; color: var(--vscode-textPreformat-foreground, #dcdcaa); overflow-x: auto; white-space: pre-wrap;';
+        codePre.textContent = item.code;
+
+        card.appendChild(topRow);
+        card.appendChild(desc);
+        card.appendChild(codePre);
+
+        cheatsheetList.appendChild(card);
+      }
+    }
+
+    function openCheatsheetModal() {
+      activeCheatsheetCategory = 'all';
+      cheatsheetSearchText = '';
+      if (cheatsheetSearch) cheatsheetSearch.value = '';
+      if (cheatsheetCategories) {
+        const btns = cheatsheetCategories.querySelectorAll('button');
+        btns.forEach(b => b.classList.toggle('active', b.getAttribute('data-cat') === 'all'));
+      }
+      renderCheatsheetItems();
+      if (cheatsheetModal) cheatsheetModal.style.display = 'flex';
+      setTimeout(() => { if (cheatsheetSearch) cheatsheetSearch.focus(); }, 50);
+    }
+
+    function closeCheatsheetModal() {
+      if (cheatsheetModal) cheatsheetModal.style.display = 'none';
+      if (snippetSelect) snippetSelect.value = '';
+    }
+
+    if (snippetSelect) {
+      snippetSelect.addEventListener('change', () => {
+        const val = snippetSelect.value;
+        if (!val) return;
+        if (val === 'open_cheatsheet') {
+          openCheatsheetModal();
+        } else {
+          const found = SNIPPET_LIBRARY.find(s => s.id === val);
+          if (found) {
+            insertSnippetCode(found.code);
+          }
+          snippetSelect.value = '';
+        }
+      });
+    }
+
+    if (openCheatsheetBtn) {
+      openCheatsheetBtn.onclick = openCheatsheetModal;
+    }
+    if (closeCheatsheetModalBtn) {
+      closeCheatsheetModalBtn.onclick = closeCheatsheetModal;
+    }
+    if (dismissCheatsheetBtn) {
+      dismissCheatsheetBtn.onclick = closeCheatsheetModal;
+    }
+    if (cheatsheetModal) {
+      cheatsheetModal.addEventListener('click', (e) => {
+        if (e.target === cheatsheetModal) {
+          closeCheatsheetModal();
+        }
+      });
+    }
+    if (cheatsheetSearch) {
+      cheatsheetSearch.addEventListener('input', (e) => {
+        cheatsheetSearchText = e.target.value;
+        renderCheatsheetItems();
+      });
+    }
+    if (cheatsheetCategories) {
+      cheatsheetCategories.addEventListener('click', (e) => {
+        const btn = e.target.closest('button');
+        if (!btn) return;
+        const cat = btn.getAttribute('data-cat');
+        if (!cat) return;
+        activeCheatsheetCategory = cat;
+        const btns = cheatsheetCategories.querySelectorAll('button');
+        btns.forEach(b => b.classList.toggle('active', b === btn));
+        renderCheatsheetItems();
+      });
+    }
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        if (cheatsheetModal && cheatsheetModal.style.display !== 'none') {
+          closeCheatsheetModal();
+        }
+      }
+    });
     function escapeCsvCell(val) {
       if (val === null || val === undefined) return '';
       const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
