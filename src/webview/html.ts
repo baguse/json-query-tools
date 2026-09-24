@@ -1333,10 +1333,22 @@ export function getQueryEditorHtml(
     const savedEndpoint = localStorage.getItem('jsonQueryTools.ollamaEndpoint');
     if (savedEndpoint) ollamaEndpoint.value = savedEndpoint;
     
-    // Attempt to load API key from stash if possible, but usually we don't store secrets in localstorage for security if extension host handles it better.
-    // However, for webview convenience:
-    const savedApiKey = localStorage.getItem('jsonQueryTools.aiApiKey');
-    if (savedApiKey) aiApiKey.value = savedApiKey;
+    // Migrate legacy plaintext API key from localStorage to SecretStorage and purge from localStorage
+    try {
+      const legacyKey = localStorage.getItem('jsonQueryTools.aiApiKey');
+      if (legacyKey) {
+        localStorage.removeItem('jsonQueryTools.aiApiKey');
+        vscode.postMessage({ type: 'setAiApiKey', apiKey: legacyKey });
+        if (aiApiKey) aiApiKey.value = legacyKey;
+      }
+    } catch {}
+
+    if (aiApiKey) {
+      aiApiKey.addEventListener('change', () => {
+        const key = aiApiKey.value ? aiApiKey.value.trim() : '';
+        vscode.postMessage({ type: 'setAiApiKey', apiKey: key });
+      });
+    }
 
     function updateProviderUI() {
         const provider = aiProvider.value;
@@ -3118,6 +3130,10 @@ export function getQueryEditorHtml(
         if (msg.error) {
           showAiAlert('AI Generation Error: ' + msg.error);
         }
+      } else if (msg.type === 'hydrateAiApiKey') {
+        if (aiApiKey && msg.apiKey && !aiApiKey.value) {
+          aiApiKey.value = msg.apiKey;
+        }
       } else if (msg.type === 'securityWarning') {
         const banner = document.getElementById('securityWarning');
         const msgEl = document.getElementById('securityWarningMessage');
@@ -3869,7 +3885,9 @@ export function getQueryEditorHtml(
         const key = aiApiKey.value;
         
         localStorage.setItem('jsonQueryTools.ollamaEndpoint', ep);
-        if (key) localStorage.setItem('jsonQueryTools.aiApiKey', key);
+        if (key) {
+          vscode.postMessage({ type: 'setAiApiKey', apiKey: key.trim() });
+        }
 
         vscode.postMessage({ type: 'getModels', provider, endpoint: ep, apiKey: key });
     };
@@ -3903,6 +3921,10 @@ export function getQueryEditorHtml(
             return;
         }
         hideAiAlert();
+
+        if (key) {
+          vscode.postMessage({ type: 'setAiApiKey', apiKey: key.trim() });
+        }
 
         aiGenerateBtn.disabled = true;
         aiGenerateBtn.textContent = 'Generating...';

@@ -48,7 +48,7 @@
         "jsonQueryTools.aiApiKey": {
           "type": "string",
           "default": "",
-          "description": "API Key for cloud AI providers (e.g. Gemini)"
+          "description": "API Key for cloud AI providers (e.g. Gemini). Securely stored via VS Code SecretStorage when entered in the Query Editor."
         },
         "jsonQueryTools.templateVariables": {
           "type": "object",

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { HISTORY_KEY, URL_SOURCES_KEY, URL_CACHE_MAX_SIZE, URL_CACHE_DEFAULT_TTL_MS } from './constants';
+import { HISTORY_KEY, URL_SOURCES_KEY, URL_CACHE_MAX_SIZE, URL_CACHE_DEFAULT_TTL_MS, AI_API_KEY_SECRET } from './constants';
 import { LruCache } from './cache';
 import { BoundFile, BoundUrl, SerializedBoundSource } from './types';
 import { getHistory, pushHistory } from './history';
@@ -224,6 +224,10 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
       if (msg.type === 'ready') {
         sendHistory();
         sendSources();
+        const storedApiKey = await context.secrets.get(AI_API_KEY_SECRET);
+        if (storedApiKey) {
+          panel.webview.postMessage({ type: 'hydrateAiApiKey', apiKey: storedApiKey });
+        }
         // Background fetch for URL sources to enable schema autocomplete
         (async () => {
           try {
@@ -627,6 +631,13 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
             await vscode.workspace.fs.writeFile(uri, Buffer.from(content));
             vscode.window.showInformationMessage('File saved: ' + uri.fsPath);
         }
+      } else if (msg.type === 'setAiApiKey') {
+        const key = typeof msg.apiKey === 'string' ? msg.apiKey.trim() : '';
+        if (key) {
+          await context.secrets.store(AI_API_KEY_SECRET, key);
+        } else {
+          await context.secrets.delete(AI_API_KEY_SECRET);
+        }
       } else if (msg.type === 'getModels') {
         const provider = msg.provider;
         try {
@@ -637,8 +648,12 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
                  models = await fetchOllamaModels(endpoint);
             } else if (provider === 'gemini') {
                  const config = vscode.workspace.getConfiguration('jsonQueryTools');
-                 const apiKey = msg.apiKey || config.get<string>('aiApiKey') || config.get<string>('geminiApiKey'); // Fallback
+                 const storedKey = await context.secrets.get(AI_API_KEY_SECRET);
+                 const apiKey = msg.apiKey || storedKey || config.get<string>('aiApiKey') || config.get<string>('geminiApiKey');
                  if (!apiKey) throw new Error('API Key required for Gemini');
+                 if (msg.apiKey) {
+                   await context.secrets.store(AI_API_KEY_SECRET, msg.apiKey.trim());
+                 }
                  models = await fetchGeminiModels(apiKey);
             }
             panel.webview.postMessage({ type: 'updateModels', models });
@@ -651,7 +666,11 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
         const provider = msg.provider || config.get<string>('aiProvider') || 'ollama';
         
         const endpoint = msg.endpoint || config.get<string>('ollamaEndpoint') || 'http://localhost:11434';
-        const apiKey = msg.apiKey || config.get<string>('aiApiKey') || config.get<string>('geminiApiKey');
+        const storedKey = await context.secrets.get(AI_API_KEY_SECRET);
+        const apiKey = msg.apiKey || storedKey || config.get<string>('aiApiKey') || config.get<string>('geminiApiKey');
+        if (msg.apiKey && provider === 'gemini') {
+          await context.secrets.store(AI_API_KEY_SECRET, msg.apiKey.trim());
+        }
         const model = msg.model || (provider === 'ollama' ? 'llama3' : 'gemini-1.5-flash');
         
         let dataSample = 'unknown';
