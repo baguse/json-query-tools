@@ -47,11 +47,26 @@ export async function commandTransformWithExpression(context: vscode.ExtensionCo
   }
 }
 
+export let currentPanel: vscode.WebviewPanel | undefined;
+
+export function getCurrentPanel(): vscode.WebviewPanel | undefined {
+  return currentPanel;
+}
+
+export function setCurrentPanel(panel: vscode.WebviewPanel | undefined): void {
+  currentPanel = panel;
+}
+
 export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
+  const column = vscode.window.activeTextEditor ? vscode.ViewColumn.Beside : vscode.ViewColumn.One;
+
+  if (currentPanel) {
+    currentPanel.reveal(currentPanel.viewColumn ?? column);
+    return;
+  }
+
   let targetUri: vscode.Uri | null = pickInitialTargetUri();
   const label = (u: vscode.Uri | null) => u ? vscode.workspace.asRelativePath(u) : '(none)';
-
-  const column = vscode.window.activeTextEditor ? vscode.ViewColumn.Beside : vscode.ViewColumn.One;
 
   const panel = vscode.window.createWebviewPanel(
     'jsonQueryTools.queryEditor',
@@ -59,12 +74,14 @@ export async function commandOpenQueryEditor(context: vscode.ExtensionContext) {
     column,
     { enableScripts: true, retainContextWhenHidden: true }
   );
+  currentPanel = panel;
 
   let activeAiController: AbortController | null = null;
   panel.onDidDispose(() => {
     activeAiController?.abort();
     activeAiController = null;
     urlDataCache.clear();
+    currentPanel = undefined;
   });
 
   let boundFiles: BoundFile[] = [];
