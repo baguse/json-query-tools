@@ -15,10 +15,40 @@ export function unionTypes(type1: string | string[], type2: string | string[]): 
   return combined.length === 1 ? combined[0] : combined;
 }
 
-export function inferSchemaFromData(data: unknown): SchemaInfo | null {
+export const DEFAULT_SCHEMA_MAX_DEPTH = 6;
+
+export function inferSchemaFromData(
+  data: unknown,
+  maxDepth: number = DEFAULT_SCHEMA_MAX_DEPTH,
+  currentDepth: number = 0,
+  visited: WeakSet<object> = new WeakSet<object>()
+): SchemaInfo | null {
   if (data === null || data === undefined) {
     return { type: 'primitive', valueType: 'null' };
   }
+
+  // Primitive types
+  if (typeof data !== 'object') {
+    return { type: 'primitive', valueType: typeof data };
+  }
+
+  // Circular reference guard
+  if (visited.has(data)) {
+    if (Array.isArray(data)) {
+      return { type: 'array', items: { type: 'primitive', valueType: 'any' } };
+    }
+    return { type: 'object', properties: {} };
+  }
+
+  // Maximum recursion depth guard
+  if (currentDepth >= maxDepth) {
+    if (Array.isArray(data)) {
+      return { type: 'array', items: { type: 'primitive', valueType: 'any' } };
+    }
+    return { type: 'object', properties: {} };
+  }
+
+  visited.add(data);
 
   // Handle arrays
   if (Array.isArray(data)) {
@@ -38,6 +68,7 @@ export function inferSchemaFromData(data: unknown): SchemaInfo | null {
 
       for (const item of sample) {
         if (item && typeof item === 'object' && !Array.isArray(item)) {
+          visited.add(item);
           const keys = Object.keys(item);
           for (const key of keys) {
             if (!mergedProperties[key]) {
@@ -50,11 +81,11 @@ export function inferSchemaFromData(data: unknown): SchemaInfo | null {
 
               // Recursively infer nested structures
               if (Array.isArray(item[key])) {
-                const inferred = inferSchemaFromData(item[key]);
+                const inferred = inferSchemaFromData(item[key], maxDepth, currentDepth + 1, visited);
                 mergedProperties[key].items = inferred || undefined;
                 mergedProperties[key].type = 'array';
               } else if (item[key] && typeof item[key] === 'object') {
-                const nestedSchema = inferSchemaFromData(item[key]);
+                const nestedSchema = inferSchemaFromData(item[key], maxDepth, currentDepth + 1, visited);
                 if (nestedSchema && nestedSchema.properties) {
                   mergedProperties[key].properties = nestedSchema.properties;
                   mergedProperties[key].type = 'object';
@@ -68,13 +99,13 @@ export function inferSchemaFromData(data: unknown): SchemaInfo | null {
 
               // Update nested structures if present
               if (Array.isArray(item[key])) {
-                const itemSchema = inferSchemaFromData(item[key]);
+                const itemSchema = inferSchemaFromData(item[key], maxDepth, currentDepth + 1, visited);
                 if (itemSchema) {
                   mergedProperties[key].items = itemSchema.items || itemSchema;
                   mergedProperties[key].type = 'array';
                 }
               } else if (item[key] && typeof item[key] === 'object') {
-                const nestedSchema = inferSchemaFromData(item[key]);
+                const nestedSchema = inferSchemaFromData(item[key], maxDepth, currentDepth + 1, visited);
                 if (nestedSchema && nestedSchema.properties) {
                   // Merge nested properties
                   if (!mergedProperties[key].properties) {
@@ -152,11 +183,11 @@ export function inferSchemaFromData(data: unknown): SchemaInfo | null {
 
       // Recursively infer nested structures
       if (Array.isArray(value)) {
-        const inferred = inferSchemaFromData(value);
+        const inferred = inferSchemaFromData(value, maxDepth, currentDepth + 1, visited);
         properties[key].items = inferred || undefined;
         properties[key].type = 'array';
       } else if (value && typeof value === 'object') {
-        const nestedSchema = inferSchemaFromData(value);
+        const nestedSchema = inferSchemaFromData(value, maxDepth, currentDepth + 1, visited);
         if (nestedSchema && nestedSchema.properties) {
           properties[key].properties = nestedSchema.properties;
           properties[key].type = 'object';
