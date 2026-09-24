@@ -1098,7 +1098,13 @@ export function getQueryEditorHtml(
   </div>
 
   <div id="history">
-    <h4>History</h4>
+    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+      <h4 style="margin: 0;">History</h4>
+      <div style="display: flex; gap: 6px;">
+        <button id="importHistoryJsonBtn" type="button" class="secondary" style="padding: 3px 8px; font-size: 11px;" title="Import query history or favorites from a .json file">📥 Import</button>
+        <button id="exportHistoryJsonBtn" type="button" class="secondary" style="padding: 3px 8px; font-size: 11px;" title="Export query history or favorites as a .json file">📤 Export</button>
+      </div>
+    </div>
     <div class="search-box">
       <span class="search-icon">&#128269;</span>
       <input type="text" id="historySearch" class="search-input" placeholder="Search saved queries..." />
@@ -4856,7 +4862,21 @@ export function getQueryEditorHtml(
     });
 
     const historySearch = document.getElementById('historySearch');
+    const importHistoryJsonBtn = document.getElementById('importHistoryJsonBtn');
+    const exportHistoryJsonBtn = document.getElementById('exportHistoryJsonBtn');
     let currentHistoryItems = [];
+
+    if (importHistoryJsonBtn) {
+      importHistoryJsonBtn.onclick = () => {
+        vscode.postMessage({ type: 'importHistoryJson' });
+      };
+    }
+
+    if (exportHistoryJsonBtn) {
+      exportHistoryJsonBtn.onclick = () => {
+        vscode.postMessage({ type: 'exportHistoryJson' });
+      };
+    }
 
     historySearch.addEventListener('input', () => {
       renderList(currentHistoryItems);

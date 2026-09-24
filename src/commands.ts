@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { HISTORY_KEY, URL_SOURCES_KEY, URL_CACHE_MAX_SIZE, URL_CACHE_DEFAULT_TTL_MS, AI_API_KEY_SECRET } from './constants';
 import { LruCache } from './cache';
 import { BoundFile, BoundUrl, SerializedBoundSource } from './types';
-import { getHistory, pushHistory } from './history';
+import { getHistory, pushHistory, serializeHistoryJson, parseHistoryJson, saveImportedHistory } from './history';
 import { evaluateExpression, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression } from './evaluator';
 export { evaluateExpression };
 import { inferSchemaFromData } from './schema';
@@ -21,6 +21,149 @@ export async function commandDiffResult(): Promise<void> {
     return;
   }
   currentPanel.webview.postMessage({ type: 'triggerDiff' });
+}
+
+export async function exportHistoryAsJson(context: vscode.ExtensionContext): Promise<void> {
+  const history = getHistory(context);
+  if (history.length === 0) {
+    vscode.window.showInformationMessage('No query history available to export.');
+    return;
+  }
+
+  const favoriteCount = history.filter(h => h.isFavorite).length;
+  let favoritesOnly = false;
+
+  if (favoriteCount > 0 && favoriteCount < history.length) {
+    interface ExportOption extends vscode.QuickPickItem {
+      favoritesOnly: boolean;
+    }
+    const choices: ExportOption[] = [
+      {
+        label: '$(star-full) Export Favorites Only',
+        description: `${favoriteCount} favorite queries`,
+        favoritesOnly: true
+      },
+      {
+        label: '$(history) Export All Queries',
+        description: `All ${history.length} saved queries (including favorites)`,
+        favoritesOnly: false
+      }
+    ];
+
+    const pick = await vscode.window.showQuickPick(choices, {
+      placeHolder: 'Select which queries to export'
+    });
+    if (!pick) return;
+    favoritesOnly = pick.favoritesOnly;
+  } else if (favoriteCount === history.length) {
+    favoritesOnly = true;
+  }
+
+  const jsonText = serializeHistoryJson(history, { favoritesOnly });
+  const count = favoritesOnly ? favoriteCount : history.length;
+  const defaultFileName = favoritesOnly
+    ? `json-query-favorites-${new Date().toISOString().split('T')[0]}.json`
+    : `json-query-history-${new Date().toISOString().split('T')[0]}.json`;
+
+  let defaultUri: vscode.Uri;
+  if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+    defaultUri = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, defaultFileName);
+  } else {
+    defaultUri = vscode.Uri.file(defaultFileName);
+  }
+
+  const saveUri = await vscode.window.showSaveDialog({
+    defaultUri,
+    saveLabel: 'Export History',
+    filters: { 'JSON Files': ['json'], 'All Files': ['*'] }
+  });
+
+  if (saveUri) {
+    await vscode.workspace.fs.writeFile(saveUri, Buffer.from(jsonText, 'utf-8'));
+    vscode.window.showInformationMessage(
+      `Successfully exported ${count} ${favoritesOnly ? 'favorite ' : ''}quer${count === 1 ? 'y' : 'ies'} to ${vscode.workspace.asRelativePath(saveUri)}.`
+    );
+  }
+}
+
+export async function importHistoryFromJson(context: vscode.ExtensionContext): Promise<void> {
+  const uris = await vscode.window.showOpenDialog({
+    canSelectMany: false,
+    openLabel: 'Import History JSON',
+    filters: { 'JSON Files': ['json'], 'All Files': ['*'] }
+  });
+
+  if (!uris || uris.length === 0) return;
+
+  const fileUri = uris[0];
+  let fileContent: string;
+  try {
+    const raw = await vscode.workspace.fs.readFile(fileUri);
+    fileContent = Buffer.from(raw).toString('utf-8');
+  } catch (err: any) {
+    vscode.window.showErrorMessage(`Failed to read file: ${err.message}`);
+    return;
+  }
+
+  let parseResult: ReturnType<typeof parseHistoryJson>;
+  try {
+    parseResult = parseHistoryJson(fileContent);
+  } catch (err: any) {
+    vscode.window.showErrorMessage(`Failed to parse history JSON: ${err.message}`);
+    return;
+  }
+
+  if (parseResult.validCount === 0) {
+    vscode.window.showWarningMessage('No valid query expressions found in the selected JSON file.');
+    return;
+  }
+
+  const existing = getHistory(context);
+  let mode: 'merge' | 'replace' = 'merge';
+
+  if (existing.length > 0) {
+    interface ImportOption extends vscode.QuickPickItem {
+      mode: 'merge' | 'replace';
+    }
+    const choices: ImportOption[] = [
+      {
+        label: '$(git-merge) Merge with existing history (Recommended)',
+        description: `Preserve existing ${existing.length} queries and add new ones`,
+        mode: 'merge'
+      },
+      {
+        label: '$(replace) Replace existing history',
+        description: `Overwrite all existing queries with the ${parseResult.validCount} imported queries`,
+        mode: 'replace'
+      }
+    ];
+
+    const pick = await vscode.window.showQuickPick(choices, {
+      placeHolder: `Found ${parseResult.validCount} queries. How would you like to import them?`
+    });
+    if (!pick) return;
+    mode = pick.mode;
+  }
+
+  const result = await saveImportedHistory(context, parseResult.items, mode);
+
+  if (currentPanel) {
+    currentPanel.webview.postMessage({ type: 'hydrate', history: result.history });
+  }
+
+  const summary = mode === 'replace'
+    ? `Replaced history with ${result.addedCount} queries.`
+    : `Imported ${parseResult.validCount} queries (${result.addedCount} added, ${result.updatedCount} updated).`;
+
+  vscode.window.showInformationMessage(`Successfully imported queries from ${vscode.workspace.asRelativePath(fileUri)}! ${summary}`);
+}
+
+export async function commandExportHistory(context: vscode.ExtensionContext): Promise<void> {
+  await exportHistoryAsJson(context);
+}
+
+export async function commandImportHistory(context: vscode.ExtensionContext): Promise<void> {
+  await importHistoryFromJson(context);
 }
 
 export async function commandTransformWithExpression(context: vscode.ExtensionContext) {
@@ -759,6 +902,10 @@ export async function commandOpenQueryEditor(
           await vscode.workspace.fs.writeFile(uri, content);
           vscode.window.showInformationMessage('Query exported to: ' + uri.fsPath);
         }
+      } else if (msg.type === 'exportHistoryJson') {
+        await exportHistoryAsJson(context);
+      } else if (msg.type === 'importHistoryJson') {
+        await importHistoryFromJson(context);
       } else if (msg.type === 'toggleFavorite') {
         const history = getHistory(context);
         const targetExpr = msg.expr;

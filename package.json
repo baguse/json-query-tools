@@ -19,7 +19,9 @@
     "onCommand:jsonQueryTools.openHistory",
     "onCommand:jsonQueryTools.transformWithExpression",
     "onCommand:jsonQueryTools.openScratchpad",
-    "onCommand:jsonQueryTools.diffResult"
+    "onCommand:jsonQueryTools.diffResult",
+    "onCommand:jsonQueryTools.exportHistory",
+    "onCommand:jsonQueryTools.importHistory"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -39,6 +41,14 @@
       {
         "command": "jsonQueryTools.diffResult",
         "title": "JSON Tools: Compare Result with Original JSON (Diff View)"
+      },
+      {
+        "command": "jsonQueryTools.exportHistory",
+        "title": "JSON Tools: Export Query History as JSON"
+      },
+      {
+        "command": "jsonQueryTools.importHistory",
+        "title": "JSON Tools: Import Query History from JSON"
       }
     ],
     "configuration": {
