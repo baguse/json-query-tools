@@ -4080,31 +4080,60 @@ export function getQueryEditorHtml(
       }
     }
 
-    let syncParamsRaf = null;
-    function syncParamsToUrl() {
-      if (isSyncingQueryParams || !urlEndpoint) return;
-      if (syncParamsRaf) cancelAnimationFrame(syncParamsRaf);
-      syncParamsRaf = requestAnimationFrame(() => {
-        syncParamsRaf = null;
-        if (isSyncingQueryParams || !urlEndpoint) return;
-        isSyncingQueryParams = true;
-        try {
-          const newUrl = buildUrlWithQueryParams(urlEndpoint.value, currentQueryParams);
-          urlEndpoint.value = newUrl;
-          updateParamsBadge();
-          if (urlModalPreview && urlModalPreview.style.display !== 'none') {
-            urlModalPreview.style.opacity = '0.55';
-            if (previewMeta && !previewMeta.textContent.includes('edited')) {
-              previewMeta.textContent += ' (params edited)';
-            }
-          }
-        } finally {
-          isSyncingQueryParams = false;
-        }
-      });
+    let syncParamsDebounceTimer = null;
+    let syncUrlDebounceTimer = null;
+
+    function flushSyncParamsToUrl() {
+      if (syncParamsDebounceTimer) {
+        clearTimeout(syncParamsDebounceTimer);
+        syncParamsDebounceTimer = null;
+        performSyncParamsToUrl();
+      }
     }
 
-    function syncUrlToTable() {
+    function flushSyncUrlToTable() {
+      if (syncUrlDebounceTimer) {
+        clearTimeout(syncUrlDebounceTimer);
+        syncUrlDebounceTimer = null;
+        performSyncUrlToTable();
+      }
+    }
+
+    function performSyncParamsToUrl() {
+      if (isSyncingQueryParams || !urlEndpoint) return;
+      isSyncingQueryParams = true;
+      try {
+        const newUrl = buildUrlWithQueryParams(urlEndpoint.value, currentQueryParams);
+        urlEndpoint.value = newUrl;
+        updateParamsBadge();
+        if (urlModalPreview && urlModalPreview.style.display !== 'none') {
+          urlModalPreview.style.opacity = '0.55';
+          if (previewMeta && !previewMeta.textContent.includes('edited')) {
+            previewMeta.textContent += ' (params edited)';
+          }
+        }
+      } finally {
+        isSyncingQueryParams = false;
+      }
+    }
+
+    function syncParamsToUrl(immediate) {
+      if (isSyncingQueryParams || !urlEndpoint) return;
+      if (syncParamsDebounceTimer) {
+        clearTimeout(syncParamsDebounceTimer);
+        syncParamsDebounceTimer = null;
+      }
+      if (immediate) {
+        performSyncParamsToUrl();
+      } else {
+        syncParamsDebounceTimer = setTimeout(() => {
+          syncParamsDebounceTimer = null;
+          performSyncParamsToUrl();
+        }, 150);
+      }
+    }
+
+    function performSyncUrlToTable() {
       if (isSyncingQueryParams) return;
       isSyncingQueryParams = true;
       try {
@@ -4117,8 +4146,24 @@ export function getQueryEditorHtml(
       }
     }
 
+    function syncUrlToTable(immediate) {
+      if (isSyncingQueryParams) return;
+      if (syncUrlDebounceTimer) {
+        clearTimeout(syncUrlDebounceTimer);
+        syncUrlDebounceTimer = null;
+      }
+      if (immediate) {
+        performSyncUrlToTable();
+      } else {
+        syncUrlDebounceTimer = setTimeout(() => {
+          syncUrlDebounceTimer = null;
+          performSyncUrlToTable();
+        }, 150);
+      }
+    }
+
     if (urlEndpoint) {
-      urlEndpoint.addEventListener('input', syncUrlToTable);
+      urlEndpoint.addEventListener('input', () => syncUrlToTable(false));
     }
 
     function renderQueryParamsTable() {
@@ -4168,7 +4213,7 @@ export function getQueryEditorHtml(
             currentQueryParams[idx].enabled = target.checked;
             tr.classList.toggle('param-disabled', !target.checked);
             target.title = target.checked ? 'Disable parameter' : 'Enable parameter';
-            syncParamsToUrl();
+            syncParamsToUrl(true);
           }
         }
       });
@@ -4207,7 +4252,7 @@ export function getQueryEditorHtml(
               queryParamsBody.appendChild(newTr);
             }
 
-            syncParamsToUrl();
+            syncParamsToUrl(false);
           }
         }
       });
@@ -4220,7 +4265,7 @@ export function getQueryEditorHtml(
           if (idx >= 0 && idx < currentQueryParams.length) {
             currentQueryParams.splice(idx, 1);
             renderQueryParamsTable();
-            syncParamsToUrl();
+            syncParamsToUrl(true);
           }
         }
       });
@@ -4396,6 +4441,8 @@ export function getQueryEditorHtml(
 
     function closeUrlModal() {
       if (urlModal) urlModal.style.display = 'none';
+      if (syncParamsDebounceTimer) { clearTimeout(syncParamsDebounceTimer); syncParamsDebounceTimer = null; }
+      if (syncUrlDebounceTimer) { clearTimeout(syncUrlDebounceTimer); syncUrlDebounceTimer = null; }
       clearUrlModalAlert();
       clearUrlPreview();
       setModalLoading(false);
@@ -4415,6 +4462,8 @@ export function getQueryEditorHtml(
 
     if (testUrlModal) {
       testUrlModal.onclick = () => {
+        flushSyncParamsToUrl();
+        flushSyncUrlToTable();
         clearUrlModalAlert();
         clearUrlPreview();
         const url = (urlEndpoint?.value || '').trim();
@@ -4449,6 +4498,8 @@ export function getQueryEditorHtml(
 
     if (submitUrlModal) {
       submitUrlModal.onclick = () => {
+        flushSyncParamsToUrl();
+        flushSyncUrlToTable();
         clearUrlModalAlert();
         const alias = (urlAlias?.value || '').trim();
         const url = (urlEndpoint?.value || '').trim();
