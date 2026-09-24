@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { BoundFile, SerializedBoundSource } from '../types';
+import { tokenizeArgs, parseCurl, generateCurl } from '../curl';
+
+export { tokenizeArgs, parseCurl, generateCurl };
 
 export function nonce(): string {
   return crypto.randomBytes(16).toString('hex');
@@ -36,6 +39,7 @@ export function getQueryEditorHtml(
         <span class="url-badge-method ${methodClass}">${escapeHtmlStr(method)}</span>
         <span class="file-alias">${escapeHtmlStr(s.alias)}</span>: ${escapeHtmlStr(s.label || s.url || '')}
         <button class="inspect-source-btn" data-id="${escapeHtmlStr(s.id || '')}" title="View cached API response">👁️</button>
+        <button class="copy-url-curl-btn" data-id="${escapeHtmlStr(s.id || '')}" title="Copy as cURL command">📋</button>
         <button class="refresh-url-btn" data-id="${escapeHtmlStr(s.id || '')}" title="Re-fetch data from URL">🔄</button>
         <button class="edit-url-btn" data-id="${escapeHtmlStr(s.id || '')}" title="Edit URL, headers, or method">✏️</button>
         <button class="remove-source" data-alias="${escapeHtmlStr(s.alias)}" data-id="${escapeHtmlStr(s.id || '')}" title="Remove source">×</button>
@@ -142,7 +146,7 @@ export function getQueryEditorHtml(
       font-weight: bold;
       color: var(--vscode-textLink-foreground, #3794ff);
     }
-    .remove-file, .remove-source, .refresh-url-btn, .edit-url-btn, .inspect-source-btn {
+    .remove-file, .remove-source, .refresh-url-btn, .edit-url-btn, .inspect-source-btn, .copy-url-curl-btn {
       background: none;
       border: none;
       color: var(--vscode-descriptionForeground, #858585);
@@ -161,7 +165,7 @@ export function getQueryEditorHtml(
       box-shadow: none;
       transform: none;
     }
-    .refresh-url-btn:hover, .edit-url-btn:hover, .inspect-source-btn:hover {
+    .refresh-url-btn:hover, .edit-url-btn:hover, .inspect-source-btn:hover, .copy-url-curl-btn:hover {
       color: var(--vscode-textLink-activeForeground, #3794ff);
     }
     .status-badge {
@@ -1055,6 +1059,19 @@ export function getQueryEditorHtml(
       </div>
       <div class="modal-body">
         <input type="hidden" id="urlSourceId" value="">
+
+        <!-- cURL Import Panel (Collapsible) -->
+        <div id="curlImportPanel" style="display: none; background: rgba(0, 122, 204, 0.08); border: 1px solid var(--vscode-focusBorder, #007acc); border-radius: 4px; padding: 10px; margin-bottom: 12px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-weight: 600; font-size: 11px; color: var(--vscode-foreground, #ccc);">Paste cURL Command (DevTools, Postman, Terminal)</span>
+            <button type="button" id="closeCurlImportBtn" class="modal-close-btn" style="font-size: 14px; line-height: 1; padding: 0 4px;" title="Close cURL import panel">&times;</button>
+          </div>
+          <textarea id="curlImportInput" rows="4" style="width: 100%; box-sizing: border-box; font-family: monospace; font-size: 11px; resize: vertical;" placeholder="curl 'https://api.example.com/v1/data' -H 'Authorization: Bearer token' -d '{&quot;foo&quot;: &quot;bar&quot;}'"></textarea>
+          <div style="display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px;">
+            <button type="button" id="cancelCurlImportBtn" class="secondary" style="font-size: 11px; padding: 3px 8px;">Cancel</button>
+            <button type="button" id="applyCurlImportBtn" class="primary" style="font-size: 11px; padding: 3px 12px;">Apply to Request</button>
+          </div>
+        </div>
         
         <div class="form-group">
           <label for="urlAlias">Source Alias (Variable Name)</label>
@@ -1151,10 +1168,14 @@ export function getQueryEditorHtml(
       </div>
 
       <div class="modal-footer" style="display: flex; align-items: center; justify-content: space-between;">
-        <button id="testUrlModal" class="secondary" title="Test request and preview response without saving">
-          <span id="testUrlSpinner" class="spinner" style="display: none;"></span>
-          <span id="testUrlText">Test Request</span>
-        </button>
+        <div style="display: flex; gap: 6px;">
+          <button id="testUrlModal" class="secondary" title="Test request and preview response without saving">
+            <span id="testUrlSpinner" class="spinner" style="display: none;"></span>
+            <span id="testUrlText">Test Request</span>
+          </button>
+          <button id="importCurlBtn" type="button" class="secondary" title="Import URL, headers, and payload from a cURL command">📥 Import cURL</button>
+          <button id="copyCurlBtn" type="button" class="secondary" title="Copy current request configuration as a cURL command">📋 Copy as cURL</button>
+        </div>
         <div style="display: flex; gap: 10px;">
           <button id="cancelUrlModal" class="secondary">Cancel</button>
           <button id="submitUrlModal" class="primary">
@@ -1184,6 +1205,7 @@ export function getQueryEditorHtml(
         <span id="inspectDataMeta" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585);"></span>
         <div style="display: flex; gap: 8px;">
           <button id="copyInspectBtn" class="secondary">📋 Copy</button>
+          <button id="copyInspectCurlBtn" class="secondary" style="display: none;" title="Copy this URL request as a cURL command">📋 Copy as cURL</button>
           <button id="openInspectInEditorBtn" class="secondary" title="Open this data in a new VS Code editor tab">↗ Open in VS Code Tab</button>
           <button id="dismissInspectBtn" class="primary">Close</button>
         </div>
@@ -1254,6 +1276,7 @@ export function getQueryEditorHtml(
             '<span class="url-badge-method ' + methodClass + '">' + escapeHtml(method) + '</span>' +
             '<span class="file-alias">' + escapeHtml(s.alias) + '</span>: ' + escapeHtml(s.label || s.url || '') +
             '<button class="inspect-source-btn" data-id="' + escapeHtml(s.id || '') + '" title="View cached API response">👁️</button>' +
+            '<button class="copy-url-curl-btn" data-id="' + escapeHtml(s.id || '') + '" title="Copy as cURL command">📋</button>' +
             '<button class="refresh-url-btn" data-id="' + escapeHtml(s.id || '') + '" title="Re-fetch data from URL">🔄</button>' +
             '<button class="edit-url-btn" data-id="' + escapeHtml(s.id || '') + '" title="Edit URL, headers, or method">✏️</button>' +
             '<button class="remove-source" data-alias="' + escapeHtml(s.alias) + '" data-id="' + escapeHtml(s.id || '') + '" title="Remove source">×</button>' +
@@ -2757,6 +2780,23 @@ export function getQueryEditorHtml(
         if (src) {
           openUrlModal(src);
         }
+      } else if (target.classList && target.classList.contains('copy-url-curl-btn')) {
+        const id = target.getAttribute('data-id');
+        const src = (currentSources || []).find(s => s.id === id);
+        if (src) {
+          const curlCmd = generateCurl({
+            url: src.url || '',
+            method: src.method || 'GET',
+            headers: src.headers,
+            body: src.body
+          });
+          vscode.postMessage({ type: 'copyToClipboard', text: curlCmd });
+          const originalText = target.textContent;
+          target.textContent = '✓';
+          setTimeout(() => {
+            target.textContent = originalText;
+          }, 1500);
+        }
       } else if (target.classList && target.classList.contains('inspect-source-btn')) {
         const id = target.getAttribute('data-id');
         const alias = target.getAttribute('data-alias') || target.closest('.bound-file')?.getAttribute('data-alias');
@@ -3954,6 +3994,435 @@ export function getQueryEditorHtml(
         
         vscode.postMessage({ type: 'generateQuery', provider, endpoint: ep, apiKey: key, model, prompt });
     };
+    // cURL Command Utilities (Parser & Generator)
+    function toBase64(str) {
+      if (typeof btoa === 'function') {
+        try {
+          return btoa(unescape(encodeURIComponent(str)));
+        } catch (e) {
+          return btoa(str);
+        }
+      }
+      return '';
+    }
+
+    function tokenizeArgs(cmd) {
+      if (!cmd) return [];
+      var rawLines = cmd.split(String.fromCharCode(10));
+      var combined = '';
+      for (var li = 0; li < rawLines.length; li++) {
+        var l = rawLines[li];
+        if (l.charAt(l.length - 1) === String.fromCharCode(13)) {
+          l = l.slice(0, -1);
+        }
+        var trimEnd = l.trimEnd ? l.trimEnd() : l.replace(/\s+$/, '');
+        if (trimEnd.endsWith('\\\\') || trimEnd.endsWith('^') || trimEnd.endsWith(String.fromCharCode(96))) {
+          combined += trimEnd.slice(0, -1) + ' ';
+        } else {
+          combined += l + String.fromCharCode(10);
+        }
+      }
+      var clean = combined.trim();
+
+      var tokens = [];
+      var current = '';
+      var inSingleQuote = false;
+      var inDoubleQuote = false;
+      var inAnsiCQuote = false;
+      var isEscaped = false;
+      var tokenStarted = false;
+
+      for (var i = 0; i < clean.length; i++) {
+        var char = clean[i];
+
+        if (isEscaped) {
+          current += char;
+          tokenStarted = true;
+          isEscaped = false;
+          continue;
+        }
+
+        if (inSingleQuote) {
+          if (char === "'") {
+            inSingleQuote = false;
+          } else {
+            current += char;
+          }
+          tokenStarted = true;
+          continue;
+        }
+
+        if (inAnsiCQuote) {
+          if (char === '\\\\') {
+            if (i + 1 < clean.length) {
+              var next = clean[++i];
+              if (next === 'n') current += String.fromCharCode(10);
+              else if (next === 'r') current += String.fromCharCode(13);
+              else if (next === 't') current += String.fromCharCode(9);
+              else if (next === "'") current += "'";
+              else if (next === '\\\\') current += '\\\\';
+              else current += next;
+            }
+          } else if (char === "'") {
+            inAnsiCQuote = false;
+          } else {
+            current += char;
+          }
+          tokenStarted = true;
+          continue;
+        }
+
+        if (inDoubleQuote) {
+          if (char === '\\\\') {
+            if (i + 1 < clean.length) {
+              var nextD = clean[++i];
+              if (nextD === '"' || nextD === '\\\\' || nextD === '$' || nextD === String.fromCharCode(96)) {
+                current += nextD;
+              } else if (nextD === 'n') {
+                current += String.fromCharCode(10);
+              } else if (nextD === 'r') {
+                current += String.fromCharCode(13);
+              } else if (nextD === 't') {
+                current += String.fromCharCode(9);
+              } else {
+                current += '\\\\' + nextD;
+              }
+            } else {
+              current += '\\\\';
+            }
+          } else if (char === '"') {
+            if (i + 1 < clean.length && clean[i + 1] === '"') {
+              current += '"';
+              i++;
+            } else {
+              inDoubleQuote = false;
+            }
+          } else {
+            current += char;
+          }
+          tokenStarted = true;
+          continue;
+        }
+
+        if (char === '\\\\') {
+          if (i + 1 < clean.length) {
+            current += clean[++i];
+            tokenStarted = true;
+          }
+          continue;
+        }
+
+        if (char === '$' && i + 1 < clean.length && clean[i + 1] === "'") {
+          inAnsiCQuote = true;
+          tokenStarted = true;
+          i++;
+          continue;
+        }
+
+        if (char === "'") {
+          inSingleQuote = true;
+          tokenStarted = true;
+          continue;
+        }
+
+        if (char === '"') {
+          inDoubleQuote = true;
+          tokenStarted = true;
+          continue;
+        }
+
+        if (char === ' ' || char === String.fromCharCode(9) || char === String.fromCharCode(10) || char === String.fromCharCode(13)) {
+          if (tokenStarted) {
+            tokens.push(current);
+            current = '';
+            tokenStarted = false;
+          }
+          continue;
+        }
+
+        current += char;
+        tokenStarted = true;
+      }
+
+      if (tokenStarted) {
+        tokens.push(current);
+      }
+
+      return tokens;
+    }
+
+    function parseCurl(cmd) {
+      var tokens = tokenizeArgs(cmd);
+      var url = '';
+      var method = '';
+      var headers = {};
+      var headerLines = [];
+      var bodyChunks = [];
+
+      var startIdx = 0;
+      if (tokens.length > 0 && /^(curl|curl\.exe)$/i.test(tokens[0])) {
+        startIdx = 1;
+      }
+
+      var argFlags = {
+        '-X': true, '--request': true,
+        '-H': true, '--header': true,
+        '-d': true, '--data': true, '--data-raw': true, '--data-binary': true, '--data-ascii': true, '--data-urlencode': true,
+        '-u': true, '--user': true,
+        '-A': true, '--user-agent': true,
+        '-b': true, '--cookie': true,
+        '--url': true,
+        '-m': true, '--max-time': true,
+        '--connect-timeout': true,
+        '-e': true, '--referer': true,
+        '-o': true, '--output': true,
+        '--retry': true
+      };
+
+      var boolFlags = {
+        '-k': true, '--insecure': true,
+        '-s': true, '--silent': true,
+        '-S': true, '--show-error': true,
+        '-v': true, '--verbose': true,
+        '-L': true, '--location': true,
+        '-i': true, '--include': true,
+        '-I': true, '--head': true,
+        '-G': true, '--get': true,
+        '--compressed': true,
+        '--no-buffer': true,
+        '-N': true,
+        '-f': true, '--fail': true,
+        '-0': true, '--http1.0': true,
+        '--http1.1': true,
+        '--http2': true
+      };
+
+      function addHeader(headerStr) {
+        if (!headerStr) return;
+        var colonIdx = headerStr.indexOf(':');
+        if (colonIdx > 0) {
+          var key = headerStr.slice(0, colonIdx).trim();
+          var val = headerStr.slice(colonIdx + 1).trim();
+          headers[key] = val;
+          headerLines.push(key + ': ' + val);
+        } else {
+          headerLines.push(headerStr.trim());
+        }
+      }
+
+      function handleBasicAuth(userPass) {
+        var b64 = toBase64(userPass);
+        if (b64) {
+          headers['Authorization'] = 'Basic ' + b64;
+          headerLines.push('Authorization: Basic ' + b64);
+        }
+      }
+
+      for (var i = startIdx; i < tokens.length; i++) {
+        var token = tokens[i];
+
+        if (token === '-I' || token === '--head') {
+          method = 'HEAD';
+          continue;
+        }
+        if (token === '-G' || token === '--get') {
+          method = 'GET';
+          continue;
+        }
+
+        if (token === '--url' && i + 1 < tokens.length) {
+          url = tokens[++i];
+          continue;
+        }
+        if (token.indexOf('--url=') === 0) {
+          url = token.slice(6);
+          continue;
+        }
+
+        if ((token === '-X' || token === '--request') && i + 1 < tokens.length) {
+          method = tokens[++i].toUpperCase();
+          continue;
+        }
+        if (token.indexOf('--request=') === 0) {
+          method = token.slice(10).toUpperCase();
+          continue;
+        }
+        if (token.indexOf('-X') === 0 && token.length > 2) {
+          method = token.slice(2).toUpperCase();
+          continue;
+        }
+
+        if ((token === '-H' || token === '--header') && i + 1 < tokens.length) {
+          addHeader(tokens[++i]);
+          continue;
+        }
+        if (token.indexOf('--header=') === 0) {
+          addHeader(token.slice(9));
+          continue;
+        }
+        if (token.indexOf('-H') === 0 && token.length > 2) {
+          addHeader(token.slice(2));
+          continue;
+        }
+
+        if ((token === '-A' || token === '--user-agent') && i + 1 < tokens.length) {
+          addHeader('User-Agent: ' + tokens[++i]);
+          continue;
+        }
+        if (token.indexOf('--user-agent=') === 0) {
+          addHeader('User-Agent: ' + token.slice(14));
+          continue;
+        }
+
+        if ((token === '-b' || token === '--cookie') && i + 1 < tokens.length) {
+          addHeader('Cookie: ' + tokens[++i]);
+          continue;
+        }
+        if (token.indexOf('--cookie=') === 0) {
+          addHeader('Cookie: ' + token.slice(9));
+          continue;
+        }
+
+        if ((token === '-u' || token === '--user') && i + 1 < tokens.length) {
+          handleBasicAuth(tokens[++i]);
+          continue;
+        }
+        if (token.indexOf('--user=') === 0) {
+          handleBasicAuth(token.slice(7));
+          continue;
+        }
+        if (token.indexOf('-u') === 0 && token.length > 2) {
+          handleBasicAuth(token.slice(2));
+          continue;
+        }
+
+        if ((token === '-d' || token === '--data' || token === '--data-raw' || token === '--data-binary' || token === '--data-ascii' || token === '--data-urlencode') && i + 1 < tokens.length) {
+          bodyChunks.push(tokens[++i]);
+          continue;
+        }
+        if (token.indexOf('--data=') === 0 || token.indexOf('--data-raw=') === 0 || token.indexOf('--data-binary=') === 0 || token.indexOf('--data-ascii=') === 0 || token.indexOf('--data-urlencode=') === 0) {
+          var eqIdx = token.indexOf('=');
+          bodyChunks.push(token.slice(eqIdx + 1));
+          continue;
+        }
+        if (token.indexOf('-d') === 0 && token.length > 2) {
+          bodyChunks.push(token.slice(2));
+          continue;
+        }
+
+        if (argFlags[token] && i + 1 < tokens.length) {
+          i++;
+          continue;
+        }
+
+        if (token.indexOf('-') === 0 && token.indexOf('=') !== -1) {
+          continue;
+        }
+
+        if (boolFlags[token] || token.indexOf('-') === 0) {
+          continue;
+        }
+
+        if (!url) {
+          url = token;
+        }
+      }
+
+      var finalBody = bodyChunks.join('&');
+      if (!method) {
+        method = bodyChunks.length > 0 ? 'POST' : 'GET';
+      }
+
+      return {
+        url: url.trim(),
+        method: method || 'GET',
+        headers: headers,
+        headersString: headerLines.join(String.fromCharCode(10)),
+        body: finalBody
+      };
+    }
+
+    function generateCurl(options) {
+      var url = (options.url || '').trim();
+      var method = (options.method || 'GET').toUpperCase();
+      var body = options.body !== undefined && options.body !== null ? String(options.body).trim() : '';
+
+      var headerList = [];
+
+      function parseLines(str) {
+        var lines = str.split(String.fromCharCode(10));
+        for (var i = 0; i < lines.length; i++) {
+          var trimmed = lines[i].trim();
+          if (trimmed.charAt(trimmed.length - 1) === String.fromCharCode(13)) {
+            trimmed = trimmed.slice(0, -1).trim();
+          }
+          if (!trimmed) continue;
+          var idx = trimmed.indexOf(':');
+          if (idx > 0) {
+            headerList.push({
+              key: trimmed.slice(0, idx).trim(),
+              value: trimmed.slice(idx + 1).trim()
+            });
+          }
+        }
+      }
+
+      if (typeof options.headers === 'string') {
+        var raw = options.headers.trim();
+        if (raw.indexOf('{') === 0 && raw.lastIndexOf('}') === raw.length - 1) {
+          try {
+            var obj = JSON.parse(raw);
+            var keys = Object.keys(obj);
+            for (var j = 0; j < keys.length; j++) {
+              var k = keys[j];
+              var v = obj[k];
+              if (k && v !== undefined && v !== null) {
+                headerList.push({ key: k.trim(), value: String(v).trim() });
+              }
+            }
+          } catch (e) {
+            parseLines(raw);
+          }
+        } else {
+          parseLines(raw);
+        }
+      } else if (typeof options.headers === 'object' && options.headers !== null) {
+        var objKeys = Object.keys(options.headers);
+        for (var m = 0; m < objKeys.length; m++) {
+          var hk = objKeys[m];
+          var hv = options.headers[hk];
+          if (hk && hv !== undefined && hv !== null) {
+            headerList.push({ key: hk.trim(), value: String(hv).trim() });
+          }
+        }
+      }
+
+      var parts = ['curl'];
+
+      if (method !== 'GET' || body) {
+        parts.push('-X ' + method);
+      }
+
+      var escapedUrl = url.split('"').join('\\\\"');
+      parts.push('"' + escapedUrl + '"');
+
+      var lines = [];
+      lines.push(parts.join(' '));
+
+      for (var n = 0; n < headerList.length; n++) {
+        var h = headerList[n];
+        var escapedVal = (h.key + ': ' + h.value).split('"').join('\\\\"');
+        lines.push('  -H "' + escapedVal + '"');
+      }
+
+      if (body && method !== 'GET' && method !== 'HEAD') {
+        var safeBody = body.split("'").join("'\\\\''");
+        lines.push("  -d '" + safeBody + "'");
+      }
+
+      return lines.join(' ' + '\\\\' + String.fromCharCode(10));
+    }
+
     // URL Modal Controller
     const urlModal = document.getElementById('urlModal');
     const urlModalTitle = document.getElementById('urlModalTitle');
@@ -3970,6 +4439,13 @@ export function getQueryEditorHtml(
     const closeUrlModalBtn = document.getElementById('closeUrlModal');
     const submitUrlSpinner = document.getElementById('submitUrlSpinner');
     const submitUrlText = document.getElementById('submitUrlText');
+    const importCurlBtn = document.getElementById('importCurlBtn');
+    const copyCurlBtn = document.getElementById('copyCurlBtn');
+    const curlImportPanel = document.getElementById('curlImportPanel');
+    const curlImportInput = document.getElementById('curlImportInput');
+    const closeCurlImportBtn = document.getElementById('closeCurlImportBtn');
+    const cancelCurlImportBtn = document.getElementById('cancelCurlImportBtn');
+    const applyCurlImportBtn = document.getElementById('applyCurlImportBtn');
 
     // URL Modal Tabs and Query Params Controller (Postman Style)
     const tabBtnParams = document.getElementById('tabBtnParams');
@@ -4337,10 +4813,19 @@ export function getQueryEditorHtml(
       urlMethod.addEventListener('change', toggleBodyGroup);
     }
 
-    function showUrlModalAlert(text) {
+    function showUrlModalAlert(text, isSuccess) {
       if (urlModalAlert) {
         urlModalAlert.textContent = text;
         urlModalAlert.style.display = 'block';
+        if (isSuccess) {
+          urlModalAlert.style.borderColor = 'var(--vscode-testing-iconPassed, #4ec9b0)';
+          urlModalAlert.style.color = 'var(--vscode-testing-iconPassed, #4ec9b0)';
+          urlModalAlert.style.backgroundColor = 'rgba(78, 201, 176, 0.1)';
+        } else {
+          urlModalAlert.style.borderColor = '';
+          urlModalAlert.style.color = '';
+          urlModalAlert.style.backgroundColor = '';
+        }
       }
     }
 
@@ -4348,6 +4833,9 @@ export function getQueryEditorHtml(
       if (urlModalAlert) {
         urlModalAlert.textContent = '';
         urlModalAlert.style.display = 'none';
+        urlModalAlert.style.borderColor = '';
+        urlModalAlert.style.color = '';
+        urlModalAlert.style.backgroundColor = '';
       }
     }
 
@@ -4486,6 +4974,8 @@ export function getQueryEditorHtml(
 
     function closeUrlModal() {
       if (urlModal) urlModal.style.display = 'none';
+      if (curlImportPanel) curlImportPanel.style.display = 'none';
+      if (curlImportInput) curlImportInput.value = '';
       if (syncParamsDebounceTimer) { clearTimeout(syncParamsDebounceTimer); syncParamsDebounceTimer = null; }
       if (syncUrlDebounceTimer) { clearTimeout(syncUrlDebounceTimer); syncUrlDebounceTimer = null; }
       clearUrlModalAlert();
@@ -4590,6 +5080,112 @@ export function getQueryEditorHtml(
       };
     }
 
+    if (importCurlBtn) {
+      importCurlBtn.onclick = () => {
+        if (!curlImportPanel) return;
+        const isHidden = curlImportPanel.style.display === 'none' || !curlImportPanel.style.display;
+        curlImportPanel.style.display = isHidden ? 'block' : 'none';
+        if (isHidden && curlImportInput) {
+          curlImportInput.focus();
+          curlImportInput.select();
+        }
+      };
+    }
+
+    if (closeCurlImportBtn) {
+      closeCurlImportBtn.onclick = () => {
+        if (curlImportPanel) curlImportPanel.style.display = 'none';
+      };
+    }
+
+    if (cancelCurlImportBtn) {
+      cancelCurlImportBtn.onclick = () => {
+        if (curlImportPanel) curlImportPanel.style.display = 'none';
+      };
+    }
+
+    if (applyCurlImportBtn) {
+      applyCurlImportBtn.onclick = () => {
+        const raw = (curlImportInput ? curlImportInput.value : '').trim();
+        if (!raw) {
+          showUrlModalAlert('Please paste a cURL command first.');
+          if (curlImportInput) curlImportInput.focus();
+          return;
+        }
+
+        const parsed = parseCurl(raw);
+        if (!parsed.url) {
+          showUrlModalAlert('Could not find a valid URL in the pasted cURL command.');
+          if (curlImportInput) curlImportInput.focus();
+          return;
+        }
+
+        if (urlEndpoint) urlEndpoint.value = parsed.url;
+        if (urlMethod) urlMethod.value = parsed.method || 'GET';
+        if (urlHeaders) urlHeaders.value = parsed.headersString || '';
+        if (urlBody) urlBody.value = parsed.body || '';
+
+        // Auto-suggest alias if current alias is empty or default
+        const currentAlias = (urlAlias ? urlAlias.value : '').trim();
+        if (!currentAlias || currentAlias === 'data' || currentAlias === 'apiData' || currentAlias.indexOf('apiData') === 0) {
+          try {
+            const urlObj = new URL(parsed.url);
+            const pathSegments = urlObj.pathname.split('/').filter(Boolean);
+            let candidate = pathSegments.length > 0 ? pathSegments[pathSegments.length - 1] : urlObj.hostname.replace(/[^a-zA-Z0-9_$]/g, '');
+            candidate = candidate.replace(/[^a-zA-Z0-9_$]/g, '');
+            if (/^[0-9]/.test(candidate)) candidate = 'api_' + candidate;
+            if (candidate && /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(candidate)) {
+              if (urlAlias) urlAlias.value = candidate;
+            }
+          } catch (e) {}
+        }
+
+        toggleBodyGroup();
+        if (parsed.method !== 'GET' && parsed.method !== 'HEAD' && parsed.body) {
+          switchUrlTab('body');
+        } else {
+          switchUrlTab('params');
+        }
+
+        updateHeadersBadge();
+        currentQueryParams = parseQueryParamsFromUrl(parsed.url);
+        renderQueryParamsTable();
+
+        if (curlImportPanel) curlImportPanel.style.display = 'none';
+        if (curlImportInput) curlImportInput.value = '';
+        showUrlModalAlert('✓ cURL command imported successfully.', true);
+        setTimeout(clearUrlModalAlert, 3000);
+      };
+    }
+
+    if (copyCurlBtn) {
+      copyCurlBtn.onclick = () => {
+        flushSyncParamsToUrl();
+        flushSyncUrlToTable();
+        clearUrlModalAlert();
+
+        const url = (urlEndpoint ? urlEndpoint.value : '').trim();
+        const method = urlMethod ? urlMethod.value : 'GET';
+        const headers = urlHeaders ? urlHeaders.value : '';
+        const body = urlBody ? urlBody.value : '';
+
+        if (!url) {
+          showUrlModalAlert('Please enter a URL first.');
+          if (urlEndpoint) urlEndpoint.focus();
+          return;
+        }
+
+        const curlCmd = generateCurl({ url, method, headers, body });
+        vscode.postMessage({ type: 'copyToClipboard', text: curlCmd });
+
+        const originalText = copyCurlBtn.textContent;
+        copyCurlBtn.textContent = '✓ Copied cURL!';
+        setTimeout(() => {
+          copyCurlBtn.textContent = originalText;
+        }, 1500);
+      };
+    }
+
     // Source Inspection Modal Controller (Option A)
     const sourceInspectModal = document.getElementById('sourceInspectModal');
     const inspectModalTitle = document.getElementById('inspectModalTitle');
@@ -4599,15 +5195,21 @@ export function getQueryEditorHtml(
     const inspectDataPre = document.getElementById('inspectDataPre');
     const inspectDataMeta = document.getElementById('inspectDataMeta');
     const copyInspectBtn = document.getElementById('copyInspectBtn');
+    const copyInspectCurlBtn = document.getElementById('copyInspectCurlBtn');
     const openInspectInEditorBtn = document.getElementById('openInspectInEditorBtn');
     const dismissInspectBtn = document.getElementById('dismissInspectBtn');
 
     let currentInspectDataText = '';
+    let currentInspectSource = null;
 
     function openSourceInspectModal(source, data) {
       if (!sourceInspectModal) return;
+      currentInspectSource = source;
 
       const isUrl = source.type === 'url' || !!source.url;
+      if (copyInspectCurlBtn) {
+        copyInspectCurlBtn.style.display = isUrl ? 'inline-block' : 'none';
+      }
       if (inspectModalTitle) {
         inspectModalTitle.textContent = 'Data Source: ' + (source.alias || 'data');
       }
@@ -4669,6 +5271,7 @@ export function getQueryEditorHtml(
     function closeSourceInspectModal() {
       if (sourceInspectModal) sourceInspectModal.style.display = 'none';
       currentInspectDataText = '';
+      currentInspectSource = null;
     }
 
     if (closeInspectModalBtn) closeInspectModalBtn.onclick = closeSourceInspectModal;
@@ -4689,6 +5292,24 @@ export function getQueryEditorHtml(
         copyInspectBtn.textContent = '✓ Copied';
         setTimeout(() => {
           copyInspectBtn.textContent = originalText;
+        }, 1500);
+      };
+    }
+
+    if (copyInspectCurlBtn) {
+      copyInspectCurlBtn.onclick = () => {
+        if (!currentInspectSource || (!currentInspectSource.url && currentInspectSource.type !== 'url')) return;
+        const curlCmd = generateCurl({
+          url: currentInspectSource.url || '',
+          method: currentInspectSource.method || 'GET',
+          headers: currentInspectSource.headers,
+          body: currentInspectSource.body
+        });
+        vscode.postMessage({ type: 'copyToClipboard', text: curlCmd });
+        const originalText = copyInspectCurlBtn.textContent;
+        copyInspectCurlBtn.textContent = '✓ Copied cURL!';
+        setTimeout(() => {
+          copyInspectCurlBtn.textContent = originalText;
         }, 1500);
       };
     }

@@ -112,6 +112,10 @@ async function validate() {
       'id="tableNextPage"',
       'id="tablePageInput"',
       'id="tableTotalPages"',
+      'id="importCurlBtn"',
+      'id="copyCurlBtn"',
+      'id="curlImportPanel"',
+      'id="copyInspectCurlBtn"',
       'class="search-icon">&#128269;</span>'
     ];
 
