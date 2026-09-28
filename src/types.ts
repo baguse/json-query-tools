@@ -65,3 +65,24 @@ export interface HistoryItem {
 
 export type StoredHistory = (string | HistoryItem)[];
 export type History = HistoryItem[];
+
+// Environment & Config types
+export interface EnvironmentDefinition {
+  name?: string;
+  baseUrl?: string;
+  headers?: Record<string, string>;
+  variables?: Record<string, string>;
+  [key: string]: unknown;
+}
+
+export interface EnvironmentsConfigFile {
+  activeEnvironment?: string;
+  environments: Record<string, EnvironmentDefinition>;
+  globalVariables?: Record<string, string>;
+}
+
+export interface ResolvedEnvironment {
+  name: string;
+  variables: Record<string, string>;
+  defaultHeaders: Record<string, string>;
+}

@@ -14,7 +14,14 @@ const escapeHtmlStr = escapeHtml;
 
 export function getQueryEditorHtml(
   webview: vscode.Webview,
-  params: { boundFiles?: BoundFile[]; sources?: SerializedBoundSource[]; scriptNonce: string }
+  params: {
+    boundFiles?: BoundFile[];
+    sources?: SerializedBoundSource[];
+    scriptNonce: string;
+    environments?: string[];
+    activeEnvironment?: string;
+    environmentVariables?: Record<string, string>;
+  }
 ) {
   const n = params.scriptNonce;
   const sources: SerializedBoundSource[] = params.sources ?? (params.boundFiles || []).map(f => ({
@@ -24,6 +31,14 @@ export function getQueryEditorHtml(
   }));
 
   const initialSourcesJson = JSON.stringify(sources).replace(/</g, '\\u003c');
+  const envList = params.environments || [];
+  const currentActiveEnv = params.activeEnvironment || '';
+  const envOptionsHtml = envList.map(env =>
+    `<option value="${escapeHtmlStr(env)}"${env === currentActiveEnv ? ' selected' : ''}>${escapeHtmlStr(env)}</option>`
+  ).join('');
+  const initialEnvsJson = JSON.stringify(envList).replace(/</g, '\\u003c');
+  const initialActiveEnvJson = JSON.stringify(currentActiveEnv).replace(/</g, '\\u003c');
+  const initialEnvVarsJson = JSON.stringify(params.environmentVariables || {}).replace(/</g, '\\u003c');
 
   const sourcesHtml = sources.length > 0 ? sources.map(s => {
     if (s.type === 'url') {
@@ -921,6 +936,14 @@ export function getQueryEditorHtml(
         <button id="addUrl" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Fetch data directly from an HTTP/HTTPS URL with custom headers">+ Add URL</button>
     </div>
     <div style="margin-left: auto; display: flex; gap: 6px; align-items: center;">
+      <div class="env-selector-container" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #252526);" title="Active Environment for Request Fetcher and Template Variables">
+        <span style="font-size: 11px; opacity: 0.85; display: inline-flex; align-items: center; gap: 3px;">🌐</span>
+        <select id="envSelect" style="padding: 2px 4px; font-size: 11px; border: none; background: transparent; color: var(--vscode-input-foreground, #cccccc); cursor: pointer; outline: none;" title="Select active environment (local, staging, production, etc.)">
+          <option value="">(No Environment)</option>
+          ${envOptionsHtml}
+        </select>
+        <button id="manageEnvBtn" class="secondary" style="padding: 2px 5px; font-size: 10px; border: none; background: transparent; cursor: pointer;" title="Manage environments (.json-tools/environments.json)">⚙️</button>
+      </div>
       <button id="scratchpadBtn" class="secondary" title="Switch to Standalone Scratchpad Mode (generate mocks, test expressions without bound sources)">⚡ Scratchpad</button>
       <button id="rebind" class="secondary" title="Rebind 'data' to currently focused editor">🔄 Rebind</button>
     </div>
@@ -1015,6 +1038,9 @@ export function getQueryEditorHtml(
         <option value="entries_to_obj">Key-Value Array to Object</option>
         <option value="obj_to_entries">Object Dictionary to Array</option>
         <option value="multi_join">Join Two Sources (users + orders)</option>
+      </optgroup>
+      <optgroup label="Environment &amp; Config">
+        <option value="env_base_url">Use Environment ({{env.baseURL}} / env.baseURL)</option>
       </optgroup>
       <option value="open_cheatsheet">📖 Open Cheatsheet...</option>
     </select>
@@ -1147,7 +1173,12 @@ export function getQueryEditorHtml(
             <button type="button" id="applyCurlImportBtn" class="primary" style="font-size: 11px; padding: 3px 12px;">Apply to Request</button>
           </div>
         </div>
-        
+
+        <div id="urlModalEnvBanner" style="display: none; align-items: center; justify-content: space-between; gap: 8px; font-size: 11px; padding: 6px 10px; margin-bottom: 12px; background: rgba(78, 201, 176, 0.08); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px;">
+          <span id="urlModalEnvText" style="color: var(--vscode-foreground, #ccc);"></span>
+          <button type="button" id="urlModalManageEnvBtn" class="secondary" style="font-size: 10px; padding: 2px 6px;" title="Open .json-tools/environments.json">Manage Envs</button>
+        </div>
+
         <div class="form-group">
           <label for="urlAlias">Source Alias (Variable Name)</label>
           <input type="text" id="urlAlias" placeholder="e.g. data or apiData" value="data">
@@ -1402,6 +1433,46 @@ export function getQueryEditorHtml(
   <script nonce="${n}">
     let beautifyReady = false;
     const vscode = acquireVsCodeApi();
+
+    let currentEnvironments = ${initialEnvsJson};
+    let currentActiveEnv = ${initialActiveEnvJson};
+    let currentEnvVariables = ${initialEnvVarsJson};
+
+    function updateUrlModalEnvBanner() {
+      const banner = document.getElementById('urlModalEnvBanner');
+      const text = document.getElementById('urlModalEnvText');
+      if (!banner || !text) return;
+
+      if (currentActiveEnv) {
+        const keys = Object.keys(currentEnvVariables || {}).filter(function(k) { return k !== 'activeEnv' && k !== 'activeEnvironment'; });
+        const sampleKeys = keys.slice(0, 3).map(function(k) { return '{{' + k + '}}'; }).join(', ');
+        const sampleSuffix = sampleKeys ? ' — e.g. ' + escapeHtml(sampleKeys) : '';
+        text.innerHTML = '🌐 Active Env: <strong>' + escapeHtml(currentActiveEnv) + '</strong>' + sampleSuffix;
+        banner.style.display = 'flex';
+      } else {
+        text.innerHTML = '🌐 <em>No Environment selected</em> (variables like {{baseUrl}} will not be resolved unless in settings or env)';
+        banner.style.display = 'flex';
+      }
+    }
+
+    function renderEnvironments(envs, activeEnv, variables) {
+      currentEnvironments = Array.isArray(envs) ? envs : [];
+      currentActiveEnv = activeEnv || '';
+      if (variables) currentEnvVariables = variables;
+
+      const envSelect = document.getElementById('envSelect');
+      if (envSelect) {
+        let opts = '<option value="">(No Environment)</option>';
+        for (let i = 0; i < currentEnvironments.length; i++) {
+          const env = currentEnvironments[i];
+          const isSelected = env === currentActiveEnv ? ' selected' : '';
+          opts += '<option value="' + escapeHtml(env) + '"' + isSelected + '>' + escapeHtml(env) + '</option>';
+        }
+        envSelect.innerHTML = opts;
+      }
+
+      updateUrlModalEnvBanner();
+    }
     const exprTextarea = document.getElementById('expr');
     const listEl = document.getElementById('list');
     const resultPre = document.getElementById('resultPre');
@@ -3339,6 +3410,21 @@ export function getQueryEditorHtml(
           '  orders: orders.filter(o => o.userId === u.id)',
           '}))'
         ].join(String.fromCharCode(10))
+      },
+      {
+        id: 'env_base_url',
+        title: 'Use Environment ({{env.baseURL}} / env.baseURL)',
+        category: 'environment',
+        categoryLabel: 'Environment',
+        description: 'Reference active environment base URL, name, or custom variables via env or {{env.baseURL}}',
+        code: [
+          '// Access active environment via env runtime object or {{env.baseURL}} template syntax',
+          '({',
+          '  activeEnvironment: env.name,',
+          '  fullEndpoint: env.baseURL + "/api/v1/data"',
+          '  templateSyntax: "{{env.baseURL}}/api/v1/data"',
+          '})'
+        ].join(String.fromCharCode(10))
       }
     ];
 
@@ -4140,6 +4226,8 @@ export function getQueryEditorHtml(
         } else if (msg.boundFiles) {
           renderSources(msg.boundFiles.map(function(f) { return { type: 'file', alias: f.alias, label: f.label }; }));
         }
+      } else if (msg.type === 'updateEnvironments') {
+        renderEnvironments(msg.environments, msg.activeEnvironment, msg.variables);
       } else if (msg.type === 'urlSourceSuccess') {
         closeUrlModal();
       } else if (msg.type === 'urlSourceError') {
@@ -6268,6 +6356,7 @@ export function getQueryEditorHtml(
       clearUrlPreview();
       setModalLoading(false);
       setTestLoading(false);
+      updateUrlModalEnvBanner();
       if (source) {
         if (urlModalTitle) urlModalTitle.textContent = 'Edit URL Data Source (' + (source.alias || 'data') + ')';
         if (urlSourceId) urlSourceId.value = source.id || '';
@@ -6528,6 +6617,27 @@ export function getQueryEditorHtml(
           copyCurlBtn.textContent = originalText;
         }, 1500);
       };
+    }
+
+    const envSelect = document.getElementById('envSelect');
+    if (envSelect) {
+      envSelect.addEventListener('change', () => {
+        vscode.postMessage({ type: 'switchEnvironment', environment: envSelect.value });
+      });
+    }
+
+    const manageEnvBtn = document.getElementById('manageEnvBtn');
+    if (manageEnvBtn) {
+      manageEnvBtn.addEventListener('click', () => {
+        vscode.postMessage({ type: 'openEnvironmentsConfig' });
+      });
+    }
+
+    const urlModalManageEnvBtn = document.getElementById('urlModalManageEnvBtn');
+    if (urlModalManageEnvBtn) {
+      urlModalManageEnvBtn.addEventListener('click', () => {
+        vscode.postMessage({ type: 'openEnvironmentsConfig' });
+      });
     }
 
     // Source Inspection Modal Controller (Option A)

@@ -22,6 +22,17 @@ import {
   getUriLabel,
   isValidJsIdentifier
 } from './helpers';
+import {
+  EnvironmentsConfigFile,
+  ResolvedEnvironment
+} from './types';
+import {
+  loadEnvironmentsConfig,
+  saveEnvironmentsConfig,
+  createDefaultEnvironmentsFile,
+  loadDotEnvFiles,
+  resolveActiveEnvironment
+} from './environments';
 
 export { formatBytes, formatDuration };
 
@@ -205,7 +216,16 @@ export async function commandTransformWithExpression(context: vscode.ExtensionCo
     const data = await readJsonFromUri(target);
     const boundFiles: BoundFile[] = [{ alias: 'data', uri: target }];
     const dataMap = { 'data': data };
-    const result = await evaluateExpression(boundFiles, dataMap, expr);
+    let activeEnv: ResolvedEnvironment | undefined;
+    try {
+      const envConfig = await loadEnvironmentsConfig(target);
+      const targetEnv = envConfig.activeEnvironment;
+      const dotEnvVars = await loadDotEnvFiles(target, targetEnv);
+      activeEnv = resolveActiveEnvironment(envConfig, targetEnv, dotEnvVars);
+    } catch {
+      // Environments not configured or error loading; proceed without activeEnv
+    }
+    const result = await evaluateExpression(boundFiles, dataMap, expr, activeEnv);
     await pushHistory(context, expr);
     // For this command we still open a new tab (handy for diffs)
     const doc = await vscode.workspace.openTextDocument({ content: stringify(result) + '\n', language: 'json' });
@@ -288,10 +308,15 @@ export async function commandOpenQueryEditor(
   let lastResultData: unknown = undefined;
   let hasEvaluatedResult = false;
 
+  let envWatcher: vscode.FileSystemWatcher | undefined;
+  let dotEnvWatcher: vscode.FileSystemWatcher | undefined;
+
   panel.onDidDispose(() => {
     benchmarkStatusBar?.dispose();
     activeAiController?.abort();
     activeAiController = null;
+    envWatcher?.dispose();
+    dotEnvWatcher?.dispose();
     urlDataCache.clear();
     lastResultData = undefined;
     hasEvaluatedResult = false;
@@ -359,8 +384,62 @@ export async function commandOpenQueryEditor(
     return list;
   }
 
+  let environmentsConfig: EnvironmentsConfigFile = { environments: {} };
+  let activeEnvironmentName = '';
+  let activeEnvResolved: ResolvedEnvironment = { name: '', variables: {}, defaultHeaders: {} };
+
+  async function refreshEnvironmentsState() {
+    environmentsConfig = await loadEnvironmentsConfig();
+    const targetEnv = activeEnvironmentName || environmentsConfig.activeEnvironment;
+    const dotEnvVars = await loadDotEnvFiles(undefined, targetEnv);
+    activeEnvResolved = resolveActiveEnvironment(
+      environmentsConfig,
+      targetEnv,
+      dotEnvVars
+    );
+    activeEnvironmentName = activeEnvResolved.name;
+  }
+
+  await refreshEnvironmentsState();
+
   const scriptNonce = nonce();
-  panel.webview.html = getQueryEditorHtml(panel.webview, { sources: getSerializedSources(), scriptNonce });
+  panel.webview.html = getQueryEditorHtml(panel.webview, {
+    sources: getSerializedSources(),
+    scriptNonce,
+    environments: Object.keys(environmentsConfig.environments || {}),
+    activeEnvironment: activeEnvironmentName,
+    environmentVariables: activeEnvResolved.variables
+  });
+
+  const sendEnvironments = () => {
+    panel.webview.postMessage({
+      type: 'updateEnvironments',
+      environments: Object.keys(environmentsConfig.environments || {}),
+      activeEnvironment: activeEnvironmentName,
+      variables: activeEnvResolved.variables,
+      defaultHeaders: activeEnvResolved.defaultHeaders
+    });
+  };
+
+  try {
+    envWatcher = vscode.workspace.createFileSystemWatcher('**/.json-tools/environments.json');
+    dotEnvWatcher = vscode.workspace.createFileSystemWatcher('**/.env*');
+
+    const onEnvFileChange = async () => {
+      await refreshEnvironmentsState();
+      sendEnvironments();
+    };
+
+    envWatcher.onDidChange(onEnvFileChange);
+    envWatcher.onDidCreate(onEnvFileChange);
+    envWatcher.onDidDelete(onEnvFileChange);
+
+    dotEnvWatcher.onDidChange(onEnvFileChange);
+    dotEnvWatcher.onDidCreate(onEnvFileChange);
+    dotEnvWatcher.onDidDelete(onEnvFileChange);
+  } catch {
+    // Watchers may not be supported in some environments
+  }
 
   const sendHistory = () => panel.webview.postMessage({ type: 'hydrate', history: getHistory(context) });
   const sendResult = (text: string, data?: unknown, benchmark?: { durationMs: number; byteSize: number }) => {
@@ -398,11 +477,12 @@ export async function commandOpenQueryEditor(
       url: source.url,
       method: source.method,
       alias: source.alias
-    });
+    }, activeEnvResolved.variables);
     const result = await fetchUrlWithDetails({
       url: source.url,
       method: source.method,
       headers: source.headers,
+      defaultHeaders: activeEnvResolved.defaultHeaders,
       body: source.body,
       templateVariables
     });
@@ -642,11 +722,12 @@ export async function commandOpenQueryEditor(
               url: src.url,
               method: src.method || 'GET',
               alias
-            });
+            }, activeEnvResolved.variables);
             const result = await fetchUrlWithDetails({
               url: src.url,
               method: src.method || 'GET',
               headers: parsedHeaders,
+              defaultHeaders: activeEnvResolved.defaultHeaders,
               body: src.body,
               templateVariables
             });
@@ -713,11 +794,12 @@ export async function commandOpenQueryEditor(
               url: src.url,
               method: src.method || 'GET',
               alias: src.alias || 'data'
-            });
+            }, activeEnvResolved.variables);
             const details = await fetchUrlWithDetails({
               url: src.url,
               method: src.method || 'GET',
               headers: parsedHeaders,
+              defaultHeaders: activeEnvResolved.defaultHeaders,
               body: src.body,
               templateVariables
             });
@@ -928,7 +1010,7 @@ export async function commandOpenQueryEditor(
         }
 
         const startTime = performance.now();
-        const result = await evaluateExpression(boundFiles, dataMap, expr);
+        const result = await evaluateExpression(boundFiles, dataMap, expr, activeEnvResolved);
         const durationMs = Math.round((performance.now() - startTime) * 10) / 10;
         lastResultData = result;
         hasEvaluatedResult = true;
@@ -967,6 +1049,22 @@ export async function commandOpenQueryEditor(
           await vscode.workspace.fs.writeFile(uri, content);
           vscode.window.showInformationMessage('Query exported to: ' + uri.fsPath);
         }
+      } else if (msg.type === 'switchEnvironment') {
+        activeEnvironmentName = String(msg.environment || '');
+        urlDataCache.clear();
+        await refreshEnvironmentsState();
+        sendEnvironments();
+        vscode.window.showInformationMessage(
+          activeEnvironmentName ? `Switched active environment to '${activeEnvironmentName}'` : 'Environment cleared (No Environment)'
+        );
+      } else if (msg.type === 'openEnvironmentsConfig') {
+        const targetUri = await createDefaultEnvironmentsFile();
+        if (targetUri) {
+          const doc = await vscode.workspace.openTextDocument(targetUri);
+          await vscode.window.showTextDocument(doc);
+        }
+      } else if (msg.type === 'requestEnvironments') {
+        sendEnvironments();
       } else if (msg.type === 'exportHistoryJson') {
         await exportHistoryAsJson(context);
       } else if (msg.type === 'importHistoryJson') {

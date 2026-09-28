@@ -21,7 +21,8 @@ export {
  */
 export function getTemplateVariables(
   targetUri?: vscode.Uri,
-  urlContext?: UrlTemplateContext
+  urlContext?: UrlTemplateContext,
+  environmentVariables?: Record<string, string>
 ): Record<string, string> {
   const config = vscode.workspace.getConfiguration('jsonQueryTools');
   const custom = config.get<Record<string, string>>('templateVariables') ?? {};
@@ -39,11 +40,32 @@ export function getTemplateVariables(
     workspaceFolder = wf.uri.fsPath;
   }
 
+  const mergedCustom: Record<string, string> = {
+    ...custom,
+    ...(environmentVariables ?? {})
+  };
+
+  const base = mergedCustom['baseUrl'] || mergedCustom['baseURL'] || mergedCustom['BASE_URL'];
+  if (base) {
+    mergedCustom['baseUrl'] = base;
+    mergedCustom['baseURL'] = base;
+    mergedCustom['BASE_URL'] = base;
+    mergedCustom['env.baseUrl'] = base;
+    mergedCustom['env.baseURL'] = base;
+    mergedCustom['env.BASE_URL'] = base;
+  }
+
+  for (const [k, v] of Object.entries(mergedCustom)) {
+    if (!k.startsWith('env.')) {
+      mergedCustom[`env.${k}`] = v;
+    }
+  }
+
   return getBuiltinVariables({
     targetPath,
     workspaceFolder,
     urlContext,
-    customVariables: custom
+    customVariables: mergedCustom
   });
 }
 
@@ -53,8 +75,9 @@ export function getTemplateVariables(
 export function resolveTemplateVariables(
   expr: string,
   targetUri?: vscode.Uri,
-  urlContext?: UrlTemplateContext
+  urlContext?: UrlTemplateContext,
+  environmentVariables?: Record<string, string>
 ): string {
-  const vars = getTemplateVariables(targetUri, urlContext);
+  const vars = getTemplateVariables(targetUri, urlContext, environmentVariables);
   return resolveVariables(expr, vars);
 }

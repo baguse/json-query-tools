@@ -6,6 +6,7 @@ export interface FetchOptions {
   url: string;
   method?: HttpMethod | string;
   headers?: Record<string, string> | string;
+  defaultHeaders?: Record<string, string>;
   body?: string;
   timeoutMs?: number;
   templateVariables?: Record<string, string>;
@@ -90,7 +91,20 @@ export interface FetchDetailsResult {
  * returning full response status, timing, headers, and parsed data.
  */
 export async function fetchUrlWithDetails(options: FetchOptions): Promise<FetchDetailsResult> {
-  const resolved = resolveFetchOptions(options);
+  // Merge default headers (from active environment) with explicit headers
+  let mergedHeaders: Record<string, string> | string | undefined = options.headers;
+  if (options.defaultHeaders && Object.keys(options.defaultHeaders).length > 0) {
+    const explicit = parseHeaders(options.headers);
+    mergedHeaders = {
+      ...options.defaultHeaders,
+      ...explicit
+    };
+  }
+
+  const resolved = resolveFetchOptions({
+    ...options,
+    headers: mergedHeaders
+  });
   const urlStr = (resolved.url || '').trim();
   if (!urlStr) {
     throw new Error('URL cannot be empty.');

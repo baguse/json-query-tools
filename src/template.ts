@@ -135,8 +135,23 @@ export function resolveVariables(
       if (Object.prototype.hasOwnProperty.call(vars, envKey) && vars[envKey] !== undefined) {
         return vars[envKey];
       }
-      const envVal = envSource[envKey];
+      const lowerEnvKey = envKey.toLowerCase();
+      for (const [k, v] of Object.entries(vars)) {
+        const lk = k.toLowerCase();
+        if (lk === lowerEnvKey || lk === `env.${lowerEnvKey}` || lk === `$env.${lowerEnvKey}`) {
+          return v;
+        }
+      }
+      const envVal = envSource[envKey] ?? envSource[envKey.toUpperCase()] ?? envSource[envKey.toLowerCase()];
       return envVal !== undefined ? envVal : '';
+    }
+
+    // Case-insensitive fallback across vars
+    const lowerKey = key.toLowerCase();
+    for (const [k, v] of Object.entries(vars)) {
+      if (k.toLowerCase() === lowerKey) {
+        return v;
+      }
     }
 
     // 3. Fallback: preserve unmatched placeholder

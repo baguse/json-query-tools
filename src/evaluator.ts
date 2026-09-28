@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { createRequire } from 'module';
-import { BoundFile } from './types';
+import { BoundFile, ResolvedEnvironment } from './types';
 import { resolveTemplateVariables } from './config';
 import { stripJsoncComments } from './jsonc';
 import { getPrimaryUri } from './helpers';
@@ -49,13 +49,65 @@ const AsyncFunction: new (...args: string[]) => Function = Object.getPrototypeOf
 export function evaluateExpression(
   boundFiles: BoundFile[],
   dataMap: Record<string, unknown>,
-  expr: string
+  expr: string,
+  environmentVariables?: Record<string, string> | ResolvedEnvironment
 ): unknown | Promise<unknown> {
   const primaryUri = getPrimaryUri(boundFiles);
-  const resolvedExpr = resolveTemplateVariables(expr, primaryUri);
+
+  let envVars: Record<string, string> = {};
+  let envName = '';
+  if (environmentVariables) {
+    if ('variables' in environmentVariables && typeof (environmentVariables as any).variables === 'object') {
+      envVars = (environmentVariables as ResolvedEnvironment).variables || {};
+      envName = (environmentVariables as ResolvedEnvironment).name || '';
+    } else {
+      envVars = environmentVariables as Record<string, string>;
+      envName = envVars['activeEnv'] || envVars['activeEnvironment'] || envVars['name'] || '';
+    }
+  }
+
+  // Check if expression is a single standalone template placeholder (e.g. `{{env.baseURL}}` or `{{baseUrl}}`)
+  const trimmedExpr = expr.trim();
+  const singlePlaceholderMatch = trimmedExpr.match(/^(?:\{\{|%7B%7B)\s*([a-zA-Z0-9_$.-]+)\s*(?:\}\}|%7D%7D)$/);
+  if (singlePlaceholderMatch) {
+    const substituted = resolveTemplateVariables(trimmedExpr, primaryUri, undefined, envVars);
+    if (substituted !== trimmedExpr) {
+      return substituted;
+    }
+  }
+
+  const resolvedExpr = resolveTemplateVariables(expr, primaryUri, undefined, envVars);
   const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
   const baseUri = primaryUri ?? workspaceUri;
   const req = baseUri ? createRequire(baseUri.fsPath) : require;
+
+  const envBaseUrl = envVars['baseUrl'] || envVars['baseURL'] || envVars['BASE_URL'] || '';
+  const envTarget: Record<string, any> = {
+    name: envName,
+    activeEnv: envName,
+    baseUrl: envBaseUrl,
+    baseURL: envBaseUrl,
+    BASE_URL: envBaseUrl,
+    variables: { ...envVars },
+    ...envVars
+  };
+
+  const envProxy = new Proxy(envTarget, {
+    get(target, prop, receiver) {
+      if (typeof prop === 'string') {
+        if (prop in target) {
+          return target[prop];
+        }
+        const lower = prop.toLowerCase();
+        for (const [k, v] of Object.entries(target)) {
+          if (k.toLowerCase() === lower) {
+            return v;
+          }
+        }
+      }
+      return Reflect.get(target, prop, receiver);
+    }
+  });
 
   const aliases = Object.keys(dataMap);
   // In standalone mode (no sources bound), make `data` available as an argument (undefined)
@@ -65,8 +117,23 @@ export function evaluateExpression(
   }
   const dataValues = aliases.map(a => dataMap[a]);
 
-  // Construct function with dynamic argument names based on aliases
-  const fnArgs = [...aliases, 'require', `${resolvedExpr}`];
+  const hasEnvAlias = aliases.includes('env');
+  const hasRequireAlias = aliases.includes('require');
+
+  const extraParamNames: string[] = [];
+  const extraParamValues: any[] = [];
+
+  if (!hasRequireAlias) {
+    extraParamNames.push('require');
+    extraParamValues.push(req);
+  }
+  if (!hasEnvAlias) {
+    extraParamNames.push('env');
+    extraParamValues.push(envProxy);
+  }
+
+  // Construct function with dynamic argument names: aliases, require, env
+  const fnArgs = [...aliases, ...extraParamNames, `${resolvedExpr}`];
   let fn: Function;
   try {
     fn = new Function(...fnArgs);
@@ -78,13 +145,13 @@ export function evaluateExpression(
     }
   }
 
-  // First evaluation: run the expression against (data1, data2, ..., require)
-  let firstResult = fn(...dataValues, req) as unknown;
+  // First evaluation: run the expression against (...dataValues, ...extraParamValues)
+  let firstResult = fn(...dataValues, ...extraParamValues) as unknown;
 
   const resolveResult = (res: unknown): unknown | Promise<unknown> => {
     const finalResult =
       typeof res === 'function'
-        ? (res as (...args: unknown[]) => unknown)(...dataValues, req)
+        ? (res as (...args: unknown[]) => unknown)(...dataValues, ...extraParamValues)
         : res;
 
     if (finalResult && (finalResult instanceof Promise || typeof (finalResult as any).then === 'function')) {
@@ -116,15 +183,15 @@ export function evaluateExpression(
         try {
           let implicitReturnFn: Function;
           try {
-            implicitReturnFn = new Function(...aliases, 'require', `return (${resolvedExpr});`);
+            implicitReturnFn = new Function(...aliases, ...extraParamNames, `return (${resolvedExpr});`);
           } catch (err: any) {
             if (err instanceof SyntaxError && /\bawait\b/.test(resolvedExpr)) {
-              implicitReturnFn = new AsyncFunction(...aliases, 'require', `return (${resolvedExpr});`);
+              implicitReturnFn = new AsyncFunction(...aliases, ...extraParamNames, `return (${resolvedExpr});`);
             } else {
               throw err;
             }
           }
-          awaitedFirst = await implicitReturnFn(...dataValues, req);
+          awaitedFirst = await implicitReturnFn(...dataValues, ...extraParamValues);
         } catch {
           // Expression was not a single expression statement
         }
@@ -138,15 +205,15 @@ export function evaluateExpression(
     try {
       let implicitReturnFn: Function;
       try {
-        implicitReturnFn = new Function(...aliases, 'require', `return (${resolvedExpr});`);
+        implicitReturnFn = new Function(...aliases, ...extraParamNames, `return (${resolvedExpr});`);
       } catch (err: any) {
         if (err instanceof SyntaxError && /\bawait\b/.test(resolvedExpr)) {
-          implicitReturnFn = new AsyncFunction(...aliases, 'require', `return (${resolvedExpr});`);
+          implicitReturnFn = new AsyncFunction(...aliases, ...extraParamNames, `return (${resolvedExpr});`);
         } else {
           throw err;
         }
       }
-      firstResult = implicitReturnFn(...dataValues, req);
+      firstResult = implicitReturnFn(...dataValues, ...extraParamValues);
     } catch {
       // Expression was not a single expression statement (e.g. multi-statement block without return)
     }
