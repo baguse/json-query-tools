@@ -82,7 +82,7 @@ export function inferSchemaFromData(
               // Recursively infer nested structures
               if (Array.isArray(item[key])) {
                 const inferred = inferSchemaFromData(item[key], maxDepth, currentDepth + 1, visited);
-                mergedProperties[key].items = inferred || undefined;
+                mergedProperties[key].items = (inferred && inferred.items) ? inferred.items : (inferred || undefined);
                 mergedProperties[key].type = 'array';
               } else if (item[key] && typeof item[key] === 'object') {
                 const nestedSchema = inferSchemaFromData(item[key], maxDepth, currentDepth + 1, visited);
@@ -184,7 +184,7 @@ export function inferSchemaFromData(
       // Recursively infer nested structures
       if (Array.isArray(value)) {
         const inferred = inferSchemaFromData(value, maxDepth, currentDepth + 1, visited);
-        properties[key].items = inferred || undefined;
+        properties[key].items = (inferred && inferred.items) ? inferred.items : (inferred || undefined);
         properties[key].type = 'array';
       } else if (value && typeof value === 'object') {
         const nestedSchema = inferSchemaFromData(value, maxDepth, currentDepth + 1, visited);
