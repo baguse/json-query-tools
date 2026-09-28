@@ -2400,7 +2400,27 @@ export function getQueryEditorHtml(
     }
 
     function buildConsoleCompletions() {
-      const methods = ['log', 'warn', 'error', 'info', 'table', 'time', 'timeEnd', 'trace', 'dir', 'clear', 'count'];
+      const methods = [
+        'debug',
+        'log',
+        'info',
+        'warn',
+        'error',
+        'table',
+        'time',
+        'timeEnd',
+        'timeLog',
+        'trace',
+        'dir',
+        'dirxml',
+        'clear',
+        'count',
+        'countReset',
+        'assert',
+        'group',
+        'groupCollapsed',
+        'groupEnd'
+      ];
       return methods.map(function(m) {
         return { kind: 'method', text: m, displayText: m + '() : void (console)' };
       });

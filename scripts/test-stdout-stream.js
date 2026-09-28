@@ -125,6 +125,45 @@ async function runStdoutStreamTests() {
     console.log('  ✓ [Direct Console] console.clear outputs clear entry');
   }
 
+  // Test 4b: console.count, console.countReset, console.trace, console.assert, console.timeLog
+  {
+    const entries = [];
+    const executionConsole = createExecutionConsole((entry) => {
+      entries.push(entry);
+    });
+
+    executionConsole.count('myCounter');
+    executionConsole.count('myCounter');
+    executionConsole.countReset('myCounter');
+    executionConsole.count('myCounter');
+
+    assert.strictEqual(entries[0].text, 'myCounter: 1');
+    assert.strictEqual(entries[1].text, 'myCounter: 2');
+    assert.strictEqual(entries[2].text, 'myCounter: 1');
+
+    executionConsole.assert(true, 'Should not emit');
+    assert.strictEqual(entries.length, 3);
+
+    executionConsole.assert(false, 'Expected failure');
+    assert.strictEqual(entries.length, 4);
+    assert.strictEqual(entries[3].level, 'error');
+    assert.ok(entries[3].text.includes('Assertion failed: Expected failure'));
+
+    executionConsole.time('t1');
+    executionConsole.timeLog('t1', 'checkpoint');
+    executionConsole.timeEnd('t1');
+    assert.strictEqual(entries.length, 6);
+    assert.strictEqual(entries[4].level, 'time');
+    assert.ok(entries[4].text.includes('checkpoint'));
+
+    executionConsole.trace('Trace check');
+    assert.strictEqual(entries.length, 7);
+    assert.strictEqual(entries[6].level, 'debug');
+    assert.ok(entries[6].text.includes('Trace check'));
+
+    console.log('  ✓ [Direct Console] console.count, assert, timeLog, and trace functions work properly');
+  }
+
   // Test 5: evaluateExpression single execution & stdout streaming
   {
     const boundFiles = [{ alias: 'data', uri: { fsPath: '/test/data.json' } }];

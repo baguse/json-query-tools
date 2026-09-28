@@ -56,6 +56,7 @@ export type StdoutCallback = (entry: StdoutEntry) => void;
 
 export function createExecutionConsole(onStdout?: StdoutCallback): Record<string, any> {
   const timers = new Map<string, number>();
+  const counters = new Map<string, number>();
 
   function formatArg(arg: unknown): string {
     if (typeof arg === 'string') return arg;
@@ -111,11 +112,46 @@ export function createExecutionConsole(onStdout?: StdoutCallback): Record<string
     error: (...args: unknown[]) => emit('error', args),
     debug: (...args: unknown[]) => emit('debug', args),
     dir: (...args: unknown[]) => emit('log', args),
+    dirxml: (...args: unknown[]) => emit('log', args),
     table: (tabularData: unknown) => {
       emit('table', [tabularData]);
     },
+    trace: (...args: unknown[]) => {
+      const err = new Error();
+      const stack = err.stack ? err.stack.split('\n').slice(2).join('\n') : '';
+      emit('debug', [...args, stack ? `\n${stack}` : '']);
+    },
+    assert: (condition: boolean, ...args: unknown[]) => {
+      if (!condition) {
+        emit('error', ['Assertion failed:', ...(args.length ? args : ['console.assert'])]);
+      }
+    },
+    count: (label: string = 'default') => {
+      const current = (counters.get(label) || 0) + 1;
+      counters.set(label, current);
+      emit('info', [`${label}: ${current}`]);
+    },
+    countReset: (label: string = 'default') => {
+      counters.delete(label);
+    },
+    group: (...args: unknown[]) => {
+      if (args.length) emit('log', args);
+    },
+    groupCollapsed: (...args: unknown[]) => {
+      if (args.length) emit('log', args);
+    },
+    groupEnd: () => {},
     time: (label: string = 'default') => {
       timers.set(label, performance.now());
+    },
+    timeLog: (label: string = 'default', ...args: unknown[]) => {
+      const start = timers.get(label);
+      if (start !== undefined) {
+        const elapsed = (performance.now() - start).toFixed(2);
+        emit('time', [`${label}: ${elapsed}ms`, ...args]);
+      } else {
+        emit('warn', [`Timer '${label}' does not exist`]);
+      }
     },
     timeEnd: (label: string = 'default') => {
       const start = timers.get(label);

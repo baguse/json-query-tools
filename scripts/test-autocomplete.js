@@ -120,7 +120,21 @@ async function runAutocompleteTests() {
   const objType = sandbox.inferTypeFromChain('Object');
   assert.strictEqual(objType.typeName, 'Object');
 
-  console.log('  ✓ inferTypeFromChain recognizes env, Math, JSON, and Object');
+  const consoleType = sandbox.inferTypeFromChain('console');
+  assert.strictEqual(consoleType.typeName, 'console');
+
+  const consoleCompletions = sandbox.buildConsoleCompletions();
+  assert.ok(consoleCompletions.some(c => c.text === 'debug'), 'Should include debug in console completions');
+  assert.ok(consoleCompletions.some(c => c.text === 'log'), 'Should include log in console completions');
+  assert.ok(consoleCompletions.some(c => c.text === 'warn'), 'Should include warn in console completions');
+  assert.ok(consoleCompletions.some(c => c.text === 'error'), 'Should include error in console completions');
+
+  // Verify typing console.deb extracts chain for prefix filtering
+  const consoleDebRes = sandbox.extractChainForAutocomplete('console.deb', 11, null, 0);
+  assert.ok(consoleDebRes);
+  assert.strictEqual(consoleDebRes.chain, 'console.deb');
+
+  console.log('  ✓ inferTypeFromChain recognizes env, Math, JSON, Object, and console (including console.debug)');
 
   // 7. Test local variable declaration inspection
   const fullDocText = `
