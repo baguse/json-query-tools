@@ -617,6 +617,28 @@ export function getQueryEditorHtml(
       font-size: 12px;
       opacity: 0.7;
     }
+    #visualLensBar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 12px;
+      margin-bottom: 10px;
+      background: var(--vscode-editor-inactiveSelectionBackground, rgba(58, 61, 65, 0.4));
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 4px;
+      font-size: 11px;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    #resultTable th, #resultTable td {
+      cursor: pointer;
+    }
+    #resultTable th:hover {
+      background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.08)) !important;
+    }
+    #resultTable td:hover {
+      background: var(--vscode-list-hoverBackground, rgba(255, 255, 255, 0.05));
+    }
     #resultPre {
       white-space: pre-wrap;
       word-break: break-word;
@@ -1109,7 +1131,31 @@ export function getQueryEditorHtml(
         <button id="copy-result-to-clipboard" class="secondary" style="padding: 6px 10px;">📋 Copy</button>
         <button id="openResultInEditorBtn" class="secondary" style="padding: 6px 10px;" title="Open result in a new VS Code editor tab">↗ In Editor</button>
         <button id="diffResultBtn" class="secondary" style="padding: 6px 10px;" title="Compare Original JSON with Transformed Result in Side-by-Side Diff (vscode.diff)">⚖️ Diff</button>
+        <button id="toggleVisualLensBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Toggle Visual Lens (JSON Path &amp; Expression Picker)">🔍 Lens</button>
         <button id="toggleConsoleResultBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Toggle Console Output Drawer">📟 Console <span id="consoleBadgeResult" style="display: none; background: var(--vscode-badge-background, #4d4d4d); color: var(--vscode-badge-foreground, #ffffff); border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: bold;">0</span></button>
+      </div>
+    </div>
+
+    <!-- Visual Lens Bar (JSON Path & Expression Picker) -->
+    <div id="visualLensBar" style="display: none; align-items: center; justify-content: space-between; padding: 6px 12px; margin-bottom: 10px; background: var(--vscode-editor-inactiveSelectionBackground, rgba(58, 61, 65, 0.4)); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; font-size: 11px; flex-wrap: wrap; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1; min-width: 220px;">
+        <span style="font-weight: 600; color: var(--vscode-editorInfo-foreground, #75beff); display: inline-flex; align-items: center; gap: 4px;">
+          🔍 Lens:
+        </span>
+        <code id="lensPathDisplay" style="font-family: var(--vscode-editor-font-family, monospace); background: var(--vscode-textCodeBlock-background, #1e1e1e); padding: 2px 7px; border-radius: 3px; color: var(--vscode-editor-foreground, #d4d4d4); font-size: 11px; user-select: all; cursor: pointer; border: 1px solid var(--vscode-input-border, #3e3e42);" title="Click to copy path">data</code>
+        <span id="lensValueBadge" style="font-size: 10px; color: var(--vscode-descriptionForeground, #858585); padding: 1px 6px; background: rgba(128,128,128,0.15); border-radius: 3px; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></span>
+        <label style="font-size: 10px; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; color: var(--vscode-descriptionForeground, #858585); margin-left: 4px;" title="Use optional chaining (?.) for safe property access">
+          <input type="checkbox" id="lensOptionalChainingToggle" style="margin: 0; cursor: pointer;">
+          <span>?. (safe)</span>
+        </label>
+      </div>
+      <div id="lensActions" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+        <button id="lensCopyPathBtn" class="secondary" style="padding: 3px 8px; font-size: 10px;" title="Copy JSON Path to clipboard">📋 Copy Path</button>
+        <button id="lensInsertPathBtn" class="secondary" style="padding: 3px 8px; font-size: 10px;" title="Insert path at cursor in Query Editor">✍️ Insert</button>
+        <button id="lensFilterBtn" class="secondary" style="padding: 3px 8px; font-size: 10px; display: none;" title="Filter query by this value">🔎 Filter</button>
+        <button id="lensExtractBtn" class="secondary" style="padding: 3px 8px; font-size: 10px; display: none;" title="Extract field using .map()">🎯 Extract</button>
+        <button id="lensGroupByBtn" class="secondary" style="padding: 3px 8px; font-size: 10px; display: none;" title="Group data by this key">📊 Group By</button>
+        <button id="lensCloseBtn" class="secondary" style="padding: 3px 6px; font-size: 10px; opacity: 0.7;" title="Hide Visual Lens bar">✕</button>
       </div>
     </div>
     <div id="resultContainer">
@@ -1542,6 +1588,19 @@ export function getQueryEditorHtml(
     const resultChartWarning = document.getElementById('resultChartWarning');
     const chartCanvas = document.getElementById('resultChart');
     const resultJsonEditorTextarea = document.getElementById('resultJsonEditor');
+    const toggleVisualLensBtn = document.getElementById('toggleVisualLensBtn');
+    const visualLensBar = document.getElementById('visualLensBar');
+    const lensPathDisplay = document.getElementById('lensPathDisplay');
+    const lensValueBadge = document.getElementById('lensValueBadge');
+    const lensOptionalChainingToggle = document.getElementById('lensOptionalChainingToggle');
+    const lensCopyPathBtn = document.getElementById('lensCopyPathBtn');
+    const lensInsertPathBtn = document.getElementById('lensInsertPathBtn');
+    const lensFilterBtn = document.getElementById('lensFilterBtn');
+    const lensExtractBtn = document.getElementById('lensExtractBtn');
+    const lensGroupByBtn = document.getElementById('lensGroupByBtn');
+    const lensCloseBtn = document.getElementById('lensCloseBtn');
+    let currentLensInfo = null;
+    let lensDismissed = false;
 
     function hideTable() {
       if (resultTable) resultTable.style.display = 'none';
@@ -2096,6 +2155,602 @@ export function getQueryEditorHtml(
       }
     }
 
+    // ==========================================
+    // Visual Lens (JSON Path & Expression Picker)
+    // ==========================================
+    function parseJsonWithPositions(text) {
+      if (!text || typeof text !== 'string') return null;
+      let i = 0;
+      const len = text.length;
+
+      function skipWhitespace() {
+        while (i < len) {
+          const ch = text.charCodeAt(i);
+          if (ch === 32 || ch === 9 || ch === 10 || ch === 13) {
+            i++;
+          } else {
+            break;
+          }
+        }
+      }
+
+      function parseString() {
+        const start = i;
+        i++; // skip opening quote
+        let str = '';
+        while (i < len) {
+          const ch = text[i];
+          if (ch === '\\\\') {
+            i++;
+            if (i < len) {
+              const esc = text[i];
+              if (esc === '"' || esc === '\\\\' || esc === '/') str += esc;
+              else if (esc === 'b') str += '\\b';
+              else if (esc === 'f') str += '\\f';
+              else if (esc === 'n') str += '\\n';
+              else if (esc === 'r') str += '\\r';
+              else if (esc === 't') str += '\\t';
+              else if (esc === 'u') {
+                const hex = text.slice(i + 1, i + 5);
+                str += String.fromCharCode(parseInt(hex, 16) || 0);
+                i += 4;
+              } else {
+                str += esc;
+              }
+              i++;
+            }
+          } else if (ch === '"') {
+            i++; // skip closing quote
+            return { type: 'string', value: str, start: start, end: i };
+          } else {
+            str += ch;
+            i++;
+          }
+        }
+        return { type: 'string', value: str, start: start, end: i };
+      }
+
+      function parseNumber() {
+        const start = i;
+        if (text[i] === '-') i++;
+        while (i < len && text[i] >= '0' && text[i] <= '9') i++;
+        if (i < len && text[i] === '.') {
+          i++;
+          while (i < len && text[i] >= '0' && text[i] <= '9') i++;
+        }
+        if (i < len && (text[i] === 'e' || text[i] === 'E')) {
+          i++;
+          if (i < len && (text[i] === '+' || text[i] === '-')) i++;
+          while (i < len && text[i] >= '0' && text[i] <= '9') i++;
+        }
+        const raw = text.slice(start, i);
+        return { type: 'number', value: Number(raw), raw: raw, start: start, end: i };
+      }
+
+      function parseValue(parent, keyOrIndex) {
+        skipWhitespace();
+        if (i >= len) return null;
+
+        const start = i;
+        const ch = text[i];
+
+        if (ch === '{') {
+          return parseObject(parent, keyOrIndex);
+        } else if (ch === '[') {
+          return parseArray(parent, keyOrIndex);
+        } else if (ch === '"') {
+          const s = parseString();
+          return { type: 'string', value: s.value, start: s.start, end: s.end, parent: parent, keyOrIndex: keyOrIndex };
+        } else if (ch === 't' && text.startsWith('true', i)) {
+          i += 4;
+          return { type: 'boolean', value: true, start: start, end: i, parent: parent, keyOrIndex: keyOrIndex };
+        } else if (ch === 'f' && text.startsWith('false', i)) {
+          i += 5;
+          return { type: 'boolean', value: false, start: start, end: i, parent: parent, keyOrIndex: keyOrIndex };
+        } else if (ch === 'n' && text.startsWith('null', i)) {
+          i += 4;
+          return { type: 'null', value: null, start: start, end: i, parent: parent, keyOrIndex: keyOrIndex };
+        } else if (ch === '-' || (ch >= '0' && ch <= '9')) {
+          const n = parseNumber();
+          return { type: 'number', value: n.value, raw: n.raw, start: n.start, end: n.end, parent: parent, keyOrIndex: keyOrIndex };
+        } else {
+          i++;
+          return null;
+        }
+      }
+
+      function parseObject(parent, keyOrIndex) {
+        const start = i;
+        i++; // skip '{'
+        const properties = [];
+        const node = { type: 'object', start: start, end: start + 1, parent: parent, keyOrIndex: keyOrIndex, properties: properties };
+
+        while (i < len) {
+          skipWhitespace();
+          if (i < len && text[i] === '}') {
+            i++;
+            node.end = i;
+            return node;
+          }
+          if (i < len && text[i] === ',') {
+            i++;
+            continue;
+          }
+          if (i >= len) break;
+
+          if (text[i] !== '"') {
+            i++;
+            continue;
+          }
+          const keyToken = parseString();
+          skipWhitespace();
+          if (i < len && text[i] === ':') {
+            i++; // skip ':'
+          }
+          const valNode = parseValue(node, keyToken.value);
+          const propNode = {
+            type: 'property',
+            key: keyToken.value,
+            keyStart: keyToken.start,
+            keyEnd: keyToken.end,
+            start: keyToken.start,
+            end: valNode ? valNode.end : keyToken.end,
+            valueNode: valNode,
+            parent: node
+          };
+          if (valNode) valNode.parent = propNode;
+          properties.push(propNode);
+        }
+        node.end = i;
+        return node;
+      }
+
+      function parseArray(parent, keyOrIndex) {
+        const start = i;
+        i++; // skip '['
+        const elements = [];
+        const node = { type: 'array', start: start, end: start + 1, parent: parent, keyOrIndex: keyOrIndex, elements: elements };
+        let index = 0;
+
+        while (i < len) {
+          skipWhitespace();
+          if (i < len && text[i] === ']') {
+            i++;
+            node.end = i;
+            return node;
+          }
+          if (i < len && text[i] === ',') {
+            i++;
+            continue;
+          }
+          if (i >= len) break;
+
+          const elemNode = parseValue(node, index);
+          if (elemNode) {
+            elements.push(elemNode);
+            index++;
+          }
+        }
+        node.end = i;
+        return node;
+      }
+
+      skipWhitespace();
+      return parseValue(null, null);
+    }
+
+    function findJsonNodeAtOffset(ast, offset) {
+      if (!ast) return null;
+
+      function findDeepest(node) {
+        if (!node) return null;
+        if (offset < node.start || offset > node.end) return null;
+
+        if (node.type === 'object' && node.properties) {
+          for (let pIdx = 0; pIdx < node.properties.length; pIdx++) {
+            const p = node.properties[pIdx];
+            if (offset >= p.keyStart && offset <= p.keyEnd) {
+              return { node: p, isKey: true };
+            }
+            if (p.valueNode && offset >= p.valueNode.start && offset <= p.valueNode.end) {
+              const deeper = findDeepest(p.valueNode);
+              return deeper || { node: p.valueNode, isKey: false };
+            }
+          }
+        } else if (node.type === 'array' && node.elements) {
+          for (let eIdx = 0; eIdx < node.elements.length; eIdx++) {
+            const el = node.elements[eIdx];
+            if (offset >= el.start && offset <= el.end) {
+              const deeper = findDeepest(el);
+              return deeper || { node: el, isKey: false };
+            }
+          }
+        } else if (node.type === 'property') {
+          if (offset >= node.keyStart && offset <= node.keyEnd) {
+            return { node: node, isKey: true };
+          }
+          if (node.valueNode && offset >= node.valueNode.start && offset <= node.valueNode.end) {
+            const deeper = findDeepest(node.valueNode);
+            return deeper || { node: node.valueNode, isKey: false };
+          }
+        }
+
+        return { node: node, isKey: false };
+      }
+
+      return findDeepest(ast);
+    }
+
+    function resolveLensPath(hit, rootAlias) {
+      if (!hit || !hit.node) return null;
+      rootAlias = rootAlias || 'data';
+      const isKey = Boolean(hit.isKey);
+      let curr = hit.node;
+
+      const segments = [];
+      let targetValue = curr.value;
+      let targetType = curr.type;
+
+      if (curr.type === 'property') {
+        targetValue = curr.key;
+        targetType = 'string';
+        segments.unshift({ type: 'prop', val: curr.key });
+        curr = curr.parent;
+      }
+
+      while (curr) {
+        if (curr.type === 'property') {
+          segments.unshift({ type: 'prop', val: curr.key });
+        } else if (curr.parent && curr.parent.type === 'array') {
+          segments.unshift({ type: 'index', val: curr.keyOrIndex });
+        }
+        curr = curr.parent;
+      }
+
+      let standardPath = rootAlias;
+      let optionalPath = rootAlias;
+
+      for (let sIdx = 0; sIdx < segments.length; sIdx++) {
+        const seg = segments[sIdx];
+        if (seg.type === 'index') {
+          standardPath += '[' + seg.val + ']';
+          optionalPath += '?.[' + seg.val + ']';
+        } else {
+          const isValidIdent = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(seg.val);
+          if (isValidIdent) {
+            standardPath += '.' + seg.val;
+            optionalPath += '?.' + seg.val;
+          } else {
+            standardPath += '[' + JSON.stringify(seg.val) + ']';
+            optionalPath += '?.[' + JSON.stringify(seg.val) + ']';
+          }
+        }
+      }
+
+      let ancestorArrayPath = null;
+      let relativeProp = null;
+
+      let lastIndexPos = -1;
+      for (let s = segments.length - 1; s >= 0; s--) {
+        if (segments[s].type === 'index') {
+          lastIndexPos = s;
+          break;
+        }
+      }
+
+      if (lastIndexPos !== -1) {
+        ancestorArrayPath = rootAlias;
+        for (let s = 0; s < lastIndexPos; s++) {
+          const seg = segments[s];
+          if (seg.type === 'index') {
+            ancestorArrayPath += '[' + seg.val + ']';
+          } else {
+            ancestorArrayPath += /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(seg.val)
+              ? '.' + seg.val
+              : '[' + JSON.stringify(seg.val) + ']';
+          }
+        }
+
+        const relSegs = segments.slice(lastIndexPos + 1);
+        if (relSegs.length > 0) {
+          relativeProp = '';
+          for (let r = 0; r < relSegs.length; r++) {
+            const seg = relSegs[r];
+            if (seg.type === 'index') relativeProp += '[' + seg.val + ']';
+            else {
+              if (r === 0) relativeProp += seg.val;
+              else relativeProp += '.' + seg.val;
+            }
+          }
+        }
+      } else if (segments.length > 0) {
+        relativeProp = segments.map(function(s) { return s.val; }).join('.');
+      }
+
+      return {
+        standardPath: standardPath,
+        optionalPath: optionalPath,
+        segments: segments,
+        targetValue: targetValue,
+        targetType: targetType,
+        isKey: isKey,
+        ancestorArrayPath: ancestorArrayPath,
+        relativeProp: relativeProp
+      };
+    }
+
+    function displayLensInfo(info) {
+      if (!info || !visualLensBar) return;
+      currentLensInfo = info;
+
+      if (!lensDismissed) {
+        visualLensBar.style.display = 'flex';
+      }
+
+      const useOptional = lensOptionalChainingToggle && lensOptionalChainingToggle.checked;
+      const activePath = useOptional ? (info.optionalPath || info.standardPath) : info.standardPath;
+      if (lensPathDisplay) {
+        lensPathDisplay.textContent = activePath || 'data';
+        lensPathDisplay.title = 'Click to copy: ' + activePath;
+      }
+
+      if (lensValueBadge) {
+        if (info.targetType === 'column') {
+          lensValueBadge.textContent = 'column: ' + String(info.targetValue);
+          lensValueBadge.style.display = 'inline-block';
+        } else if (info.targetValue !== undefined) {
+          let valStr = '';
+          try {
+            valStr = typeof info.targetValue === 'object' && info.targetValue !== null
+              ? JSON.stringify(info.targetValue)
+              : String(info.targetValue);
+          } catch {
+            valStr = String(info.targetValue);
+          }
+          if (valStr.length > 32) valStr = valStr.slice(0, 29) + '...';
+          lensValueBadge.textContent = '= ' + valStr + ' (' + info.targetType + ')';
+          lensValueBadge.style.display = 'inline-block';
+        } else {
+          lensValueBadge.style.display = 'none';
+        }
+      }
+
+      if (lensFilterBtn) {
+        lensFilterBtn.style.display = info.filterExpr ? 'inline-block' : 'none';
+      }
+      if (lensExtractBtn) {
+        lensExtractBtn.style.display = info.extractExpr ? 'inline-block' : 'none';
+      }
+      if (lensGroupByBtn) {
+        lensGroupByBtn.style.display = info.groupByExpr ? 'inline-block' : 'none';
+      }
+    }
+
+    function updateVisualLensFromOffset(jsonText, offset) {
+      if (!jsonText || typeof jsonText !== 'string' || !jsonText.trim()) return;
+      try {
+        const ast = parseJsonWithPositions(jsonText);
+        if (!ast) return;
+        const hit = findJsonNodeAtOffset(ast, offset);
+        if (!hit) return;
+        const resolved = resolveLensPath(hit, 'data');
+        if (!resolved) return;
+
+        let filterExpr = null;
+        let extractExpr = null;
+        let groupByExpr = null;
+
+        if (resolved.ancestorArrayPath) {
+          const arrPath = resolved.ancestorArrayPath;
+          const valLiteral = JSON.stringify(resolved.targetValue);
+          if (resolved.relativeProp) {
+            const prop = resolved.relativeProp;
+            filterExpr = arrPath + '.filter(item => item.' + prop + ' === ' + valLiteral + ')';
+            extractExpr = arrPath + '.map(item => item.' + prop + ')';
+            groupByExpr = 'Object.groupBy(' + arrPath + ', item => item.' + prop + ')';
+          } else if (resolved.targetValue !== undefined && resolved.targetType !== 'object' && resolved.targetType !== 'array') {
+            filterExpr = arrPath + '.filter(item => item === ' + valLiteral + ')';
+            groupByExpr = 'Object.groupBy(' + arrPath + ', item => item)';
+          }
+        }
+
+        displayLensInfo({
+          standardPath: resolved.standardPath,
+          optionalPath: resolved.optionalPath,
+          targetValue: resolved.targetValue,
+          targetType: resolved.targetType,
+          filterExpr: filterExpr,
+          extractExpr: extractExpr,
+          groupByExpr: groupByExpr
+        });
+      } catch (e) {
+        // Gracefully ignore parse errors
+      }
+    }
+
+    function updateVisualLensFromTableCell(pageRowIndex, colIndex) {
+      if (!currentTableData || !Array.isArray(currentTableData)) return;
+      const actualRowIndex = (tableCurrentPage - 1) * currentTablePageSize + pageRowIndex;
+      const rowItem = currentTableData[actualRowIndex];
+      if (rowItem === undefined) return;
+
+      const ths = resultTableHead ? resultTableHead.querySelectorAll('th') : [];
+      const colName = ths[colIndex] ? ths[colIndex].textContent.trim() : null;
+
+      let val = undefined;
+      if (colName && typeof rowItem === 'object' && rowItem !== null) {
+        val = rowItem[colName];
+      } else {
+        val = rowItem;
+      }
+
+      const standardPath = colName ? 'data[' + actualRowIndex + '].' + colName : 'data[' + actualRowIndex + ']';
+      const optionalPath = colName ? 'data?.[' + actualRowIndex + ']?.' + colName : 'data?.[' + actualRowIndex + ']';
+      const filterExpr = colName ? 'data.filter(item => item.' + colName + ' === ' + JSON.stringify(val) + ')' : null;
+      const extractExpr = colName ? 'data.map(item => item.' + colName + ')' : null;
+      const groupByExpr = colName ? 'Object.groupBy(data, item => item.' + colName + ')' : null;
+
+      displayLensInfo({
+        standardPath: standardPath,
+        optionalPath: optionalPath,
+        targetValue: val,
+        targetType: typeof val,
+        filterExpr: filterExpr,
+        extractExpr: extractExpr,
+        groupByExpr: groupByExpr
+      });
+    }
+
+    function updateVisualLensFromTableHeader(colName) {
+      if (!colName) return;
+      const standardPath = 'item.' + colName;
+      const optionalPath = 'item?.' + colName;
+      const extractExpr = 'data.map(item => item.' + colName + ')';
+      const groupByExpr = 'Object.groupBy(data, item => item.' + colName + ')';
+
+      displayLensInfo({
+        standardPath: standardPath,
+        optionalPath: optionalPath,
+        targetValue: colName,
+        targetType: 'column',
+        filterExpr: null,
+        extractExpr: extractExpr,
+        groupByExpr: groupByExpr
+      });
+    }
+
+    function setupVisualLensUI() {
+      if (toggleVisualLensBtn) {
+        toggleVisualLensBtn.onclick = function() {
+          if (!visualLensBar) return;
+          if (visualLensBar.style.display === 'none') {
+            lensDismissed = false;
+            visualLensBar.style.display = 'flex';
+            if (!currentLensInfo && currentResultText) {
+              updateVisualLensFromOffset(currentResultText, 0);
+            }
+          } else {
+            visualLensBar.style.display = 'none';
+          }
+        };
+      }
+
+      if (lensCloseBtn) {
+        lensCloseBtn.onclick = function() {
+          lensDismissed = true;
+          if (visualLensBar) visualLensBar.style.display = 'none';
+        };
+      }
+
+      function copyActiveLensPath() {
+        if (!currentLensInfo) return;
+        const useOptional = lensOptionalChainingToggle && lensOptionalChainingToggle.checked;
+        const path = useOptional ? (currentLensInfo.optionalPath || currentLensInfo.standardPath) : currentLensInfo.standardPath;
+        if (!path) return;
+        navigator.clipboard.writeText(path).then(() => {
+          if (lensCopyPathBtn) {
+            lensCopyPathBtn.textContent = '✓ Copied';
+            setTimeout(() => { lensCopyPathBtn.textContent = '📋 Copy Path'; }, 1200);
+          }
+        });
+      }
+
+      if (lensCopyPathBtn) {
+        lensCopyPathBtn.onclick = copyActiveLensPath;
+      }
+      if (lensPathDisplay) {
+        lensPathDisplay.onclick = copyActiveLensPath;
+      }
+
+      if (lensInsertPathBtn) {
+        lensInsertPathBtn.onclick = function() {
+          if (!currentLensInfo) return;
+          const useOptional = lensOptionalChainingToggle && lensOptionalChainingToggle.checked;
+          const path = useOptional ? (currentLensInfo.optionalPath || currentLensInfo.standardPath) : currentLensInfo.standardPath;
+          if (!path) return;
+          if (editor) {
+            editor.replaceSelection(path);
+            editor.focus();
+          } else if (exprTextarea) {
+            exprTextarea.setRangeText(path);
+            exprTextarea.focus();
+          }
+          lensInsertPathBtn.textContent = '✓ Inserted';
+          setTimeout(() => { lensInsertPathBtn.textContent = '✍️ Insert'; }, 1200);
+        };
+      }
+
+      if (lensFilterBtn) {
+        lensFilterBtn.onclick = function() {
+          if (!currentLensInfo || !currentLensInfo.filterExpr) return;
+          setEditorValue(currentLensInfo.filterExpr);
+          runExpression();
+        };
+      }
+
+      if (lensExtractBtn) {
+        lensExtractBtn.onclick = function() {
+          if (!currentLensInfo || !currentLensInfo.extractExpr) return;
+          setEditorValue(currentLensInfo.extractExpr);
+          runExpression();
+        };
+      }
+
+      if (lensGroupByBtn) {
+        lensGroupByBtn.onclick = function() {
+          if (!currentLensInfo || !currentLensInfo.groupByExpr) return;
+          setEditorValue(currentLensInfo.groupByExpr);
+          runExpression();
+        };
+      }
+
+      if (lensOptionalChainingToggle) {
+        lensOptionalChainingToggle.onchange = function() {
+          if (currentLensInfo) {
+            displayLensInfo(currentLensInfo);
+          }
+        };
+      }
+
+      if (resultPre) {
+        resultPre.addEventListener('click', function(e) {
+          if (resultPre.classList.contains('empty') || resultPre.classList.contains('error')) return;
+          const text = resultPre.textContent || '';
+          if (!text.trim()) return;
+          let offset = 0;
+          try {
+            const sel = window.getSelection();
+            if (sel && sel.anchorNode && resultPre.contains(sel.anchorNode)) {
+              offset = sel.anchorOffset;
+            }
+          } catch(err) {}
+          updateVisualLensFromOffset(text, offset);
+        });
+      }
+
+      if (resultTable) {
+        resultTable.addEventListener('click', function(e) {
+          const th = e.target.closest('th');
+          if (th) {
+            updateVisualLensFromTableHeader(th.textContent.trim());
+            return;
+          }
+          const td = e.target.closest('td');
+          if (td) {
+            const tr = td.closest('tr');
+            if (tr) {
+              const rowIndex = tr.sectionRowIndex;
+              const colIndex = td.cellIndex;
+              updateVisualLensFromTableCell(rowIndex, colIndex);
+            }
+          }
+        });
+      }
+    }
+
+    // Initialize Visual Lens UI handlers
+    setupVisualLensUI();
+
     function initResultJsonEditor() {
       if (!codeMirrorLoaded || typeof CodeMirror === 'undefined' || !resultJsonEditorTextarea || resultJsonEditor) {
         return;
@@ -2113,6 +2768,15 @@ export function getQueryEditorHtml(
         resultJsonEditorWrapper = resultJsonEditor.getWrapperElement();
         resultJsonEditorWrapper.style.display = 'none';
         resultJsonEditor.setSize('100%', '200px');
+
+        // Connect Visual Lens to resultJsonEditor cursor activity
+        resultJsonEditor.on('cursorActivity', function(cm) {
+          if (resultFormat && resultFormat.value === 'json') {
+            const cursor = cm.getCursor();
+            const offset = cm.indexFromPos(cursor);
+            updateVisualLensFromOffset(cm.getValue(), offset);
+          }
+        });
         if (resultFormat && ['json', 'yaml', 'ndjson', 'xml'].includes(resultFormat.value) && resultPre && resultPre.style.display !== 'none' && !resultPre.classList.contains('empty') && !resultPre.classList.contains('error')) {
           resultJsonEditor.setValue(resultPre.textContent || '');
           resultJsonEditorWrapper.style.display = 'block';

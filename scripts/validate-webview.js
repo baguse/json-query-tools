@@ -146,6 +146,8 @@ async function validate() {
       'id="diffInspectWithResultBtn"',
       'id="toggleConsoleBtn"',
       'id="consoleDrawer"',
+      'id="toggleVisualLensBtn"',
+      'id="visualLensBar"',
       'id="importHistoryJsonBtn"',
       'id="exportHistoryJsonBtn"',
       'class="search-icon">&#128269;</span>'
