@@ -44,13 +44,110 @@ export function checkForMaliciousExpression(expr: string): string | null {
   return null;
 }
 
+export interface StdoutEntry {
+  level: 'log' | 'info' | 'warn' | 'error' | 'debug' | 'table' | 'time' | 'clear';
+  text: string;
+  message: string;
+  args?: unknown[];
+  timestamp: number;
+}
+
+export type StdoutCallback = (entry: StdoutEntry) => void;
+
+export function createExecutionConsole(onStdout?: StdoutCallback): Record<string, any> {
+  const timers = new Map<string, number>();
+
+  function formatArg(arg: unknown): string {
+    if (typeof arg === 'string') return arg;
+    if (typeof arg === 'undefined') return 'undefined';
+    if (arg === null) return 'null';
+    if (typeof arg === 'function') return `[Function: ${(arg as Function).name || '(anonymous)'}]`;
+    if (arg instanceof Error) return arg.stack || `${arg.name}: ${arg.message}`;
+    try {
+      const seen = new WeakSet();
+      return JSON.stringify(
+        arg,
+        (_k, v) => {
+          if (typeof v === 'bigint') return v.toString();
+          if (typeof v === 'object' && v !== null) {
+            if (seen.has(v)) return '[Circular]';
+            seen.add(v);
+          }
+          return v;
+        },
+        2
+      );
+    } catch {
+      return String(arg);
+    }
+  }
+
+  function emit(level: StdoutEntry['level'], args: unknown[]) {
+    const formatted = args.map(formatArg).join(' ');
+    if (onStdout) {
+      onStdout({
+        level,
+        text: formatted,
+        message: formatted,
+        args: args.map(a => {
+          try {
+            if (typeof a === 'object' && a !== null) {
+              return JSON.parse(JSON.stringify(a));
+            }
+            return a;
+          } catch {
+            return String(a);
+          }
+        }),
+        timestamp: Date.now()
+      });
+    }
+  }
+
+  return {
+    log: (...args: unknown[]) => emit('log', args),
+    info: (...args: unknown[]) => emit('info', args),
+    warn: (...args: unknown[]) => emit('warn', args),
+    error: (...args: unknown[]) => emit('error', args),
+    debug: (...args: unknown[]) => emit('debug', args),
+    dir: (...args: unknown[]) => emit('log', args),
+    table: (tabularData: unknown) => {
+      emit('table', [tabularData]);
+    },
+    time: (label: string = 'default') => {
+      timers.set(label, performance.now());
+    },
+    timeEnd: (label: string = 'default') => {
+      const start = timers.get(label);
+      if (start !== undefined) {
+        const elapsed = (performance.now() - start).toFixed(2);
+        timers.delete(label);
+        emit('time', [`${label}: ${elapsed}ms`]);
+      } else {
+        emit('warn', [`Timer '${label}' does not exist`]);
+      }
+    },
+    clear: () => {
+      if (onStdout) {
+        onStdout({
+          level: 'clear',
+          text: 'Console was cleared',
+          message: 'Console was cleared',
+          timestamp: Date.now()
+        });
+      }
+    }
+  };
+}
+
 const AsyncFunction: new (...args: string[]) => Function = Object.getPrototypeOf(async function () {}).constructor;
 
 export function evaluateExpression(
   boundFiles: BoundFile[],
   dataMap: Record<string, unknown>,
   expr: string,
-  environmentVariables?: Record<string, string> | ResolvedEnvironment
+  environmentVariables?: Record<string, string> | ResolvedEnvironment,
+  onStdout?: StdoutCallback
 ): unknown | Promise<unknown> {
   const primaryUri = getPrimaryUri(boundFiles);
 
@@ -119,6 +216,7 @@ export function evaluateExpression(
 
   const hasEnvAlias = aliases.includes('env');
   const hasRequireAlias = aliases.includes('require');
+  const hasConsoleAlias = aliases.includes('console');
 
   const extraParamNames: string[] = [];
   const extraParamValues: any[] = [];
@@ -131,21 +229,35 @@ export function evaluateExpression(
     extraParamNames.push('env');
     extraParamValues.push(envProxy);
   }
+  if (!hasConsoleAlias) {
+    extraParamNames.push('console');
+    extraParamValues.push(createExecutionConsole(onStdout));
+  }
 
-  // Construct function with dynamic argument names: aliases, require, env
-  const fnArgs = [...aliases, ...extraParamNames, `${resolvedExpr}`];
+  const isAwait = /\bawait\b/.test(resolvedExpr);
+  const trimmed = resolvedExpr.trim();
+  const cleanForReturn = trimmed.endsWith(';') ? trimmed.slice(0, -1).trim() : trimmed;
+
+  // Try expression with implicit return first (e.g. `data.map(...)` or `console.log(...)`)
   let fn: Function;
+  let isExpression = true;
   try {
-    fn = new Function(...fnArgs);
+    const returnBody = `return (${cleanForReturn});`;
+    fn = isAwait
+      ? new AsyncFunction(...aliases, ...extraParamNames, returnBody)
+      : new Function(...aliases, ...extraParamNames, returnBody);
   } catch (err: any) {
-    if (err instanceof SyntaxError && /\bawait\b/.test(resolvedExpr)) {
-      fn = new AsyncFunction(...fnArgs);
+    if (err instanceof SyntaxError) {
+      isExpression = false;
+      // Multi-statement block or declaration (e.g. `const x = 1; return x;`)
+      fn = isAwait
+        ? new AsyncFunction(...aliases, ...extraParamNames, resolvedExpr)
+        : new Function(...aliases, ...extraParamNames, resolvedExpr);
     } else {
       throw err;
     }
   }
 
-  // First evaluation: run the expression against (...dataValues, ...extraParamValues)
   let firstResult = fn(...dataValues, ...extraParamValues) as unknown;
 
   const resolveResult = (res: unknown): unknown | Promise<unknown> => {
@@ -175,47 +287,34 @@ export function evaluateExpression(
     return finalResult;
   };
 
-  // If firstResult is a Promise/Thenable, await it before checking if implicit return is required
+  // If firstResult is a Promise/Thenable, await it
   if (firstResult && (firstResult instanceof Promise || typeof (firstResult as any).then === 'function')) {
     return (async () => {
       let awaitedFirst = await firstResult;
-      if (typeof awaitedFirst === 'undefined') {
+      // If result is undefined and was not an expression, try implicit return
+      if (typeof awaitedFirst === 'undefined' && !isExpression) {
         try {
-          let implicitReturnFn: Function;
-          try {
-            implicitReturnFn = new Function(...aliases, ...extraParamNames, `return (${resolvedExpr});`);
-          } catch (err: any) {
-            if (err instanceof SyntaxError && /\bawait\b/.test(resolvedExpr)) {
-              implicitReturnFn = new AsyncFunction(...aliases, ...extraParamNames, `return (${resolvedExpr});`);
-            } else {
-              throw err;
-            }
-          }
+          const implicitReturnFn = isAwait
+            ? new AsyncFunction(...aliases, ...extraParamNames, `return (${cleanForReturn});`)
+            : new Function(...aliases, ...extraParamNames, `return (${cleanForReturn});`);
           awaitedFirst = await implicitReturnFn(...dataValues, ...extraParamValues);
         } catch {
-          // Expression was not a single expression statement
+          // Statement block was not a single expression
         }
       }
       return resolveResult(awaitedFirst);
     })();
   }
 
-  // If result is undefined, attempt implicit return for single expressions (e.g. `data.map(...)` or `(a, b) => ...`)
-  if (typeof firstResult === 'undefined') {
+  // If result is undefined and was not an expression, try implicit return
+  if (typeof firstResult === 'undefined' && !isExpression) {
     try {
-      let implicitReturnFn: Function;
-      try {
-        implicitReturnFn = new Function(...aliases, ...extraParamNames, `return (${resolvedExpr});`);
-      } catch (err: any) {
-        if (err instanceof SyntaxError && /\bawait\b/.test(resolvedExpr)) {
-          implicitReturnFn = new AsyncFunction(...aliases, ...extraParamNames, `return (${resolvedExpr});`);
-        } else {
-          throw err;
-        }
-      }
+      const implicitReturnFn = isAwait
+        ? new AsyncFunction(...aliases, ...extraParamNames, `return (${cleanForReturn});`)
+        : new Function(...aliases, ...extraParamNames, `return (${cleanForReturn});`);
       firstResult = implicitReturnFn(...dataValues, ...extraParamValues);
     } catch {
-      // Expression was not a single expression statement (e.g. multi-statement block without return)
+      // Statement block was not a single expression
     }
   }
 

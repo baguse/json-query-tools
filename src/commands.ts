@@ -4,8 +4,17 @@ import { HISTORY_KEY, URL_SOURCES_KEY, URL_CACHE_MAX_SIZE, URL_CACHE_DEFAULT_TTL
 import { LruCache } from './cache';
 import { BoundFile, BoundUrl, SerializedBoundSource } from './types';
 import { getHistory, pushHistory, serializeHistoryJson, parseHistoryJson, saveImportedHistory } from './history';
-import { evaluateExpression, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression } from './evaluator';
+import { evaluateExpression, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression, StdoutEntry } from './evaluator';
 export { evaluateExpression };
+
+let consoleOutputChannel: vscode.OutputChannel | undefined;
+
+export function getConsoleOutputChannel(): vscode.OutputChannel {
+  if (!consoleOutputChannel) {
+    consoleOutputChannel = vscode.window.createOutputChannel('JSON Query Tools: Console');
+  }
+  return consoleOutputChannel;
+}
 import { inferSchemaFromData } from './schema';
 import { getQueryEditorHtml, nonce } from './webview/html';
 import { callGemini, callOllama, fetchGeminiModels, fetchOllamaModels } from './ai';
@@ -225,7 +234,10 @@ export async function commandTransformWithExpression(context: vscode.ExtensionCo
     } catch {
       // Environments not configured or error loading; proceed without activeEnv
     }
-    const result = await evaluateExpression(boundFiles, dataMap, expr, activeEnv);
+    const onStdout = (entry: StdoutEntry) => {
+      getConsoleOutputChannel().appendLine(`[${entry.level.toUpperCase()}] ${entry.message}`);
+    };
+    const result = await evaluateExpression(boundFiles, dataMap, expr, activeEnv, onStdout);
     await pushHistory(context, expr);
     // For this command we still open a new tab (handy for diffs)
     const doc = await vscode.workspace.openTextDocument({ content: stringify(result) + '\n', language: 'json' });
@@ -1010,7 +1022,11 @@ export async function commandOpenQueryEditor(
         }
 
         const startTime = performance.now();
-        const result = await evaluateExpression(boundFiles, dataMap, expr, activeEnvResolved);
+        const onStdout = (entry: StdoutEntry) => {
+          panel.webview.postMessage({ type: 'stdout', entry });
+          getConsoleOutputChannel().appendLine(`[${entry.level.toUpperCase()}] ${entry.message}`);
+        };
+        const result = await evaluateExpression(boundFiles, dataMap, expr, activeEnvResolved, onStdout);
         const durationMs = Math.round((performance.now() - startTime) * 10) / 10;
         lastResultData = result;
         hasEvaluatedResult = true;

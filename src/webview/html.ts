@@ -83,7 +83,8 @@ export function getQueryEditorHtml(
       line-height: 1.5;
       display: flex;
       flex-direction: column;
-      height: 100vh;
+      min-height: 100vh;
+      overflow-y: auto;
     }
     header {
       padding: 12px 20px;
@@ -995,13 +996,13 @@ export function getQueryEditorHtml(
   <div class="row">
       <textarea id="expr" placeholder=".filter(x=>x.active).map(x=>({name:x.name})) — Template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}"></textarea>
       <div class="keyboard-hint">Press <kbd>Ctrl+Enter</kbd> to run | <kbd>Ctrl+S</kbd> to save</div>
-    </div>
   </div>
   <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: center;">
     <button id="run" class="primary">▶ Run</button>
     <button id="save" class="secondary">★ Save</button>
     <button id="beautify" class="secondary">✨ Beautify</button>
     <button id="clear" class="secondary">🗑 Clear</button>
+    <button id="toggleConsoleBtn" class="secondary" style="display: inline-flex; align-items: center; gap: 5px;" title="Toggle Console Output Drawer">📟 Console <span id="consoleBadge" style="display: none; background: var(--vscode-badge-background, #4d4d4d); color: var(--vscode-badge-foreground, #ffffff); border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: bold;">0</span></button>
     <select id="snippetSelect" style="padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;" title="Insert common JavaScript transformation snippet">
       <option value="" disabled selected>💡 Snippets...</option>
       <optgroup label="Grouping &amp; Counting">
@@ -1049,6 +1050,23 @@ export function getQueryEditorHtml(
     <button id="exportQuery" class="secondary" title="Export current query to a file" style="margin-left: 8px;">📥 Export File</button>
   </div>
 
+  <!-- Console Output Drawer (Positioned between Editor Toolbar and Result for immediate visibility) -->
+  <div id="consoleDrawer" style="display: none; margin: 0 20px 14px 20px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; background: var(--vscode-editor-background, #1e1e1e); overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.25);">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: var(--vscode-titleBar-activeBackground, #2d2d30); border-bottom: 1px solid var(--vscode-input-border, #3e3e42); flex-wrap: wrap; gap: 6px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span style="font-weight: 600; font-size: 11px; color: var(--vscode-foreground, #cccccc);">📟 Console Output</span>
+        <span id="consoleCount" style="font-size: 10px; color: var(--vscode-descriptionForeground, #858585);">(0 entries)</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px;">
+        <button id="clearConsoleBtn" class="secondary" style="padding: 2px 8px; font-size: 10px;" title="Clear console output">Clear</button>
+        <button id="copyConsoleBtn" class="secondary" style="padding: 2px 8px; font-size: 10px;" title="Copy all console output">📋 Copy</button>
+        <button id="expandConsoleBtn" class="secondary" style="padding: 2px 8px; font-size: 10px;" title="Toggle expanded height">⤢ Expand</button>
+        <button id="closeConsoleBtn" class="secondary" style="padding: 2px 8px; font-size: 10px;" title="Hide console drawer">✕</button>
+      </div>
+    </div>
+    <div id="consoleOutput" style="max-height: 180px; overflow-y: auto; padding: 8px 10px; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace; font-size: 11px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; color: var(--vscode-editor-foreground, var(--vscode-foreground, #cccccc));"></div>
+  </div>
+
   <div id="result">
     <div class="result-header">
       <div style="display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap;">
@@ -1091,6 +1109,7 @@ export function getQueryEditorHtml(
         <button id="copy-result-to-clipboard" class="secondary" style="padding: 6px 10px;">📋 Copy</button>
         <button id="openResultInEditorBtn" class="secondary" style="padding: 6px 10px;" title="Open result in a new VS Code editor tab">↗ In Editor</button>
         <button id="diffResultBtn" class="secondary" style="padding: 6px 10px;" title="Compare Original JSON with Transformed Result in Side-by-Side Diff (vscode.diff)">⚖️ Diff</button>
+        <button id="toggleConsoleResultBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Toggle Console Output Drawer">📟 Console <span id="consoleBadgeResult" style="display: none; background: var(--vscode-badge-background, #4d4d4d); color: var(--vscode-badge-foreground, #ffffff); border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: bold;">0</span></button>
       </div>
     </div>
     <div id="resultContainer">
@@ -1480,6 +1499,19 @@ export function getQueryEditorHtml(
     const copyResultBtn = document.getElementById('copy-result-to-clipboard');
     const openResultInEditorBtn = document.getElementById('openResultInEditorBtn');
     const diffResultBtn = document.getElementById('diffResultBtn');
+    const toggleConsoleBtn = document.getElementById('toggleConsoleBtn');
+    const toggleConsoleResultBtn = document.getElementById('toggleConsoleResultBtn');
+    const consoleBadge = document.getElementById('consoleBadge');
+    const consoleBadgeResult = document.getElementById('consoleBadgeResult');
+    const consoleDrawer = document.getElementById('consoleDrawer');
+    const consoleCount = document.getElementById('consoleCount');
+    const clearConsoleBtn = document.getElementById('clearConsoleBtn');
+    const copyConsoleBtn = document.getElementById('copyConsoleBtn');
+    const expandConsoleBtn = document.getElementById('expandConsoleBtn');
+    const closeConsoleBtn = document.getElementById('closeConsoleBtn');
+    const consoleOutput = document.getElementById('consoleOutput');
+    let consoleEntriesCount = 0;
+    let isConsoleExpanded = false;
     const resultFormat = document.getElementById('resultFormat');
     const chartType = document.getElementById('chartType');
     const downloadChartBtn = document.getElementById('downloadChart');
@@ -3375,6 +3407,7 @@ export function getQueryEditorHtml(
         }
       }
       
+      clearConsoleOutput();
       setLoading(true);
       resultPre.textContent = 'Running...';
       resultPre.className = '';
@@ -4455,6 +4488,233 @@ export function getQueryEditorHtml(
       };
     }
 
+    function updateConsoleBadge(count) {
+      const badge1 = document.getElementById('consoleBadge');
+      const badge2 = document.getElementById('consoleBadgeResult');
+      const str = String(count);
+      const display = count > 0 ? 'inline-block' : 'none';
+      if (badge1) { badge1.textContent = str; badge1.style.display = display; }
+      if (badge2) { badge2.textContent = str; badge2.style.display = display; }
+      const countEl = document.getElementById('consoleCount');
+      if (countEl) { countEl.textContent = '(' + count + ' ' + (count === 1 ? 'entry' : 'entries') + ')'; }
+    }
+
+    function clearConsoleOutput() {
+      consoleEntriesCount = 0;
+      if (consoleOutput) consoleOutput.innerHTML = '';
+      updateConsoleBadge(0);
+    }
+
+    function appendConsoleEntry(entry) {
+      if (!entry || !consoleOutput) return;
+      if (entry.level === 'clear') {
+        clearConsoleOutput();
+        return;
+      }
+      consoleEntriesCount++;
+      updateConsoleBadge(consoleEntriesCount);
+
+      if (consoleDrawer && consoleDrawer.style.display === 'none') {
+        consoleDrawer.style.display = 'block';
+        try {
+          consoleDrawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } catch(e) {}
+      }
+
+      const row = document.createElement('div');
+      row.className = 'console-entry-row';
+      row.style.marginBottom = '4px';
+      row.style.padding = '4px 6px';
+      row.style.borderRadius = '3px';
+      row.style.background = 'rgba(255, 255, 255, 0.02)';
+      row.style.border = '1px solid transparent';
+      row.style.display = 'flex';
+      row.style.flexDirection = 'column';
+      row.style.gap = '3px';
+
+      // Header row: timestamp, level, and quick copy button
+      const headerRow = document.createElement('div');
+      headerRow.style.display = 'flex';
+      headerRow.style.alignItems = 'center';
+      headerRow.style.gap = '6px';
+      headerRow.style.fontSize = '10px';
+
+      const d = new Date(entry.timestamp || Date.now());
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      const ss = String(d.getSeconds()).padStart(2, '0');
+      const msec = String(d.getMilliseconds()).padStart(3, '0');
+      const tsSpan = document.createElement('span');
+      tsSpan.style.color = 'var(--vscode-descriptionForeground, #858585)';
+      tsSpan.style.flexShrink = '0';
+      tsSpan.textContent = '[' + hh + ':' + mm + ':' + ss + '.' + msec + ']';
+
+      const lvlSpan = document.createElement('span');
+      lvlSpan.style.fontWeight = 'bold';
+      lvlSpan.style.flexShrink = '0';
+      lvlSpan.style.padding = '0 4px';
+      lvlSpan.style.borderRadius = '2px';
+      lvlSpan.style.fontSize = '9px';
+      const lvl = (entry.level || 'log').toLowerCase();
+      if (lvl === 'error') {
+        lvlSpan.style.color = '#ffffff';
+        lvlSpan.style.background = 'var(--vscode-errorForeground, #f48771)';
+        lvlSpan.textContent = 'ERR';
+        row.style.borderLeft = '3px solid var(--vscode-errorForeground, #f48771)';
+      } else if (lvl === 'warn') {
+        lvlSpan.style.color = '#1e1e1e';
+        lvlSpan.style.background = '#cca700';
+        lvlSpan.textContent = 'WARN';
+        row.style.borderLeft = '3px solid #cca700';
+      } else if (lvl === 'info') {
+        lvlSpan.style.color = '#ffffff';
+        lvlSpan.style.background = '#0e639c';
+        lvlSpan.textContent = 'INFO';
+        row.style.borderLeft = '3px solid #75beff';
+      } else if (lvl === 'debug') {
+        lvlSpan.style.color = '#ffffff';
+        lvlSpan.style.background = '#388a34';
+        lvlSpan.textContent = 'DBG';
+        row.style.borderLeft = '3px solid #b5cea8';
+      } else if (lvl === 'table') {
+        lvlSpan.style.color = '#ffffff';
+        lvlSpan.style.background = '#8957e5';
+        lvlSpan.textContent = 'TABLE';
+        row.style.borderLeft = '3px solid #8957e5';
+      } else if (lvl === 'time') {
+        lvlSpan.style.color = '#ffffff';
+        lvlSpan.style.background = '#007acc';
+        lvlSpan.textContent = 'TIME';
+        row.style.borderLeft = '3px solid #007acc';
+      } else {
+        lvlSpan.style.color = 'var(--vscode-foreground, #cccccc)';
+        lvlSpan.style.background = 'rgba(128, 128, 128, 0.2)';
+        lvlSpan.textContent = 'LOG';
+        row.style.borderLeft = '3px solid var(--vscode-descriptionForeground, #858585)';
+      }
+
+      const copyRowBtn = document.createElement('button');
+      copyRowBtn.textContent = '📋';
+      copyRowBtn.title = 'Copy this entry';
+      copyRowBtn.style.marginLeft = 'auto';
+      copyRowBtn.style.padding = '0 4px';
+      copyRowBtn.style.fontSize = '9px';
+      copyRowBtn.style.background = 'transparent';
+      copyRowBtn.style.border = 'none';
+      copyRowBtn.style.cursor = 'pointer';
+      copyRowBtn.style.opacity = '0.6';
+
+      headerRow.appendChild(tsSpan);
+      headerRow.appendChild(lvlSpan);
+      headerRow.appendChild(copyRowBtn);
+
+      // Detail Text Content
+      const textSpan = document.createElement('div');
+      textSpan.style.whiteSpace = 'pre-wrap';
+      textSpan.style.wordBreak = 'break-word';
+      textSpan.style.fontFamily = "var(--vscode-editor-font-family, 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace)";
+      textSpan.style.fontSize = '11px';
+      textSpan.style.lineHeight = '1.45';
+      textSpan.style.paddingLeft = '4px';
+
+      let detailText = '';
+      if (entry.text !== undefined && entry.text !== null && String(entry.text).trim() !== '') {
+        detailText = String(entry.text);
+      } else if (entry.message !== undefined && entry.message !== null && String(entry.message).trim() !== '') {
+        detailText = String(entry.message);
+      } else if (Array.isArray(entry.args) && entry.args.length > 0) {
+        detailText = entry.args.map(function(a) {
+          try {
+            return typeof a === 'object' && a !== null ? JSON.stringify(a, null, 2) : String(a);
+          } catch(e) {
+            return String(a);
+          }
+        }).join(' ');
+      } else if (entry.text === '' || entry.message === '') {
+        detailText = '""';
+      } else {
+        detailText = '(empty)';
+      }
+
+      textSpan.textContent = detailText;
+      if (lvl === 'error') {
+        textSpan.style.color = 'var(--vscode-errorForeground, #f48771)';
+      } else if (lvl === 'warn') {
+        textSpan.style.color = '#cca700';
+      } else {
+        textSpan.style.color = 'var(--vscode-editor-foreground, var(--vscode-foreground, #d4d4d4))';
+      }
+
+      copyRowBtn.onclick = (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(detailText).then(() => {
+          copyRowBtn.textContent = '✓';
+          setTimeout(() => { copyRowBtn.textContent = '📋'; }, 1200);
+        });
+      };
+
+      row.appendChild(headerRow);
+      row.appendChild(textSpan);
+      consoleOutput.appendChild(row);
+
+      consoleOutput.scrollTop = consoleOutput.scrollHeight;
+    }
+
+    function toggleConsoleDrawer() {
+      if (!consoleDrawer) return;
+      if (consoleDrawer.style.display === 'none') {
+        consoleDrawer.style.display = 'block';
+        try {
+          consoleDrawer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } catch(e) {}
+      } else {
+        consoleDrawer.style.display = 'none';
+      }
+    }
+
+    if (toggleConsoleBtn) {
+      toggleConsoleBtn.onclick = toggleConsoleDrawer;
+    }
+    if (toggleConsoleResultBtn) {
+      toggleConsoleResultBtn.onclick = toggleConsoleDrawer;
+    }
+    if (closeConsoleBtn) {
+      closeConsoleBtn.onclick = () => {
+        if (consoleDrawer) consoleDrawer.style.display = 'none';
+      };
+    }
+    if (clearConsoleBtn) {
+      clearConsoleBtn.onclick = () => {
+        clearConsoleOutput();
+      };
+    }
+    if (expandConsoleBtn) {
+      expandConsoleBtn.onclick = () => {
+        isConsoleExpanded = !isConsoleExpanded;
+        if (consoleOutput) {
+          consoleOutput.style.maxHeight = isConsoleExpanded ? '380px' : '180px';
+        }
+        expandConsoleBtn.textContent = isConsoleExpanded ? '⤡ Collapse' : '⤢ Expand';
+        expandConsoleBtn.title = isConsoleExpanded ? 'Collapse console height' : 'Expand console height';
+      };
+    }
+    if (copyConsoleBtn) {
+      copyConsoleBtn.onclick = () => {
+        if (!consoleOutput) return;
+        const lines = [];
+        const rows = consoleOutput.children;
+        for (let i = 0; i < rows.length; i++) {
+          lines.push(rows[i].innerText || rows[i].textContent || '');
+        }
+        const fullText = lines.join(String.fromCharCode(10));
+        navigator.clipboard.writeText(fullText).then(() => {
+          const origText = copyConsoleBtn.textContent;
+          copyConsoleBtn.textContent = '✓ Copied';
+          setTimeout(() => { copyConsoleBtn.textContent = origText; }, 1500);
+        });
+      };
+    }
+
     // Setup keyboard shortcuts after editor is initialized
     function setupKeyboardShortcuts() {
       if (editor) {
@@ -4644,6 +4904,7 @@ export function getQueryEditorHtml(
     // Security warning banner buttons (set up once)
     const securityBanner = document.getElementById('securityWarning');
     document.getElementById('runAnyway').addEventListener('click', () => {
+      clearConsoleOutput();
       if (securityBanner) securityBanner.style.display = 'none';
       vscode.postMessage({ type: 'runConfirmed', expr: editor ? editor.getValue() : exprTextarea.value, save: false });
     });
@@ -4714,6 +4975,10 @@ export function getQueryEditorHtml(
         }
       } else if (msg.type === 'status') {
         // could show status text
+      } else if (msg.type === 'stdout') {
+        if (msg.entry) {
+          appendConsoleEntry(msg.entry);
+        }
       } else if (msg.type === 'result') {
         if (streamingRafId) {
           cancelAnimationFrame(streamingRafId);
@@ -5642,6 +5907,7 @@ export function getQueryEditorHtml(
           if (editor) editor.focus();
         };
         runBtn.onclick = () => {
+          clearConsoleOutput();
           setLoading(true);
           resultPre.textContent = 'Running...';
           resultPre.className = '';

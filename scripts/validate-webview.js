@@ -144,6 +144,8 @@ async function validate() {
       'id="dismissCheatsheetBtn"',
       'id="diffResultBtn"',
       'id="diffInspectWithResultBtn"',
+      'id="toggleConsoleBtn"',
+      'id="consoleDrawer"',
       'id="importHistoryJsonBtn"',
       'id="exportHistoryJsonBtn"',
       'class="search-icon">&#128269;</span>'
