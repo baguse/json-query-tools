@@ -8,10 +8,22 @@
  * - XML (.xml)
  */
 
-export type ExportFormat = 'json' | 'csv' | 'yaml' | 'ndjson' | 'xml';
+export type ExportFormat =
+  | 'json'
+  | 'csv'
+  | 'yaml'
+  | 'ndjson'
+  | 'xml'
+  | 'typescript'
+  | 'ts'
+  | 'zod'
+  | 'json-schema'
+  | 'pydantic'
+  | 'dataclass';
 
 import { escapeXml } from './helpers';
-export { escapeXml };
+import { generateContract, ContractTarget, TypeGenOptions } from './typeGen';
+export { escapeXml, generateContract };
 
 export function sanitizeXmlTagName(key: string): string {
   if (!key || typeof key !== 'string') return 'item';
@@ -334,7 +346,7 @@ export function toJson(data: unknown, indent = 2): string {
 /**
  * Universal formatter that converts arbitrary data to the specified export format.
  */
-export function formatData(data: unknown, format: ExportFormat | string): string {
+export function formatData(data: unknown, format: ExportFormat | string, options?: TypeGenOptions): string {
   const norm = (format || 'json').toLowerCase();
   switch (norm) {
     case 'csv':
@@ -347,6 +359,13 @@ export function formatData(data: unknown, format: ExportFormat | string): string
       return toNdjson(data);
     case 'xml':
       return toXml(data);
+    case 'typescript':
+    case 'ts':
+    case 'zod':
+    case 'json-schema':
+    case 'pydantic':
+    case 'dataclass':
+      return generateContract(data, norm as ContractTarget, options);
     case 'json':
     default:
       return toJson(data, 2);
@@ -362,6 +381,14 @@ export function getFileExtension(format: ExportFormat | string): string {
     case 'ndjson':
     case 'jsonl': return '.ndjson';
     case 'xml': return '.xml';
+    case 'typescript':
+    case 'ts':
+    case 'zod': return '.ts';
+    case 'json-schema': return '.schema.json';
+    case 'pydantic':
+    case 'dataclass':
+    case 'python':
+    case 'py': return '.py';
     case 'json':
     default: return '.json';
   }
@@ -376,6 +403,14 @@ export function getLanguageId(format: ExportFormat | string): string {
     case 'ndjson':
     case 'jsonl': return 'jsonl';
     case 'xml': return 'xml';
+    case 'typescript':
+    case 'ts':
+    case 'zod': return 'typescript';
+    case 'json-schema': return 'json';
+    case 'pydantic':
+    case 'dataclass':
+    case 'python':
+    case 'py': return 'python';
     case 'json':
     default: return 'json';
   }
@@ -390,6 +425,14 @@ export function getMimeType(format: ExportFormat | string): string {
     case 'ndjson':
     case 'jsonl': return 'application/x-ndjson';
     case 'xml': return 'application/xml';
+    case 'typescript':
+    case 'ts':
+    case 'zod': return 'application/typescript';
+    case 'json-schema': return 'application/schema+json';
+    case 'pydantic':
+    case 'dataclass':
+    case 'python':
+    case 'py': return 'text/x-python';
     case 'json':
     default: return 'application/json';
   }
@@ -404,6 +447,14 @@ export function getFormatFilters(format: ExportFormat | string): Record<string, 
     case 'ndjson':
     case 'jsonl': return { 'NDJSON': ['ndjson', 'jsonl'] };
     case 'xml': return { 'XML': ['xml'] };
+    case 'typescript':
+    case 'ts':
+    case 'zod': return { 'TypeScript': ['ts'] };
+    case 'json-schema': return { 'JSON Schema': ['json'] };
+    case 'pydantic':
+    case 'dataclass':
+    case 'python':
+    case 'py': return { 'Python': ['py'] };
     case 'json':
     default: return { 'JSON': ['json'] };
   }

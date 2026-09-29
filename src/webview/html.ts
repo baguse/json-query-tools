@@ -1127,9 +1127,15 @@ export function getQueryEditorHtml(
           <option value="yaml">YAML (.yaml)</option>
           <option value="ndjson">NDJSON (.ndjson)</option>
           <option value="xml">XML (.xml)</option>
+          <option value="typescript">TypeScript (.ts)</option>
+          <option value="zod">Zod Schema (.ts)</option>
+          <option value="json-schema">JSON Schema (.json)</option>
+          <option value="pydantic">Pydantic Models (.py)</option>
+          <option value="dataclass">Python Dataclass (.py)</option>
         </select>
         <button id="copy-result-to-clipboard" class="secondary" style="padding: 6px 10px;">📋 Copy</button>
         <button id="openResultInEditorBtn" class="secondary" style="padding: 6px 10px;" title="Open result in a new VS Code editor tab">↗ In Editor</button>
+        <button id="generateTypesBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Generate TypeScript, Zod, JSON Schema, Pydantic, or Dataclass types from result">{ } Types</button>
         <button id="diffResultBtn" class="secondary" style="padding: 6px 10px;" title="Compare Original JSON with Transformed Result in Side-by-Side Diff (vscode.diff)">⚖️ Diff</button>
         <button id="toggleVisualLensBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Toggle Visual Lens (JSON Path &amp; Expression Picker)">🔍 Lens</button>
         <button id="toggleConsoleResultBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Toggle Console Output Drawer">📟 Console <span id="consoleBadgeResult" style="display: none; background: var(--vscode-badge-background, #4d4d4d); color: var(--vscode-badge-foreground, #ffffff); border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: bold;">0</span></button>
@@ -1495,6 +1501,70 @@ export function getQueryEditorHtml(
     </div>
   </div>
 
+  <!-- Multi-Language Type & Contract Generator Modal -->
+  <div id="typeGenModal" class="modal-backdrop" style="display: none;">
+    <div class="modal-dialog" style="max-width: 820px; width: 92%; max-height: 88vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <h3 style="margin: 0; font-size: 14px; font-weight: 600;">{ } Multi-Language Type &amp; Contract Generator</h3>
+        </div>
+        <button id="closeTypeGenModal" class="modal-close-btn" title="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body" style="gap: 12px; padding: 16px; flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+        <!-- Language / Target Selector Tabs -->
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
+          <div id="typeGenTabs" style="display: flex; gap: 4px; flex-wrap: wrap;">
+            <button type="button" class="request-tab-btn active" data-target="typescript" style="padding: 4px 10px; font-size: 11px;">TypeScript</button>
+            <button type="button" class="request-tab-btn" data-target="zod" style="padding: 4px 10px; font-size: 11px;">Zod Schema</button>
+            <button type="button" class="request-tab-btn" data-target="json-schema" style="padding: 4px 10px; font-size: 11px;">JSON Schema</button>
+            <button type="button" class="request-tab-btn" data-target="pydantic" style="padding: 4px 10px; font-size: 11px;">Pydantic (v2)</button>
+            <button type="button" class="request-tab-btn" data-target="dataclass" style="padding: 4px 10px; font-size: 11px;">Python Dataclass</button>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <label style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585); display: inline-flex; align-items: center; gap: 4px;">
+              Root Name:
+              <input id="typeGenRootName" type="text" value="Root" placeholder="Root" style="padding: 3px 8px; font-size: 11px; width: 110px; border-radius: 3px; border: 1px solid var(--vscode-input-border, #3e3e42); background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #ccc); font-family: var(--vscode-editor-font-family, monospace);">
+            </label>
+          </div>
+        </div>
+
+        <!-- Target Options Bar -->
+        <div id="typeGenOptionsBar" style="display: flex; gap: 12px; align-items: center; font-size: 11px; padding: 4px 8px; background: rgba(128,128,128,0.1); border-radius: 4px; color: var(--vscode-descriptionForeground, #858585);">
+          <div id="typeGenTsOptions" style="display: flex; gap: 12px; align-items: center;">
+            <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+              <input type="checkbox" id="typeGenTsExport" checked style="margin: 0; cursor: pointer;">
+              <span>Export Types</span>
+            </label>
+            <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+              <input type="checkbox" id="typeGenTsInterface" checked style="margin: 0; cursor: pointer;">
+              <span>Interface (vs Type Alias)</span>
+            </label>
+          </div>
+          <div id="typeGenPyOptions" style="display: none; gap: 12px; align-items: center;">
+            <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+              <input type="checkbox" id="typeGenPySnake" checked style="margin: 0; cursor: pointer;">
+              <span>Convert camelCase to snake_case (with Field aliases)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Code Preview Box -->
+        <div style="flex: 1; min-height: 240px; display: flex; flex-direction: column; position: relative;">
+          <textarea id="typeGenCodePreview" readonly style="width: 100%; flex: 1; min-height: 240px; font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px; line-height: 1.45; background: var(--vscode-editor-background, #1e1e1e); color: var(--vscode-editor-foreground, #d4d4d4); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; padding: 10px; resize: none; white-space: pre; tab-size: 2; overflow: auto; box-sizing: border-box;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between; align-items: center;">
+        <span id="typeGenStats" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585);">TypeScript</span>
+        <div style="display: flex; gap: 8px;">
+          <button id="copyTypeGenBtn" class="secondary">📋 Copy Code</button>
+          <button id="openTypeGenInEditorBtn" class="secondary">↗ In Editor</button>
+          <button id="saveTypeGenFileBtn" class="secondary">📥 Save File</button>
+          <button id="dismissTypeGenBtn" class="primary">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script nonce="${n}">
     let beautifyReady = false;
     const vscode = acquireVsCodeApi();
@@ -1567,6 +1637,22 @@ export function getQueryEditorHtml(
     const saveNdjsonBtn = document.getElementById('saveNdjson');
     const saveXmlBtn = document.getElementById('saveXml');
     const exportDropdown = document.getElementById('exportDropdown');
+    const generateTypesBtn = document.getElementById('generateTypesBtn');
+    const typeGenModal = document.getElementById('typeGenModal');
+    const closeTypeGenModalBtn = document.getElementById('closeTypeGenModal');
+    const dismissTypeGenBtn = document.getElementById('dismissTypeGenBtn');
+    const typeGenTabs = document.getElementById('typeGenTabs');
+    const typeGenRootName = document.getElementById('typeGenRootName');
+    const typeGenTsExport = document.getElementById('typeGenTsExport');
+    const typeGenTsInterface = document.getElementById('typeGenTsInterface');
+    const typeGenPySnake = document.getElementById('typeGenPySnake');
+    const typeGenTsOptions = document.getElementById('typeGenTsOptions');
+    const typeGenPyOptions = document.getElementById('typeGenPyOptions');
+    const typeGenCodePreview = document.getElementById('typeGenCodePreview');
+    const typeGenStats = document.getElementById('typeGenStats');
+    const copyTypeGenBtn = document.getElementById('copyTypeGenBtn');
+    const openTypeGenInEditorBtn = document.getElementById('openTypeGenInEditorBtn');
+    const saveTypeGenFileBtn = document.getElementById('saveTypeGenFileBtn');
     const resultInfo = document.getElementById('resultInfo');
     const benchmarkMeter = document.getElementById('benchmarkMeter');
     const benchmarkDuration = document.getElementById('benchmarkDuration');
@@ -2750,6 +2836,846 @@ export function getQueryEditorHtml(
 
     // Initialize Visual Lens UI handlers
     setupVisualLensUI();
+
+    // ==========================================
+    // Multi-Language Type & Contract Generator
+    // ==========================================
+
+    const PYTHON_RESERVED_WORDS = new Set([
+      'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break',
+      'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally',
+      'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda', 'nonlocal',
+      'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield',
+      'id', 'type', 'object', 'dict', 'list', 'str', 'int', 'float', 'bool', 'set'
+    ]);
+
+    function typeGenToPascalCase(str) {
+      if (!str) return 'Model';
+      const cleaned = str.replace(/[^a-zA-Z0-9_]/g, '_');
+      const parts = cleaned.split(/[_\\-\\s]+/).filter(Boolean);
+      if (parts.length === 0) return 'Model';
+      let res = parts.map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+      if (/^[0-9]/.test(res)) res = 'Model' + res;
+      return res || 'Model';
+    }
+
+    function typeGenToSnakeCase(str) {
+      if (!str) return 'field';
+      let s = str
+        .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+        .replace(/[^a-zA-Z0-9_]/g, '_')
+        .toLowerCase();
+      s = s.replace(/__+/g, '_').replace(/^_+|_+$/g, '');
+      if (!s || /^[0-9]/.test(s)) s = '_' + (s || 'field');
+      return s;
+    }
+
+    function typeGenSingularize(name) {
+      if (name.endsWith('ies') && name.length > 3) return name.slice(0, -3) + 'y';
+      if (name.endsWith('ses') && name.length > 3) return name.slice(0, -2);
+      if ((name.endsWith('us') || name.endsWith('is')) && name.length > 2) return name;
+      if (name.endsWith('s') && !name.endsWith('ss') && name.length > 3) return name.slice(0, -1);
+      return name;
+    }
+
+    function typeGenIsValidJsId(name) {
+      return /^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(name);
+    }
+
+    function analyzeDataForTypes(data, rootName) {
+      const registeredModels = new Map();
+      let modelCounter = 0;
+
+      function areTypesEqual(a, b) {
+        if (a.kind !== b.kind) return false;
+        if (a.kind === 'primitive' && b.kind === 'primitive') return a.primitive === b.primitive;
+        if (a.kind === 'object' && b.kind === 'object') return a.modelName === b.modelName;
+        if (a.kind === 'array' && b.kind === 'array') return areTypesEqual(a.itemType, b.itemType);
+        if (a.kind === 'union' && b.kind === 'union') {
+          if (a.types.length !== b.types.length) return false;
+          return a.types.every(at => b.types.some(bt => areTypesEqual(at, bt)));
+        }
+        return false;
+      }
+
+      function areModelsEquivalent(modelA, fieldsB) {
+        if (modelA.fields.length !== fieldsB.length) return false;
+        const mapA = new Map(modelA.fields.map(f => [f.key, f]));
+        for (const fb of fieldsB) {
+          const fa = mapA.get(fb.key);
+          if (!fa) return false;
+          if (fa.optional !== fb.optional || fa.nullable !== fb.nullable) return false;
+          if (!areTypesEqual(fa.type, fb.type)) return false;
+        }
+        return true;
+      }
+
+      function findEquivalentModel(fields) {
+        for (const model of registeredModels.values()) {
+          if (areModelsEquivalent(model, fields)) return model;
+        }
+        return undefined;
+      }
+
+      function inferNode(value, suggestedName) {
+        if (value === null) return { kind: 'primitive', primitive: 'null' };
+        if (value === undefined) return { kind: 'any' };
+
+        if (Array.isArray(value)) {
+          if (value.length === 0) return { kind: 'array', itemType: { kind: 'any' } };
+          const sample = value.slice(0, 50);
+          const isAllObjects = sample.every(item => item && typeof item === 'object' && !Array.isArray(item));
+
+          if (isAllObjects) {
+            const itemModelName = typeGenToPascalCase(typeGenSingularize(suggestedName)) + 'Item';
+            const mergedObj = mergeObjectSample(sample, itemModelName);
+            return { kind: 'array', itemType: mergedObj };
+          }
+
+          const elementTypes = [];
+          for (const item of sample) {
+            const t = inferNode(item, typeGenSingularize(suggestedName));
+            if (!elementTypes.some(existing => areTypesEqual(existing, t))) {
+              elementTypes.push(t);
+            }
+          }
+          if (elementTypes.length === 1) return { kind: 'array', itemType: elementTypes[0] };
+          return { kind: 'array', itemType: { kind: 'union', types: elementTypes } };
+        }
+
+        if (typeof value === 'object') {
+          return extractObjectModel(value, suggestedName);
+        }
+
+        if (typeof value === 'boolean') return { kind: 'primitive', primitive: 'boolean' };
+        if (typeof value === 'number') {
+          return { kind: 'primitive', primitive: Number.isInteger(value) ? 'integer' : 'number' };
+        }
+        if (typeof value === 'string') return { kind: 'primitive', primitive: 'string' };
+
+        return { kind: 'any' };
+      }
+
+      function extractObjectModel(obj, modelName) {
+        const fields = [];
+        const dependencies = [];
+
+        const keys = Object.keys(obj);
+        for (const key of keys) {
+          const val = obj[key];
+          const childName = typeGenToPascalCase(key);
+          const childType = inferNode(val, childName);
+
+          if (childType.kind === 'object') {
+            dependencies.push(childType.modelName);
+          } else if (childType.kind === 'array' && childType.itemType.kind === 'object') {
+            dependencies.push(childType.itemType.modelName);
+          }
+
+          fields.push({
+            key,
+            originalKey: key,
+            type: childType,
+            optional: val === undefined,
+            nullable: val === null
+          });
+        }
+
+        const candidate = typeGenToPascalCase(modelName);
+        const sameNameModel = registeredModels.get(candidate);
+        if (sameNameModel && areModelsEquivalent(sameNameModel, fields)) {
+          return { kind: 'object', modelName: candidate, fields: sameNameModel.fields };
+        }
+
+        const equivalentModel = findEquivalentModel(fields);
+        if (equivalentModel) {
+          return { kind: 'object', modelName: equivalentModel.name, fields: equivalentModel.fields };
+        }
+
+        let finalName = candidate;
+        while (registeredModels.has(finalName)) {
+          modelCounter++;
+          finalName = candidate + modelCounter;
+        }
+
+        const model = { name: finalName, fields, dependencies };
+        registeredModels.set(finalName, model);
+        return { kind: 'object', modelName: finalName, fields };
+      }
+
+      function mergeObjectSample(sample, baseName) {
+        const propertyCounts = {};
+        const propertyValues = {};
+        const totalCount = sample.length;
+
+        for (const item of sample) {
+          for (const [k, v] of Object.entries(item)) {
+            propertyCounts[k] = (propertyCounts[k] || 0) + 1;
+            if (!propertyValues[k]) propertyValues[k] = [];
+            propertyValues[k].push(v);
+          }
+        }
+
+        const fields = [];
+        const dependencies = [];
+
+        for (const key of Object.keys(propertyCounts)) {
+          const vals = propertyValues[key];
+          const isOptional = propertyCounts[key] < totalCount || vals.includes(undefined);
+          const isNullable = vals.includes(null);
+          const nonNullVals = vals.filter(v => v !== null && v !== undefined);
+
+          let fieldType;
+          const childName = typeGenToPascalCase(key);
+
+          if (nonNullVals.length === 0) {
+            fieldType = { kind: 'primitive', primitive: 'null' };
+          } else {
+            const isAllObjects = nonNullVals.every(v => v && typeof v === 'object' && !Array.isArray(v));
+            const isAllArrays = nonNullVals.every(v => Array.isArray(v));
+
+            if (isAllObjects) {
+              fieldType = mergeObjectSample(nonNullVals, childName);
+            } else if (isAllArrays) {
+              const flatItems = [].concat.apply([], nonNullVals);
+              fieldType = {
+                kind: 'array',
+                itemType: inferNode(flatItems, typeGenSingularize(childName))
+              };
+            } else {
+              const objVals = nonNullVals.filter(v => v && typeof v === 'object' && !Array.isArray(v));
+              const arrVals = nonNullVals.filter(v => Array.isArray(v));
+              const primVals = nonNullVals.filter(v => typeof v !== 'object' || v === null);
+
+              const types = [];
+              if (objVals.length > 0) {
+                types.push(mergeObjectSample(objVals, childName));
+              }
+              if (arrVals.length > 0) {
+                const flatArr = [].concat.apply([], arrVals);
+                types.push({
+                  kind: 'array',
+                  itemType: inferNode(flatArr, typeGenSingularize(childName))
+                });
+              }
+              for (const v of primVals) {
+                const t = inferNode(v, childName);
+                if (!types.some(existing => areTypesEqual(existing, t))) {
+                  types.push(t);
+                }
+              }
+
+              if (types.length === 1) {
+                fieldType = types[0];
+              } else {
+                const hasInt = types.some(t => t.kind === 'primitive' && t.primitive === 'integer');
+                const hasNum = types.some(t => t.kind === 'primitive' && t.primitive === 'number');
+                if (hasInt && hasNum && types.length === 2) {
+                  fieldType = { kind: 'primitive', primitive: 'number' };
+                } else {
+                  fieldType = { kind: 'union', types };
+                }
+              }
+            }
+          }
+
+          if (fieldType.kind === 'object') {
+            dependencies.push(fieldType.modelName);
+          } else if (fieldType.kind === 'array' && fieldType.itemType.kind === 'object') {
+            dependencies.push(fieldType.itemType.modelName);
+          }
+
+          fields.push({
+            key,
+            originalKey: key,
+            type: fieldType,
+            optional: isOptional,
+            nullable: isNullable
+          });
+        }
+
+        const candidate = typeGenToPascalCase(baseName);
+        const sameNameModel = registeredModels.get(candidate);
+        if (sameNameModel && areModelsEquivalent(sameNameModel, fields)) {
+          return { kind: 'object', modelName: candidate, fields: sameNameModel.fields };
+        }
+
+        const equivalentModel = findEquivalentModel(fields);
+        if (equivalentModel) {
+          return { kind: 'object', modelName: equivalentModel.name, fields: equivalentModel.fields };
+        }
+
+        let finalName = candidate;
+        while (registeredModels.has(finalName)) {
+          modelCounter++;
+          finalName = candidate + modelCounter;
+        }
+
+        const model = { name: finalName, fields, dependencies };
+        registeredModels.set(finalName, model);
+        return { kind: 'object', modelName: finalName, fields };
+      }
+
+      function topologicalSort(models) {
+        const result = [];
+        const visited = new Set();
+        const visiting = new Set();
+        const modelMap = new Map(models.map(m => [m.name, m]));
+
+        function visit(m) {
+          if (visited.has(m.name)) return;
+          if (visiting.has(m.name)) return;
+          visiting.add(m.name);
+          for (const dep of m.dependencies) {
+            const depModel = modelMap.get(dep);
+            if (depModel) visit(depModel);
+          }
+          visiting.delete(m.name);
+          visited.add(m.name);
+          result.push(m);
+        }
+
+        for (const m of models) visit(m);
+        return result;
+      }
+
+      const rootType = inferNode(data, rootName);
+      const models = topologicalSort(Array.from(registeredModels.values()));
+      return { rootType, models };
+    }
+
+    function generateClientTypescript(data, options) {
+      const NL = String.fromCharCode(10);
+      const rootName = typeGenToPascalCase(options.rootName || 'Root');
+      const exportKeyword = options.exportKeyword !== false ? 'export ' : '';
+      const useInterface = options.useInterface !== false;
+      const { rootType, models } = analyzeDataForTypes(data, rootName);
+
+      function formatType(t) {
+        if (t.kind === 'primitive') {
+          if (t.primitive === 'integer' || t.primitive === 'number') return 'number';
+          if (t.primitive === 'boolean') return 'boolean';
+          if (t.primitive === 'string') return 'string';
+          if (t.primitive === 'null') return 'null';
+          return 'any';
+        }
+        if (t.kind === 'object') return t.modelName;
+        if (t.kind === 'array') {
+          const inner = formatType(t.itemType);
+          return inner.includes('|') ? '(' + inner + ')[]' : inner + '[]';
+        }
+        if (t.kind === 'union') return t.types.map(formatType).join(' | ') || 'any';
+        return 'any';
+      }
+
+      const lines = [];
+
+      for (const m of models) {
+        if (m.name === rootName && rootType.kind === 'object') continue;
+        if (useInterface) {
+          lines.push(exportKeyword + 'interface ' + m.name + ' {');
+          for (const f of m.fields) {
+            const safeKey = typeGenIsValidJsId(f.key) ? f.key : JSON.stringify(f.key);
+            const optMark = f.optional ? '?' : '';
+            let typeStr = formatType(f.type);
+            if (f.nullable && !typeStr.includes('null')) typeStr += ' | null';
+            lines.push('  ' + safeKey + optMark + ': ' + typeStr + ';');
+          }
+          lines.push('}' + NL);
+        } else {
+          lines.push(exportKeyword + 'type ' + m.name + ' = {');
+          for (const f of m.fields) {
+            const safeKey = typeGenIsValidJsId(f.key) ? f.key : JSON.stringify(f.key);
+            const optMark = f.optional ? '?' : '';
+            let typeStr = formatType(f.type);
+            if (f.nullable && !typeStr.includes('null')) typeStr += ' | null';
+            lines.push('  ' + safeKey + optMark + ': ' + typeStr + ';');
+          }
+          lines.push('};' + NL);
+        }
+      }
+
+      if (rootType.kind === 'object') {
+        const rootModel = models.find(m => m.name === rootName);
+        const fields = rootModel ? rootModel.fields : (rootType.fields || []);
+        if (useInterface) {
+          lines.push(exportKeyword + 'interface ' + rootName + ' {');
+          for (const f of fields) {
+            const safeKey = typeGenIsValidJsId(f.key) ? f.key : JSON.stringify(f.key);
+            const optMark = f.optional ? '?' : '';
+            let typeStr = formatType(f.type);
+            if (f.nullable && !typeStr.includes('null')) typeStr += ' | null';
+            lines.push('  ' + safeKey + optMark + ': ' + typeStr + ';');
+          }
+          lines.push('}');
+        } else {
+          lines.push(exportKeyword + 'type ' + rootName + ' = {');
+          for (const f of fields) {
+            const safeKey = typeGenIsValidJsId(f.key) ? f.key : JSON.stringify(f.key);
+            const optMark = f.optional ? '?' : '';
+            let typeStr = formatType(f.type);
+            if (f.nullable && !typeStr.includes('null')) typeStr += ' | null';
+            lines.push('  ' + safeKey + optMark + ': ' + typeStr + ';');
+          }
+          lines.push('};');
+        }
+      } else {
+        lines.push(exportKeyword + 'type ' + rootName + ' = ' + formatType(rootType) + ';');
+      }
+
+      return lines.join(NL).trim() + NL;
+    }
+
+    function generateClientZod(data, options) {
+      const NL = String.fromCharCode(10);
+      const rootName = typeGenToPascalCase(options.rootName || 'Root');
+      const exportKeyword = options.exportKeyword !== false ? 'export ' : '';
+      const { rootType, models } = analyzeDataForTypes(data, rootName);
+
+      const lines = ['import { z } from "zod";' + NL];
+
+      function formatZod(t) {
+        if (t.kind === 'primitive') {
+          if (t.primitive === 'integer') return 'z.number().int()';
+          if (t.primitive === 'number') return 'z.number()';
+          if (t.primitive === 'boolean') return 'z.boolean()';
+          if (t.primitive === 'string') return 'z.string()';
+          if (t.primitive === 'null') return 'z.null()';
+          return 'z.any()';
+        }
+        if (t.kind === 'object') return t.modelName + 'Schema';
+        if (t.kind === 'array') return 'z.array(' + formatZod(t.itemType) + ')';
+        if (t.kind === 'union') return 'z.union([' + t.types.map(formatZod).join(', ') + '])';
+        return 'z.any()';
+      }
+
+      for (const m of models) {
+        if (m.name === rootName && rootType.kind === 'object') continue;
+        lines.push(exportKeyword + 'const ' + m.name + 'Schema = z.object({');
+        for (const f of m.fields) {
+          const safeKey = typeGenIsValidJsId(f.key) ? f.key : JSON.stringify(f.key);
+          let zodRule = formatZod(f.type);
+          if (f.nullable) zodRule += '.nullable()';
+          if (f.optional) zodRule += '.optional()';
+          lines.push('  ' + safeKey + ': ' + zodRule + ',');
+        }
+        lines.push('});');
+        lines.push(exportKeyword + 'type ' + m.name + ' = z.infer<typeof ' + m.name + 'Schema>;' + NL);
+      }
+
+      if (rootType.kind === 'object') {
+        const rootModel = models.find(m => m.name === rootName);
+        const fields = rootModel ? rootModel.fields : (rootType.fields || []);
+        lines.push(exportKeyword + 'const ' + rootName + 'Schema = z.object({');
+        for (const f of fields) {
+          const safeKey = typeGenIsValidJsId(f.key) ? f.key : JSON.stringify(f.key);
+          let zodRule = formatZod(f.type);
+          if (f.nullable) zodRule += '.nullable()';
+          if (f.optional) zodRule += '.optional()';
+          lines.push('  ' + safeKey + ': ' + zodRule + ',');
+        }
+        lines.push('});');
+      } else {
+        lines.push(exportKeyword + 'const ' + rootName + 'Schema = ' + formatZod(rootType) + ';');
+      }
+      lines.push(exportKeyword + 'type ' + rootName + ' = z.infer<typeof ' + rootName + 'Schema>;');
+
+      return lines.join(NL).trim() + NL;
+    }
+
+    function generateClientJsonSchema(data, options) {
+      const rootName = typeGenToPascalCase(options.rootName || 'Root');
+      const { rootType } = analyzeDataForTypes(data, rootName);
+
+      function toJsonSchemaNode(t) {
+        if (t.kind === 'primitive') {
+          if (t.primitive === 'integer') return { type: 'integer' };
+          if (t.primitive === 'number') return { type: 'number' };
+          if (t.primitive === 'boolean') return { type: 'boolean' };
+          if (t.primitive === 'string') return { type: 'string' };
+          if (t.primitive === 'null') return { type: 'null' };
+          return {};
+        }
+        if (t.kind === 'object') {
+          const properties = {};
+          const required = [];
+          for (const f of t.fields) {
+            const propSchema = toJsonSchemaNode(f.type);
+            if (f.nullable) {
+              if (propSchema.type) {
+                propSchema.type = Array.isArray(propSchema.type)
+                  ? propSchema.type.concat(['null'])
+                  : [propSchema.type, 'null'];
+              }
+            }
+            properties[f.originalKey] = propSchema;
+            if (!f.optional) required.push(f.originalKey);
+          }
+          const res = { type: 'object', properties: properties };
+          if (required.length > 0) res.required = required;
+          return res;
+        }
+        if (t.kind === 'array') {
+          return { type: 'array', items: toJsonSchemaNode(t.itemType) };
+        }
+        if (t.kind === 'union') {
+          return { anyOf: t.types.map(toJsonSchemaNode) };
+        }
+        return {};
+      }
+
+      const rootNode = toJsonSchemaNode(rootType);
+      const schema = Object.assign({
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        title: rootName
+      }, rootNode);
+
+      return JSON.stringify(schema, null, 2) + String.fromCharCode(10);
+    }
+
+    function generateClientPydantic(data, options) {
+      const NL = String.fromCharCode(10);
+      const rootName = typeGenToPascalCase(options.rootName || 'Root');
+      const useSnakeCase = options.useSnakeCase !== false;
+      const { rootType, models } = analyzeDataForTypes(data, rootName);
+
+      const lines = [
+        'from __future__ import annotations',
+        'from typing import Any, Dict, List, Optional, Union',
+        'from pydantic import BaseModel, Field' + NL
+      ];
+
+      function formatPythonType(t) {
+        if (t.kind === 'primitive') {
+          if (t.primitive === 'integer') return 'int';
+          if (t.primitive === 'number') return 'float';
+          if (t.primitive === 'boolean') return 'bool';
+          if (t.primitive === 'string') return 'str';
+          if (t.primitive === 'null') return 'None';
+          return 'Any';
+        }
+        if (t.kind === 'object') return t.modelName;
+        if (t.kind === 'array') return 'List[' + formatPythonType(t.itemType) + ']';
+        if (t.kind === 'union') return 'Union[' + t.types.map(formatPythonType).join(', ') + ']';
+        return 'Any';
+      }
+
+      function renderPydanticModel(name, fields) {
+        const classLines = ['class ' + name + '(BaseModel):'];
+        if (fields.length === 0) {
+          classLines.push('    pass');
+          return classLines.join(NL);
+        }
+
+        for (const f of fields) {
+          let pyName = useSnakeCase ? typeGenToSnakeCase(f.key) : f.key;
+          let needsAlias = false;
+
+          if (PYTHON_RESERVED_WORDS.has(pyName)) {
+            pyName = pyName + '_';
+            needsAlias = true;
+          }
+          if (pyName !== f.originalKey) {
+            needsAlias = true;
+          }
+
+          const rawType = formatPythonType(f.type);
+          const isNullableOrOptional = f.optional || f.nullable;
+          const typeStr = isNullableOrOptional ? 'Optional[' + rawType + ']' : rawType;
+
+          let fieldDecl = '    ' + pyName + ': ' + typeStr;
+          if (needsAlias && isNullableOrOptional) {
+            fieldDecl += ' = Field(default=None, alias="' + f.originalKey + '")';
+          } else if (needsAlias) {
+            fieldDecl += ' = Field(alias="' + f.originalKey + '")';
+          } else if (isNullableOrOptional) {
+            fieldDecl += ' = None';
+          }
+
+          classLines.push(fieldDecl);
+        }
+
+        return classLines.join(NL);
+      }
+
+      for (const m of models) {
+        if (m.name === rootName && rootType.kind === 'object') continue;
+        lines.push(renderPydanticModel(m.name, m.fields));
+        lines.push('');
+      }
+
+      if (rootType.kind === 'object') {
+        const rootModel = models.find(m => m.name === rootName);
+        const fields = rootModel ? rootModel.fields : (rootType.fields || []);
+        lines.push(renderPydanticModel(rootName, fields));
+      } else {
+        lines.push(rootName + ' = ' + formatPythonType(rootType));
+      }
+
+      return lines.join(NL).trim() + NL;
+    }
+
+    function generateClientDataclass(data, options) {
+      const NL = String.fromCharCode(10);
+      const rootName = typeGenToPascalCase(options.rootName || 'Root');
+      const useSnakeCase = options.useSnakeCase !== false;
+      const { rootType, models } = analyzeDataForTypes(data, rootName);
+
+      const lines = [
+        'from __future__ import annotations',
+        'from dataclasses import dataclass, field',
+        'from typing import Any, Dict, List, Optional, Union' + NL
+      ];
+
+      function formatPythonType(t) {
+        if (t.kind === 'primitive') {
+          if (t.primitive === 'integer') return 'int';
+          if (t.primitive === 'number') return 'float';
+          if (t.primitive === 'boolean') return 'bool';
+          if (t.primitive === 'string') return 'str';
+          if (t.primitive === 'null') return 'None';
+          return 'Any';
+        }
+        if (t.kind === 'object') return t.modelName;
+        if (t.kind === 'array') return 'List[' + formatPythonType(t.itemType) + ']';
+        if (t.kind === 'union') return 'Union[' + t.types.map(formatPythonType).join(', ') + ']';
+        return 'Any';
+      }
+
+      function renderDataclassModel(name, fields) {
+        const classLines = ['@dataclass', 'class ' + name + ':'];
+        if (fields.length === 0) {
+          classLines.push('    pass');
+          return classLines.join(NL);
+        }
+
+        const requiredFields = fields.filter(f => !f.optional && !f.nullable);
+        const defaultFields = fields.filter(f => f.optional || f.nullable);
+        const sortedFields = requiredFields.concat(defaultFields);
+
+        for (const f of sortedFields) {
+          let pyName = useSnakeCase ? typeGenToSnakeCase(f.key) : f.key;
+          if (PYTHON_RESERVED_WORDS.has(pyName)) {
+            pyName = pyName + '_';
+          }
+
+          const rawType = formatPythonType(f.type);
+          const isNullableOrOptional = f.optional || f.nullable;
+          const typeStr = isNullableOrOptional ? 'Optional[' + rawType + ']' : rawType;
+
+          let fieldDecl = '    ' + pyName + ': ' + typeStr;
+          if (isNullableOrOptional) {
+            fieldDecl += ' = None';
+          }
+
+          classLines.push(fieldDecl);
+        }
+
+        return classLines.join(NL);
+      }
+
+      for (const m of models) {
+        if (m.name === rootName && rootType.kind === 'object') continue;
+        lines.push(renderDataclassModel(m.name, m.fields));
+        lines.push('');
+      }
+
+      if (rootType.kind === 'object') {
+        const rootModel = models.find(m => m.name === rootName);
+        const fields = rootModel ? rootModel.fields : (rootType.fields || []);
+        lines.push(renderDataclassModel(rootName, fields));
+      } else {
+        lines.push(rootName + ' = ' + formatPythonType(rootType));
+      }
+
+      return lines.join(NL).trim() + NL;
+    }
+
+    function generateClientContract(data, target, options) {
+      const norm = (target || 'typescript').toLowerCase();
+      const opts = options || {};
+      if (norm === 'zod') return generateClientZod(data, opts);
+      if (norm === 'json-schema') return generateClientJsonSchema(data, opts);
+      if (norm === 'pydantic') return generateClientPydantic(data, opts);
+      if (norm === 'dataclass') return generateClientDataclass(data, opts);
+      return generateClientTypescript(data, opts);
+    }
+
+    function setupTypeGeneratorUI() {
+      let activeTarget = 'typescript';
+
+      function getEffectiveData() {
+        if (currentResultData !== null && currentResultData !== undefined) {
+          return currentResultData;
+        }
+        if (streamingData && streamingData.length > 0) {
+          return streamingData;
+        }
+        if (currentResultText && currentResultText.trim()) {
+          try {
+            return JSON.parse(currentResultText);
+          } catch(e) {}
+        }
+        return null;
+      }
+
+      function renderPreview() {
+        if (!typeGenCodePreview) return;
+        const data = getEffectiveData();
+        if (data === null || data === undefined) {
+          typeGenCodePreview.value = '// No query result data available.\\n// Run a query or bind a JSON file to generate types.';
+          if (typeGenStats) typeGenStats.textContent = 'No data available';
+          return;
+        }
+
+        const rootName = (typeGenRootName && typeGenRootName.value.trim()) || 'Root';
+        const exportKeyword = typeGenTsExport ? typeGenTsExport.checked : true;
+        const useInterface = typeGenTsInterface ? typeGenTsInterface.checked : true;
+        const useSnakeCase = typeGenPySnake ? typeGenPySnake.checked : true;
+
+        const code = generateClientContract(data, activeTarget, {
+          rootName,
+          exportKeyword,
+          useInterface,
+          useSnakeCase
+        });
+
+        typeGenCodePreview.value = code;
+
+        const lineCount = code.split(String.fromCharCode(10)).length;
+        const targetNames = {
+          'typescript': 'TypeScript',
+          'zod': 'Zod Schema',
+          'json-schema': 'JSON Schema (Draft-07)',
+          'pydantic': 'Python Pydantic v2',
+          'dataclass': 'Python Dataclass'
+        };
+        if (typeGenStats) {
+          typeGenStats.textContent = (targetNames[activeTarget] || activeTarget) + ' • ' + lineCount + ' lines • ' + formatBytes(code.length);
+        }
+
+        // Toggle options visibility
+        if (typeGenTsOptions) {
+          typeGenTsOptions.style.display = (activeTarget === 'typescript') ? 'flex' : 'none';
+        }
+        if (typeGenPyOptions) {
+          typeGenPyOptions.style.display = (activeTarget === 'pydantic' || activeTarget === 'dataclass') ? 'flex' : 'none';
+        }
+      }
+
+      function openTypeGenModal() {
+        if (typeGenModal) {
+          typeGenModal.style.display = 'flex';
+          renderPreview();
+        }
+      }
+
+      function closeTypeGenModal() {
+        if (typeGenModal) {
+          typeGenModal.style.display = 'none';
+        }
+      }
+
+      if (generateTypesBtn) {
+        generateTypesBtn.onclick = function() {
+          const data = getEffectiveData();
+          if (data === null || data === undefined) {
+            vscode.postMessage({
+              type: 'openInEditor',
+              text: '// No query result data available to generate types.\\n// Run a query first.',
+              language: 'typescript'
+            });
+            return;
+          }
+          openTypeGenModal();
+        };
+      }
+
+      if (closeTypeGenModalBtn) closeTypeGenModalBtn.onclick = closeTypeGenModal;
+      if (dismissTypeGenBtn) dismissTypeGenBtn.onclick = closeTypeGenModal;
+
+      if (typeGenModal) {
+        typeGenModal.addEventListener('click', function(e) {
+          if (e.target === typeGenModal) closeTypeGenModal();
+        });
+      }
+
+      if (typeGenTabs) {
+        typeGenTabs.addEventListener('click', function(e) {
+          const btn = e.target.closest('button');
+          if (!btn) return;
+          const target = btn.getAttribute('data-target');
+          if (!target) return;
+          activeTarget = target;
+          const allBtns = typeGenTabs.querySelectorAll('button');
+          allBtns.forEach(b => b.classList.toggle('active', b === btn));
+          renderPreview();
+        });
+      }
+
+      if (typeGenRootName) {
+        typeGenRootName.addEventListener('input', renderPreview);
+      }
+      if (typeGenTsExport) {
+        typeGenTsExport.addEventListener('change', renderPreview);
+      }
+      if (typeGenTsInterface) {
+        typeGenTsInterface.addEventListener('change', renderPreview);
+      }
+      if (typeGenPySnake) {
+        typeGenPySnake.addEventListener('change', renderPreview);
+      }
+
+      if (copyTypeGenBtn) {
+        copyTypeGenBtn.onclick = function() {
+          if (!typeGenCodePreview || !typeGenCodePreview.value) return;
+          navigator.clipboard.writeText(typeGenCodePreview.value).then(function() {
+            copyTypeGenBtn.textContent = '✓ Copied';
+            setTimeout(function() { copyTypeGenBtn.textContent = '📋 Copy Code'; }, 1200);
+          });
+        };
+      }
+
+      if (openTypeGenInEditorBtn) {
+        openTypeGenInEditorBtn.onclick = function() {
+          if (!typeGenCodePreview || !typeGenCodePreview.value) return;
+          let lang = 'typescript';
+          if (activeTarget === 'json-schema') lang = 'json';
+          else if (activeTarget === 'pydantic' || activeTarget === 'dataclass') lang = 'python';
+
+          vscode.postMessage({
+            type: 'openInEditor',
+            text: typeGenCodePreview.value,
+            language: lang
+          });
+        };
+      }
+
+      if (saveTypeGenFileBtn) {
+        saveTypeGenFileBtn.onclick = function() {
+          if (!typeGenCodePreview || !typeGenCodePreview.value) return;
+          vscode.postMessage({
+            type: 'saveData',
+            fileType: activeTarget,
+            text: typeGenCodePreview.value
+          });
+        };
+      }
+
+      window.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && typeGenModal && typeGenModal.style.display !== 'none') {
+          closeTypeGenModal();
+        }
+      });
+
+      return {
+        open: openTypeGenModal,
+        close: closeTypeGenModal,
+        render: renderPreview
+      };
+    }
+
+    const typeGenController = setupTypeGeneratorUI();
 
     function initResultJsonEditor() {
       if (!codeMirrorLoaded || typeof CodeMirror === 'undefined' || !resultJsonEditorTextarea || resultJsonEditor) {
@@ -5054,6 +5980,9 @@ export function getQueryEditorHtml(
       if (fmt === 'yaml' || fmt === 'yml') return generateYaml(data);
       if (fmt === 'ndjson' || fmt === 'jsonl') return generateNdjson(data);
       if (fmt === 'xml') return generateXml(data);
+      if (fmt === 'typescript' || fmt === 'ts' || fmt === 'zod' || fmt === 'json-schema' || fmt === 'pydantic' || fmt === 'dataclass') {
+        return generateClientContract(data, fmt);
+      }
       try {
         return JSON.stringify(data, function(_k, v) {
           return typeof v === 'bigint' ? v.toString() : v;
@@ -5602,7 +6531,9 @@ export function getQueryEditorHtml(
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
-      if (msg.type === 'updateTargets') {
+      if (msg.type === 'openTypeGenerator') {
+        typeGenController.open();
+      } else if (msg.type === 'updateTargets') {
         if (msg.sources) {
           renderSources(msg.sources);
         } else if (msg.boundFiles) {

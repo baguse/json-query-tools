@@ -20,7 +20,8 @@ import { getQueryEditorHtml, nonce } from './webview/html';
 import { callGemini, callOllama, fetchGeminiModels, fetchOllamaModels } from './ai';
 import { fetchUrlWithDetails, parseHeaders } from './fetcher';
 import { getTemplateVariables } from './config';
-import { formatData, getFileExtension, getFormatFilters } from './export';
+import { formatData, getFileExtension, getFormatFilters, getLanguageId } from './export';
+import { generateContract, ContractTarget } from './typeGen';
 import { JsonDiffProvider, showJsonDiff } from './diff';
 import {
   formatBytes,
@@ -196,6 +197,75 @@ export async function commandExportHistory(context: vscode.ExtensionContext): Pr
 
 export async function commandImportHistory(context: vscode.ExtensionContext): Promise<void> {
   await importHistoryFromJson(context);
+}
+
+export async function commandGenerateTypes(context?: vscode.ExtensionContext): Promise<void> {
+  const editor = vscode.window.activeTextEditor;
+  let jsonString: string | undefined;
+
+  if (editor) {
+    const selection = editor.selection;
+    if (selection && !selection.isEmpty) {
+      jsonString = editor.document.getText(selection);
+    } else {
+      jsonString = editor.document.getText();
+    }
+  }
+
+  let data: unknown;
+  if (jsonString && jsonString.trim()) {
+    try {
+      data = JSON.parse(jsonString);
+    } catch {
+      // not valid JSON
+    }
+  }
+
+  if (data === undefined) {
+    if (currentPanel) {
+      currentPanel.reveal();
+      currentPanel.webview.postMessage({ type: 'openTypeGenerator' });
+      return;
+    }
+    vscode.window.showWarningMessage('No valid JSON data found in the active editor. Open a JSON file or use the Query Editor to generate types.');
+    return;
+  }
+
+  interface FormatPick extends vscode.QuickPickItem {
+    id: ContractTarget;
+  }
+
+  const picks: FormatPick[] = [
+    { label: '$(symbol-interface) TypeScript', description: 'interface & type definitions', id: 'typescript' },
+    { label: '$(check) Zod Schema', description: 'z.object runtime validation with inferred static types', id: 'zod' },
+    { label: '$(file-code) JSON Schema', description: 'Draft-07 standard schema ($schema, properties, required)', id: 'json-schema' },
+    { label: '$(symbol-class) Python Pydantic (v2)', description: 'BaseModel classes with Field aliases and typing hints', id: 'pydantic' },
+    { label: '$(symbol-structure) Python Dataclasses', description: '@dataclass classes with typing annotations', id: 'dataclass' }
+  ];
+
+  const selected = await vscode.window.showQuickPick(picks, {
+    placeHolder: 'Select target contract or schema language'
+  });
+  if (!selected) return;
+
+  const rootName = await vscode.window.showInputBox({
+    prompt: 'Enter root type name',
+    value: 'Root',
+    validateInput: val => val.trim() ? null : 'Root type name cannot be empty'
+  });
+  if (!rootName) return;
+
+  try {
+    const code = generateContract(data, selected.id, { rootName: rootName.trim() });
+    const langId = getLanguageId(selected.id);
+    const doc = await vscode.workspace.openTextDocument({
+      content: code,
+      language: langId
+    });
+    await vscode.window.showTextDocument(doc, { preview: false });
+  } catch (err: any) {
+    vscode.window.showErrorMessage(`Failed to generate types: ${err.message}`);
+  }
 }
 
 export async function commandTransformWithExpression(context: vscode.ExtensionContext) {

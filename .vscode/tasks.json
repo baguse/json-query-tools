@@ -8,6 +8,18 @@
       "problemMatcher": [],
       "label": "npm: build",
       "detail": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=out/extension.js --format=cjs --sourcemap"
+    },
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "source \"$HOME/.nvm/nvm.sh\" && nvm use default >/dev/null && npm run build",
+      "options": {
+        "shell": {
+          "executable": "/bin/bash",
+          "args": ["-c"]
+        }
+      },
+      "problemMatcher": []
     }
   ]
 }

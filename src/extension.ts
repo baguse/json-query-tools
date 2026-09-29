@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { commandTransformWithExpression, commandOpenQueryEditor, commandOpenScratchpad, commandDiffResult, commandExportHistory, commandImportHistory, diffProvider } from './commands';
+import { commandTransformWithExpression, commandOpenQueryEditor, commandOpenScratchpad, commandDiffResult, commandExportHistory, commandImportHistory, commandGenerateTypes, diffProvider } from './commands';
 import { DIFF_SCHEME } from './diff';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -10,7 +10,8 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('jsonQueryTools.openScratchpad', () => commandOpenScratchpad(context)),
     vscode.commands.registerCommand('jsonQueryTools.diffResult', () => commandDiffResult()),
     vscode.commands.registerCommand('jsonQueryTools.exportHistory', () => commandExportHistory(context)),
-    vscode.commands.registerCommand('jsonQueryTools.importHistory', () => commandImportHistory(context))
+    vscode.commands.registerCommand('jsonQueryTools.importHistory', () => commandImportHistory(context)),
+    vscode.commands.registerCommand('jsonQueryTools.generateTypes', () => commandGenerateTypes(context))
   );
 }
 
