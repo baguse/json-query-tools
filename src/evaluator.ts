@@ -4,8 +4,10 @@ import { BoundFile, ResolvedEnvironment } from './types';
 import { resolveTemplateVariables } from './config';
 import { stripJsoncComments } from './jsonc';
 import { getPrimaryUri } from './helpers';
+import { createTestEnvironment, TestSuiteResult, TestCaseResult, TestAssertionError } from './testRunner';
 
-export { stripJsoncComments };
+export { stripJsoncComments, createTestEnvironment, TestSuiteResult, TestCaseResult, TestAssertionError };
+export type TestSuiteCallback = (suite: TestSuiteResult) => void;
 
 export function stringify(value: unknown): string {
   try {
@@ -183,7 +185,8 @@ export function evaluateExpression(
   dataMap: Record<string, unknown>,
   expr: string,
   environmentVariables?: Record<string, string> | ResolvedEnvironment,
-  onStdout?: StdoutCallback
+  onStdout?: StdoutCallback,
+  onTestSuite?: TestSuiteCallback
 ): unknown | Promise<unknown> {
   const primaryUri = getPrimaryUri(boundFiles);
 
@@ -250,9 +253,15 @@ export function evaluateExpression(
   }
   const dataValues = aliases.map(a => dataMap[a]);
 
+  const testEnv = createTestEnvironment();
+
   const hasEnvAlias = aliases.includes('env');
   const hasRequireAlias = aliases.includes('require');
   const hasConsoleAlias = aliases.includes('console');
+  const hasTestAlias = aliases.includes('test');
+  const hasItAlias = aliases.includes('it');
+  const hasExpectAlias = aliases.includes('expect');
+  const hasAssertAlias = aliases.includes('assert');
 
   const extraParamNames: string[] = [];
   const extraParamValues: any[] = [];
@@ -268,6 +277,22 @@ export function evaluateExpression(
   if (!hasConsoleAlias) {
     extraParamNames.push('console');
     extraParamValues.push(createExecutionConsole(onStdout));
+  }
+  if (!hasTestAlias) {
+    extraParamNames.push('test');
+    extraParamValues.push(testEnv.test);
+  }
+  if (!hasItAlias) {
+    extraParamNames.push('it');
+    extraParamValues.push(testEnv.it);
+  }
+  if (!hasExpectAlias) {
+    extraParamNames.push('expect');
+    extraParamValues.push(testEnv.expect);
+  }
+  if (!hasAssertAlias) {
+    extraParamNames.push('assert');
+    extraParamValues.push(testEnv.assert);
   }
 
   const isAwait = /\bawait\b/.test(resolvedExpr);
@@ -294,24 +319,67 @@ export function evaluateExpression(
     }
   }
 
-  let firstResult = fn(...dataValues, ...extraParamValues) as unknown;
+  let firstResult: unknown;
+  try {
+    firstResult = fn(...dataValues, ...extraParamValues);
+  } catch (err: any) {
+    if (err instanceof TestAssertionError && testEnv.hasTests()) {
+      return (async () => {
+        const suite = await testEnv.getResults();
+        if (onTestSuite) {
+          onTestSuite(suite);
+        }
+        return suite;
+      })();
+    }
+    throw err;
+  }
 
   const resolveResult = (res: unknown): unknown | Promise<unknown> => {
-    const finalResult =
-      typeof res === 'function'
-        ? (res as (...args: unknown[]) => unknown)(...dataValues, ...extraParamValues)
-        : res;
+    let finalResult: unknown;
+    try {
+      finalResult =
+        typeof res === 'function'
+          ? (res as (...args: unknown[]) => unknown)(...dataValues, ...extraParamValues)
+          : res;
+    } catch (err: any) {
+      if (err instanceof TestAssertionError && testEnv.hasTests()) {
+        return (async () => {
+          const suite = await testEnv.getResults();
+          if (onTestSuite) {
+            onTestSuite(suite);
+          }
+          return suite;
+        })();
+      }
+      throw err;
+    }
 
-    if (finalResult && (finalResult instanceof Promise || typeof (finalResult as any).then === 'function')) {
-      return (async () => {
-        const resolved = await finalResult;
-        if (typeof resolved === 'undefined') {
-          vscode.window.showWarningMessage(
-            'Expression returned void (undefined). Ensure your expression or query function includes a `return` statement to provide a result.'
-          );
+    const finalizeWithTests = async (value: unknown): Promise<unknown> => {
+      let resolvedValue = value;
+      if (resolvedValue && (resolvedValue instanceof Promise || typeof (resolvedValue as any).then === 'function')) {
+        resolvedValue = await resolvedValue;
+      }
+
+      if (testEnv.hasTests()) {
+        const suite = await testEnv.getResults();
+        if (onTestSuite) {
+          onTestSuite(suite);
         }
-        return resolved;
-      })();
+        if (typeof resolvedValue === 'undefined') {
+          return suite;
+        }
+      } else if (typeof resolvedValue === 'undefined') {
+        vscode.window.showWarningMessage(
+          'Expression returned void (undefined). Ensure your expression or query function includes a `return` statement to provide a result.'
+        );
+      }
+
+      return resolvedValue;
+    };
+
+    if (testEnv.hasTests() || (finalResult && (finalResult instanceof Promise || typeof (finalResult as any).then === 'function'))) {
+      return finalizeWithTests(finalResult);
     }
 
     if (typeof finalResult === 'undefined') {
@@ -326,7 +394,19 @@ export function evaluateExpression(
   // If firstResult is a Promise/Thenable, await it
   if (firstResult && (firstResult instanceof Promise || typeof (firstResult as any).then === 'function')) {
     return (async () => {
-      let awaitedFirst = await firstResult;
+      let awaitedFirst: unknown;
+      try {
+        awaitedFirst = await firstResult;
+      } catch (err: any) {
+        if (err instanceof TestAssertionError && testEnv.hasTests()) {
+          const suite = await testEnv.getResults();
+          if (onTestSuite) {
+            onTestSuite(suite);
+          }
+          return suite;
+        }
+        throw err;
+      }
       // If result is undefined and was not an expression, try implicit return
       if (typeof awaitedFirst === 'undefined' && !isExpression) {
         try {
@@ -381,4 +461,73 @@ export function pickInitialTargetUri(): vscode.Uri | null {
     if (ed.document.languageId === 'json' || ed.document.languageId === 'jsonc') return ed.document.uri;
   }
   return null;
+}
+
+export async function evaluateTestSuiteAgainstSources(
+  boundFiles: BoundFile[],
+  sourcesList: Array<{ alias: string; label: string }>,
+  rawDataMap: Record<string, unknown>,
+  lastResultData: unknown,
+  expr: string,
+  activeEnv?: ResolvedEnvironment,
+  onStdout?: StdoutCallback
+): Promise<TestSuiteResult> {
+  const allTests: TestCaseResult[] = [];
+  let totalPassed = 0;
+  let totalFailed = 0;
+  let totalDuration = 0;
+
+  for (const s of sourcesList) {
+    const perSourceData = rawDataMap[s.alias];
+    const perSourceDataMap: Record<string, unknown> = {
+      ...rawDataMap,
+      data: perSourceData,
+      result: lastResultData,
+      raw: perSourceData !== undefined ? perSourceData : rawDataMap
+    };
+    let suiteForSource: TestSuiteResult | undefined;
+    const onTestSuite = (st: TestSuiteResult) => {
+      suiteForSource = st;
+    };
+    try {
+      await evaluateExpression(boundFiles, perSourceDataMap, expr, activeEnv, onStdout, onTestSuite);
+    } catch (err: any) {
+      if (!suiteForSource) {
+        suiteForSource = {
+          total: 1,
+          passed: 0,
+          failed: 1,
+          durationMs: 0,
+          tests: [{
+            id: `error-${s.alias}`,
+            name: 'Execution error',
+            status: 'fail',
+            durationMs: 0,
+            assertionsCount: 0,
+            error: { message: err?.message || String(err) }
+          }]
+        };
+      }
+    }
+
+    if (suiteForSource && suiteForSource.tests) {
+      totalPassed += suiteForSource.passed;
+      totalFailed += suiteForSource.failed;
+      totalDuration += suiteForSource.durationMs;
+      for (const t of suiteForSource.tests) {
+        allTests.push({
+          ...t,
+          name: `[${s.label}] ${t.name}`
+        });
+      }
+    }
+  }
+
+  return {
+    total: allTests.length,
+    passed: totalPassed,
+    failed: totalFailed,
+    durationMs: Math.round(totalDuration * 10) / 10,
+    tests: allTests
+  };
 }

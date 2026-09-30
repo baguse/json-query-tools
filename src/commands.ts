@@ -1,10 +1,11 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { HISTORY_KEY, URL_SOURCES_KEY, URL_CACHE_MAX_SIZE, URL_CACHE_DEFAULT_TTL_MS, AI_API_KEY_SECRET } from './constants';
 import { LruCache } from './cache';
 import { BoundFile, BoundUrl, SerializedBoundSource } from './types';
 import { getHistory, pushHistory, serializeHistoryJson, parseHistoryJson, saveImportedHistory } from './history';
-import { evaluateExpression, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression, StdoutEntry } from './evaluator';
+import { evaluateExpression, evaluateTestSuiteAgainstSources, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression, StdoutEntry, TestSuiteResult } from './evaluator';
 export { evaluateExpression };
 
 let consoleOutputChannel: vscode.OutputChannel | undefined;
@@ -54,6 +55,15 @@ export async function commandDiffResult(): Promise<void> {
     return;
   }
   currentPanel.webview.postMessage({ type: 'triggerDiff' });
+}
+
+export async function commandRunTests(context: vscode.ExtensionContext): Promise<void> {
+  if (!currentPanel) {
+    await commandOpenQueryEditor(context);
+  }
+  if (currentPanel) {
+    currentPanel.webview.postMessage({ type: 'triggerRunTests' });
+  }
 }
 
 export async function exportHistoryAsJson(context: vscode.ExtensionContext): Promise<void> {
@@ -524,7 +534,13 @@ export async function commandOpenQueryEditor(
   }
 
   const sendHistory = () => panel.webview.postMessage({ type: 'hydrate', history: getHistory(context) });
-  const sendResult = (text: string, data?: unknown, benchmark?: { durationMs: number; byteSize: number }) => {
+  const sendResult = (
+    text: string,
+    data?: unknown,
+    benchmark?: { durationMs: number; byteSize: number },
+    testSuite?: TestSuiteResult,
+    isTestMode?: boolean
+  ) => {
     if (benchmark && benchmark.durationMs !== undefined && benchmark.byteSize !== undefined) {
       updateBenchmarkStatus(benchmark.durationMs, benchmark.byteSize);
     }
@@ -533,7 +549,9 @@ export async function commandOpenQueryEditor(
       text,
       data,
       durationMs: benchmark?.durationMs,
-      byteSize: benchmark?.byteSize
+      byteSize: benchmark?.byteSize,
+      testSuite,
+      isTestMode
     });
   };
   const sendSources = () => panel.webview.postMessage({
@@ -612,7 +630,14 @@ export async function commandOpenQueryEditor(
   const STREAMING_THRESHOLD = 1000; // Start streaming for arrays with 1000+ items
   const CHUNK_SIZE = 500; // Send 500 items per chunk
   
-  async function sendResultStreaming(text: string, data?: unknown, durationMs?: number, byteSize?: number) {
+  async function sendResultStreaming(
+    text: string,
+    data?: unknown,
+    durationMs?: number,
+    byteSize?: number,
+    testSuite?: TestSuiteResult,
+    isTestMode?: boolean
+  ) {
     // Check if we should stream (large array)
     if (data && Array.isArray(data) && data.length >= STREAMING_THRESHOLD) {
       // Send initial metadata
@@ -657,12 +682,14 @@ export async function commandOpenQueryEditor(
         isComplete: true,
         totalItems: data.length,
         durationMs,
-        byteSize: finalByteSize
+        byteSize: finalByteSize,
+        testSuite,
+        isTestMode
       });
     } else {
       const finalByteSize = byteSize !== undefined ? byteSize : (text ? Buffer.byteLength(text, 'utf-8') : 0);
       // Small results - send normally
-      sendResult(text, data, durationMs !== undefined ? { durationMs, byteSize: finalByteSize } : undefined);
+      sendResult(text, data, durationMs !== undefined ? { durationMs, byteSize: finalByteSize } : undefined, testSuite, isTestMode);
     }
   }
 
@@ -1079,33 +1106,84 @@ export async function commandOpenQueryEditor(
       } else if (msg.type === 'use') {
 
         panel.webview.postMessage({ type: 'insert', expr: String(msg.expr || '') });
-      } else if (msg.type === 'run' || msg.type === 'runConfirmed') {
-        const dataMap = await buildDataMap();
+      } else if (msg.type === 'run' || msg.type === 'runConfirmed' || msg.type === 'runTests') {
+        const rawDataMap = await buildDataMap();
         const expr = String(msg.expr || '');
+        const isTestMode = msg.type === 'runTests' || Boolean(msg.isTestMode);
+        const testTarget = String(msg.target || 'source'); // 'source' or 'result'
 
-        if (msg.type === 'run') {
+        if (msg.type === 'run' || msg.type === 'runTests') {
           const warning = checkForMaliciousExpression(expr);
           if (warning) {
-            panel.webview.postMessage({ type: 'securityWarning', warning, expr });
+            panel.webview.postMessage({ type: 'securityWarning', warning, expr, isTestMode, target: testTarget });
             return;
           }
         }
+
+        // If running tests targeted against query result, ensure query result is available
+        let effectiveTargetData: unknown = rawDataMap['data'];
+        if (isTestMode && testTarget === 'result') {
+          if (lastResultData !== undefined) {
+            effectiveTargetData = lastResultData;
+          } else if (msg.queryExpr) {
+            try {
+              lastResultData = await evaluateExpression(boundFiles, rawDataMap, String(msg.queryExpr), activeEnvResolved);
+              hasEvaluatedResult = true;
+              effectiveTargetData = lastResultData;
+            } catch (qErr: any) {
+              panel.webview.postMessage({ type: 'result', error: `Failed to evaluate query before running tests: ${qErr?.message || qErr}` });
+              return;
+            }
+          }
+        } else if (isTestMode && testTarget === 'all') {
+          // Combined mode: data and raw provide the dictionary of all sources, while each alias is also in scope
+          effectiveTargetData = rawDataMap;
+        } else if (isTestMode) {
+          let targetAlias = testTarget;
+          if (targetAlias.startsWith('source:')) {
+            targetAlias = targetAlias.slice(7);
+          }
+          if (targetAlias !== 'source' && rawDataMap[targetAlias] !== undefined) {
+            effectiveTargetData = rawDataMap[targetAlias];
+          } else if (rawDataMap['data'] !== undefined) {
+            effectiveTargetData = rawDataMap['data'];
+          } else if (boundFiles.length > 0 && rawDataMap[boundFiles[0].alias] !== undefined) {
+            effectiveTargetData = rawDataMap[boundFiles[0].alias];
+          } else if (boundUrls.length > 0 && rawDataMap[boundUrls[0].alias] !== undefined) {
+            effectiveTargetData = rawDataMap[boundUrls[0].alias];
+          } else {
+            effectiveTargetData = rawDataMap;
+          }
+        }
+
+        const dataMap: Record<string, unknown> = {
+          ...rawDataMap,
+          data: isTestMode ? effectiveTargetData : rawDataMap['data'],
+          result: lastResultData,
+          raw: effectiveTargetData !== undefined ? effectiveTargetData : (rawDataMap['data'] !== undefined ? rawDataMap['data'] : rawDataMap)
+        };
 
         const startTime = performance.now();
         const onStdout = (entry: StdoutEntry) => {
           panel.webview.postMessage({ type: 'stdout', entry });
           getConsoleOutputChannel().appendLine(`[${entry.level.toUpperCase()}] ${entry.message}`);
         };
-        const result = await evaluateExpression(boundFiles, dataMap, expr, activeEnvResolved, onStdout);
+        let capturedTestSuite: TestSuiteResult | undefined;
+        const onTestSuite = (suite: TestSuiteResult) => {
+          capturedTestSuite = suite;
+        };
+        const result = await evaluateExpression(boundFiles, dataMap, expr, activeEnvResolved, onStdout, onTestSuite);
         const durationMs = Math.round((performance.now() - startTime) * 10) / 10;
-        lastResultData = result;
-        hasEvaluatedResult = true;
-        if (msg.save) { await pushHistory(context, expr); sendHistory(); }
+        if (!isTestMode) {
+          lastResultData = result;
+          hasEvaluatedResult = true;
+        }
+        if (msg.save && !isTestMode) { await pushHistory(context, expr); sendHistory(); }
         // Use streaming for large results (skip expensive full stringify in host)
         const isStreaming = Array.isArray(result) && result.length >= STREAMING_THRESHOLD;
         const text = isStreaming ? '' : stringify(result);
         const byteSize = isStreaming ? 0 : Buffer.byteLength(text, 'utf-8');
-        await sendResultStreaming(text, result, durationMs, byteSize);
+        await sendResultStreaming(text, result, durationMs, byteSize, capturedTestSuite, isTestMode);
       } else if (msg.type === 'save') {
         await pushHistory(context, String(msg.expr || ''));
         sendHistory();
@@ -1134,6 +1212,33 @@ export async function commandOpenQueryEditor(
           const content = Buffer.from(String(msg.expr || ''), 'utf-8');
           await vscode.workspace.fs.writeFile(uri, content);
           vscode.window.showInformationMessage('Query exported to: ' + uri.fsPath);
+        }
+      } else if (msg.type === 'importTestSuite') {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          openLabel: 'Import Test Suite',
+          filters: { 'Test / Script Files': ['test.js', 'spec.js', 'js', 'test.ts', 'spec.ts', 'ts', 'txt'], 'All Files': ['*'] }
+        });
+        if (uris && uris[0]) {
+          const content = await vscode.workspace.fs.readFile(uris[0]);
+          const textContent = Buffer.from(content).toString('utf-8');
+          panel.webview.postMessage({ type: 'insertTest', testExpr: textContent });
+          vscode.window.showInformationMessage('Loaded test suite from: ' + path.basename(uris[0].fsPath));
+        }
+      } else if (msg.type === 'exportTestSuite') {
+        const defaultName = generateTimestampFileName('contract.test.js');
+        const defaultUri = getDefaultSaveUri({ defaultName, primaryUri: getPrimaryUri(boundFiles) });
+        
+        const uri = await vscode.window.showSaveDialog({
+          defaultUri,
+          saveLabel: 'Export Test Suite',
+          filters: { 'Test / JavaScript Files': ['test.js', 'js', 'ts'], 'All Files': ['*'] }
+        });
+        
+        if (uri) {
+          const content = Buffer.from(String(msg.expr || ''), 'utf-8');
+          await vscode.workspace.fs.writeFile(uri, content);
+          vscode.window.showInformationMessage('Test suite exported to: ' + uri.fsPath);
         }
       } else if (msg.type === 'switchEnvironment') {
         activeEnvironmentName = String(msg.environment || '');

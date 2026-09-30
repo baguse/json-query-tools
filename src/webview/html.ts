@@ -205,7 +205,167 @@ export function getQueryEditorHtml(
       user-select: none;
       line-height: 1.3;
     }
-
+    .test-suite-badge {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: var(--vscode-editor-font-family, monospace);
+      user-select: none;
+      line-height: 1.3;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .test-suite-badge.badge-passed {
+      background: rgba(46, 160, 67, 0.15);
+      border: 1px solid rgba(46, 160, 67, 0.4);
+      color: var(--vscode-testing-iconPassed, #73c991);
+    }
+    .test-suite-badge.badge-failed {
+      background: rgba(248, 81, 73, 0.15);
+      border: 1px solid rgba(248, 81, 73, 0.4);
+      color: var(--vscode-testing-iconFailed, #f14c4c);
+    }
+    .tests-summary-banner {
+      background: var(--vscode-textCodeBlock-background, #252526);
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin-bottom: 12px;
+    }
+    .tests-summary-banner.tests-passed-banner {
+      border-left: 4px solid var(--vscode-testing-iconPassed, #73c991);
+    }
+    .tests-summary-banner.tests-failed-banner {
+      border-left: 4px solid var(--vscode-testing-iconFailed, #f14c4c);
+    }
+    .tests-progress-bar {
+      height: 4px;
+      background: rgba(128, 128, 128, 0.2);
+      border-radius: 2px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .tests-progress-fill {
+      height: 100%;
+      transition: width 0.3s ease;
+    }
+    .tests-progress-fill.fill-passed {
+      background: var(--vscode-testing-iconPassed, #73c991);
+    }
+    .tests-progress-fill.fill-failed {
+      background: var(--vscode-testing-iconFailed, #f14c4c);
+    }
+    .test-filter-btn {
+      background: var(--vscode-button-secondaryBackground, #3a3d41);
+      color: var(--vscode-button-secondaryForeground, #ffffff);
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 3px;
+      padding: 3px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .test-filter-btn:hover {
+      background: var(--vscode-button-secondaryHoverBackground, #45494e);
+    }
+    .test-filter-btn.active {
+      background: var(--vscode-button-background, #0e639c);
+      color: var(--vscode-button-foreground, #ffffff);
+      border-color: var(--vscode-focusBorder, #007acc);
+      font-weight: 600;
+    }
+    .test-card {
+      background: var(--vscode-editor-background, #1e1e1e);
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 4px;
+      overflow: hidden;
+      transition: border-color 0.2s ease;
+    }
+    .test-card:hover {
+      border-color: var(--vscode-focusBorder, #007acc);
+    }
+    .test-card-passed {
+      border-left: 3px solid var(--vscode-testing-iconPassed, #73c991);
+    }
+    .test-card-failed {
+      border-left: 3px solid var(--vscode-testing-iconFailed, #f14c4c);
+    }
+    .test-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      user-select: none;
+    }
+    .test-status-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      font-size: 11px;
+      font-weight: bold;
+    }
+    .test-status-icon.icon-pass {
+      color: var(--vscode-testing-iconPassed, #73c991);
+    }
+    .test-status-icon.icon-fail {
+      color: var(--vscode-testing-iconFailed, #f14c4c);
+    }
+    .test-duration-pill {
+      font-size: 10px;
+      color: var(--vscode-descriptionForeground, #858585);
+      font-family: var(--vscode-editor-font-family, monospace);
+    }
+    .test-card-toggle {
+      font-size: 9px;
+      color: var(--vscode-descriptionForeground, #858585);
+      margin-left: 4px;
+    }
+    .test-card-body {
+      padding: 8px 12px 10px 36px;
+      border-top: 1px solid var(--vscode-widget-border, rgba(128, 128, 128, 0.15));
+      background: rgba(0, 0, 0, 0.12);
+    }
+    .test-error-message {
+      color: var(--vscode-testing-iconFailed, #f14c4c);
+      font-weight: 500;
+      font-size: 11px;
+      margin-bottom: 6px;
+      word-break: break-word;
+    }
+    .test-diff-box {
+      background: var(--vscode-textCodeBlock-background, #252526);
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 3px;
+      padding: 6px 8px;
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      overflow-x: auto;
+    }
+    .test-diff-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+    .test-diff-row .diff-label {
+      font-weight: bold;
+      min-width: 65px;
+      color: var(--vscode-descriptionForeground, #858585);
+    }
+    .test-diff-row.expected .diff-val {
+      color: var(--vscode-testing-iconPassed, #73c991);
+    }
+    .test-diff-row.actual .diff-val {
+      color: var(--vscode-testing-iconFailed, #f14c4c);
+    }
 
     /* URL Modal Styles */
     .modal-backdrop {
@@ -437,6 +597,51 @@ export function getQueryEditorHtml(
       padding: 16px 20px;
       background: var(--vscode-editor-background, #1e1e1e);
       border-bottom: 1px solid var(--vscode-panel-border, #3e3e42);
+    }
+    .editor-mode-bar {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      margin-bottom: 8px;
+      border-bottom: 1px solid var(--vscode-input-border, #3e3e42);
+      padding-bottom: 4px;
+    }
+    .editor-mode-tab {
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 4px 4px 0 0;
+      color: var(--vscode-descriptionForeground, #858585);
+      font-size: 12px;
+      font-weight: 600;
+      padding: 5px 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+      user-select: none;
+    }
+    .editor-mode-tab:hover {
+      color: var(--vscode-foreground, #cccccc);
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .editor-mode-tab.active {
+      color: var(--vscode-foreground, #ffffff);
+      background: var(--vscode-editor-background, #1e1e1e);
+      border-color: var(--vscode-input-border, #3e3e42);
+      border-bottom-color: transparent;
+      margin-bottom: -5px;
+      padding-bottom: 6px;
+      border-top: 2px solid var(--vscode-textLink-foreground, #3794ff);
+    }
+    .tests-count-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 10px;
+      background: var(--vscode-badge-background, #007acc);
+      color: var(--vscode-badge-foreground, #ffffff);
+      line-height: 1.2;
     }
     .editor-container {
       position: relative;
@@ -1016,17 +1221,34 @@ export function getQueryEditorHtml(
   </div>
 
   <div class="row">
-      <textarea id="expr" placeholder=".filter(x=>x.active).map(x=>({name:x.name})) — Template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}"></textarea>
-      <div class="keyboard-hint">Press <kbd>Ctrl+Enter</kbd> to run | <kbd>Ctrl+S</kbd> to save</div>
+    <div id="editorModeBar" class="editor-mode-bar">
+      <button id="modeQueryBtn" class="editor-mode-tab active" type="button" title="Query Transformation Editor (JavaScript expression)">
+        <span>⚡</span> Query
+      </button>
+      <button id="modeTestsBtn" class="editor-mode-tab" type="button" title="Test Suite Editor (Write unit assertions &amp; contract tests)">
+        <span>🧪</span> Test Suite <span id="testsCountBadge" class="tests-count-badge" style="display: none;">0</span>
+      </button>
+      <div class="editor-mode-bar-right" style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: var(--vscode-descriptionForeground, #858585);">
+        <span>Toggle: <kbd style="background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.15); font-size: 10px;">Ctrl+Shift+E</kbd></span>
+      </div>
+    </div>
+    <textarea id="expr" placeholder=".filter(x=>x.active).map(x=>({name:x.name})) — Template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}"></textarea>
+    <div id="editorKeyboardHint" class="keyboard-hint">Press <kbd>Ctrl+Enter</kbd> to run | <kbd>Ctrl+Shift+T</kbd> to run tests | <kbd>Ctrl+S</kbd> to save</div>
   </div>
-  <div class="row" style="gap: 10px; flex-wrap: wrap; align-items: center;">
+  <div id="queryToolbar" class="row" style="gap: 10px; flex-wrap: wrap; align-items: center;">
     <button id="run" class="primary">▶ Run</button>
+    <button id="runTestsBtn" class="secondary" style="display: inline-flex; align-items: center; gap: 5px;" title="Run Contract / Assertion Tests (Ctrl+Shift+T)">🧪 Run Tests</button>
     <button id="save" class="secondary">★ Save</button>
     <button id="beautify" class="secondary">✨ Beautify</button>
     <button id="clear" class="secondary">🗑 Clear</button>
     <button id="toggleConsoleBtn" class="secondary" style="display: inline-flex; align-items: center; gap: 5px;" title="Toggle Console Output Drawer">📟 Console <span id="consoleBadge" style="display: none; background: var(--vscode-badge-background, #4d4d4d); color: var(--vscode-badge-foreground, #ffffff); border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: bold;">0</span></button>
     <select id="snippetSelect" style="padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;" title="Insert common JavaScript transformation snippet">
       <option value="" disabled selected>💡 Snippets...</option>
+      <optgroup label="Assertions &amp; API Tests">
+        <option value="test_contract">API Contract Test Suite (test &amp; expect)</option>
+        <option value="test_status_schema">Status &amp; Property Validation</option>
+        <option value="test_array_items">Array Items Deep Assertions</option>
+      </optgroup>
       <optgroup label="Grouping &amp; Counting">
         <option value="group_by">Group by Property (Object.groupBy)</option>
         <option value="group_by_reduce">Group by Property (reduce)</option>
@@ -1072,6 +1294,34 @@ export function getQueryEditorHtml(
     <button id="exportQuery" class="secondary" title="Export current query to a file" style="margin-left: 8px;">📥 Export File</button>
   </div>
 
+  <!-- Dedicated Test Suite Toolbar -->
+  <div id="testsToolbar" class="row" style="gap: 10px; flex-wrap: wrap; align-items: center; display: none;">
+    <button id="runTestsModeBtn" class="primary" style="display: inline-flex; align-items: center; gap: 5px;" title="Run Test Suite (Ctrl+Enter or Ctrl+Shift+T)">▶ Run Tests</button>
+    <div id="testTargetContainer" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; background: var(--vscode-input-background, #3c3c3c); padding: 4px 8px; border-radius: 3px; border: 1px solid var(--vscode-input-border, #3e3e42);">
+      <label for="testTargetSelect" style="color: var(--vscode-descriptionForeground, #858585); font-weight: 500;">Target:</label>
+      <select id="testTargetSelect" style="background: transparent; border: none; color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; outline: none; font-family: inherit;" title="Select data target to assert against">
+        <option value="all">All Bound Sources (Combined)</option>
+        <option value="source">Raw Source Data (data)</option>
+        <option value="result">Query Result (result)</option>
+      </select>
+    </div>
+    <button id="saveTestsBtn" class="secondary" title="Save test suite to local storage">★ Save Tests</button>
+    <button id="beautifyTestsBtn" class="secondary" title="Format test suite code">✨ Beautify</button>
+    <button id="clearTestsBtn" class="secondary" title="Clear test suite buffer">🗑 Clear</button>
+    <select id="testSnippetSelect" style="padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;" title="Insert test assertions or contract suite templates">
+      <option value="" disabled selected>💡 Test Snippets...</option>
+      <option value="contract_full">Comprehensive Contract Suite (test &amp; expect)</option>
+      <option value="schema_validation">Schema &amp; Types Validation</option>
+      <option value="status_codes">Status, Success &amp; Timestamp Checks</option>
+      <option value="array_items_deep">Array Elements &amp; Sub-properties</option>
+      <option value="node_assert">Node Assert Interface (assert.ok, equal, deepStrictEqual)</option>
+      <option value="multi_source_contract">Multi-Source / All Files Contract</option>
+      <option value="query_result_contract">Validate Query Result (target=result)</option>
+    </select>
+    <button id="importTestFileBtn" class="secondary" title="Import test suite from a file (.test.js, .js, .ts)" style="margin-left: auto;">📤 Import Tests</button>
+    <button id="exportTestFileBtn" class="secondary" title="Export test suite to a file (.test.js)" style="margin-left: 8px;">📥 Export Tests</button>
+  </div>
+
   <!-- Console Output Drawer (Positioned between Editor Toolbar and Result for immediate visibility) -->
   <div id="consoleDrawer" style="display: none; margin: 0 20px 14px 20px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; background: var(--vscode-editor-background, #1e1e1e); overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.25);">
     <div style="display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: var(--vscode-titleBar-activeBackground, #2d2d30); border-bottom: 1px solid var(--vscode-input-border, #3e3e42); flex-wrap: wrap; gap: 6px;">
@@ -1098,6 +1348,10 @@ export function getQueryEditorHtml(
           <span style="opacity: 0.4;">•</span>
           <span id="benchmarkByteSize" title="Data byte size">💾 0 B</span>
         </div>
+        <div id="testSuiteBadge" class="test-suite-badge" style="display: none; cursor: pointer;" title="Click to view test breakdown">
+          <span id="testSuiteIcon">🧪</span>
+          <span id="testSuiteSummary">0 Passed</span>
+        </div>
         <span id="resultInfo" style="font-size: 10px; color: var(--vscode-descriptionForeground, #858585);"></span>
       </div>
       <div style="display: flex; gap: 6px; flex-wrap: wrap;">
@@ -1108,6 +1362,7 @@ export function getQueryEditorHtml(
           <option value="xml">XML</option>
           <option value="table">Table</option>
           <option value="chart">Chart</option>
+          <option value="tests">🧪 Test Suite</option>
         </select>
         <select id="chartType" style="display: none; padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;">
           <option value="bar">Bar</option>
@@ -1203,6 +1458,35 @@ export function getQueryEditorHtml(
       <div id="resultChartWarning" style="display: none; padding: 20px; color: var(--vscode-descriptionForeground, #858585);">Data must be an array to render a chart.</div>
       <div id="resultChartContainer">
         <canvas id="resultChart"></canvas>
+      </div>
+      <div id="resultTestsContainer" style="display: none; height: 100%; overflow-y: auto; padding: 12px 16px; box-sizing: border-box;">
+        <div id="testsSummaryBanner" class="tests-summary-banner">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span id="testsStatusIcon" style="font-size: 22px;">✅</span>
+              <div>
+                <div id="testsTitle" style="font-size: 14px; font-weight: bold;">All Tests Passed</div>
+                <div id="testsSubtitle" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585); margin-top: 2px;">0 passed of 0 tests • 0ms</div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button id="rerunTestsBtn" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Re-run Test Suite">🔄 Re-run</button>
+              <button id="copyTestReportBtn" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Copy Test Report as Markdown">📋 Copy Report</button>
+            </div>
+          </div>
+          <div id="testsProgressBar" class="tests-progress-bar">
+            <div id="testsProgressFill" class="tests-progress-fill" style="width: 100%;"></div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; justify-content: space-between; margin: 12px 0 8px 0; gap: 10px; flex-wrap: wrap;">
+          <div style="display: flex; gap: 6px;">
+            <button id="testFilterAll" class="test-filter-btn active">All (<span id="countAll">0</span>)</button>
+            <button id="testFilterPassed" class="test-filter-btn">Passed (<span id="countPassed">0</span>)</button>
+            <button id="testFilterFailed" class="test-filter-btn">Failed (<span id="countFailed">0</span>)</button>
+          </div>
+          <input id="testSearchInput" type="text" placeholder="Filter tests..." style="padding: 4px 8px; font-size: 11px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); width: 160px;" />
+        </div>
+        <div id="testsListContainer" style="display: flex; flex-direction: column; gap: 8px;"></div>
       </div>
     </div>
   </div>
@@ -1486,6 +1770,7 @@ export function getQueryEditorHtml(
             <button type="button" class="request-tab-btn" data-cat="shaping" style="padding: 3px 8px; font-size: 10px;">Pick / Omit</button>
             <button type="button" class="request-tab-btn" data-cat="dedup" style="padding: 3px 8px; font-size: 10px;">Unique</button>
             <button type="button" class="request-tab-btn" data-cat="multisource" style="padding: 3px 8px; font-size: 10px;">Multi-Source</button>
+            <button type="button" class="request-tab-btn" data-cat="testing" style="padding: 3px 8px; font-size: 10px;">Tests</button>
           </div>
         </div>
 
@@ -1688,6 +1973,264 @@ export function getQueryEditorHtml(
     let currentLensInfo = null;
     let lensDismissed = false;
 
+    const editorModeBar = document.getElementById('editorModeBar');
+    const modeQueryBtn = document.getElementById('modeQueryBtn');
+    const modeTestsBtn = document.getElementById('modeTestsBtn');
+    const testsCountBadge = document.getElementById('testsCountBadge');
+    const queryToolbar = document.getElementById('queryToolbar');
+    const testsToolbar = document.getElementById('testsToolbar');
+    const runTestsModeBtn = document.getElementById('runTestsModeBtn');
+    const testTargetContainer = document.getElementById('testTargetContainer');
+    const testTargetSelect = document.getElementById('testTargetSelect');
+    const saveTestsBtn = document.getElementById('saveTestsBtn');
+    const beautifyTestsBtn = document.getElementById('beautifyTestsBtn');
+    const clearTestsBtn = document.getElementById('clearTestsBtn');
+    const testSnippetSelect = document.getElementById('testSnippetSelect');
+    const importTestFileBtn = document.getElementById('importTestFileBtn');
+    const exportTestFileBtn = document.getElementById('exportTestFileBtn');
+    const editorKeyboardHint = document.getElementById('editorKeyboardHint');
+
+    const runTestsBtn = document.getElementById('runTestsBtn');
+    const testSuiteBadge = document.getElementById('testSuiteBadge');
+    const testSuiteIcon = document.getElementById('testSuiteIcon');
+    const testSuiteSummary = document.getElementById('testSuiteSummary');
+    const resultTestsContainer = document.getElementById('resultTestsContainer');
+    const testsSummaryBanner = document.getElementById('testsSummaryBanner');
+    const testsStatusIcon = document.getElementById('testsStatusIcon');
+    const testsTitle = document.getElementById('testsTitle');
+    const testsSubtitle = document.getElementById('testsSubtitle');
+    const testsProgressBar = document.getElementById('testsProgressBar');
+    const testsProgressFill = document.getElementById('testsProgressFill');
+    const rerunTestsBtn = document.getElementById('rerunTestsBtn');
+    const copyTestReportBtn = document.getElementById('copyTestReportBtn');
+    const testFilterAll = document.getElementById('testFilterAll');
+    const testFilterPassed = document.getElementById('testFilterPassed');
+    const testFilterFailed = document.getElementById('testFilterFailed');
+    const countAll = document.getElementById('countAll');
+    const countPassed = document.getElementById('countPassed');
+    const countFailed = document.getElementById('countFailed');
+    const testSearchInput = document.getElementById('testSearchInput');
+    const testsListContainer = document.getElementById('testsListContainer');
+    let currentTestSuite = null;
+    let activeTestFilter = 'all';
+    let testSearchQuery = '';
+
+    function hideTests() {
+      if (resultTestsContainer) resultTestsContainer.style.display = 'none';
+    }
+
+    function updateTestSuiteBadge(suite) {
+      if (!testSuiteBadge) return;
+      if (!suite || !suite.tests || suite.tests.length === 0) {
+        testSuiteBadge.style.display = 'none';
+        return;
+      }
+      testSuiteBadge.style.display = 'inline-flex';
+      if (suite.failed === 0) {
+        testSuiteBadge.className = 'test-suite-badge badge-passed';
+        if (testSuiteIcon) testSuiteIcon.textContent = '✅';
+        if (testSuiteSummary) testSuiteSummary.textContent = suite.passed + ' Passed';
+      } else {
+        testSuiteBadge.className = 'test-suite-badge badge-failed';
+        if (testSuiteIcon) testSuiteIcon.textContent = '❌';
+        if (testSuiteSummary) {
+          testSuiteSummary.textContent = suite.failed + ' Failed' + (suite.passed > 0 ? ', ' + suite.passed + ' Passed' : '');
+        }
+      }
+    }
+
+    function setTestFilter(filter) {
+      activeTestFilter = filter;
+      if (testFilterAll) testFilterAll.classList.toggle('active', filter === 'all');
+      if (testFilterPassed) testFilterPassed.classList.toggle('active', filter === 'passed');
+      if (testFilterFailed) testFilterFailed.classList.toggle('active', filter === 'failed');
+      renderTestCards();
+    }
+
+    function renderTestResults() {
+      if (!currentTestSuite) {
+        if (testsStatusIcon) testsStatusIcon.textContent = '🧪';
+        if (testsTitle) testsTitle.textContent = 'No Tests Executed';
+        if (testsSubtitle) testsSubtitle.textContent = 'Click "Run Tests" or use test() / expect() in your query';
+        if (testsSummaryBanner) testsSummaryBanner.className = 'tests-summary-banner';
+        if (testsProgressFill) testsProgressFill.style.width = '0%';
+        if (countAll) countAll.textContent = '0';
+        if (countPassed) countPassed.textContent = '0';
+        if (countFailed) countFailed.textContent = '0';
+        if (testsListContainer) {
+          testsListContainer.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--vscode-descriptionForeground, #858585); font-size: 12px;">No tests have been executed yet.<br/><span style="opacity: 0.8; font-size: 11px; margin-top: 4px; display: inline-block;">Write <code>test(&quot;name&quot;, () =&gt; { expect(data)... })</code> or <code>assert(...)</code> in your query.</span></div>';
+        }
+        return;
+      }
+
+      const suite = currentTestSuite;
+      if (countAll) countAll.textContent = String(suite.total);
+      if (countPassed) countPassed.textContent = String(suite.passed);
+      if (countFailed) countFailed.textContent = String(suite.failed);
+
+      if (testsSummaryBanner) {
+        if (suite.failed === 0) {
+          testsSummaryBanner.className = 'tests-summary-banner tests-passed-banner';
+          if (testsStatusIcon) testsStatusIcon.textContent = '✅';
+          if (testsTitle) testsTitle.textContent = 'All ' + suite.passed + ' Tests Passed';
+          if (testsSubtitle) {
+            testsSubtitle.textContent = suite.passed + ' passed of ' + suite.total + ' tests • ' + suite.durationMs.toFixed(1) + 'ms';
+          }
+          if (testsProgressFill) {
+            testsProgressFill.className = 'tests-progress-fill fill-passed';
+            testsProgressFill.style.width = '100%';
+          }
+        } else {
+          testsSummaryBanner.className = 'tests-summary-banner tests-failed-banner';
+          if (testsStatusIcon) testsStatusIcon.textContent = '❌';
+          if (testsTitle) testsTitle.textContent = suite.failed + ' of ' + suite.total + ' Tests Failed';
+          if (testsSubtitle) {
+            testsSubtitle.textContent = suite.passed + ' passed, ' + suite.failed + ' failed • ' + suite.durationMs.toFixed(1) + 'ms';
+          }
+          if (testsProgressFill) {
+            testsProgressFill.className = 'tests-progress-fill fill-failed';
+            const pct = suite.total > 0 ? Math.round((suite.passed / suite.total) * 100) : 0;
+            testsProgressFill.style.width = pct + '%';
+          }
+        }
+      }
+
+      renderTestCards();
+    }
+
+    function renderTestCards() {
+      if (!testsListContainer) return;
+      if (!currentTestSuite || !currentTestSuite.tests || currentTestSuite.tests.length === 0) {
+        testsListContainer.innerHTML = '<div style="padding: 24px; text-align: center; color: var(--vscode-descriptionForeground, #858585); font-size: 12px;">No tests have been executed yet.</div>';
+        return;
+      }
+
+      const suite = currentTestSuite;
+      const filtered = suite.tests.filter(t => {
+        const isP = t.status === 'passed' || t.status === 'pass';
+        const isF = t.status === 'failed' || t.status === 'fail';
+        if (activeTestFilter === 'passed' && !isP) return false;
+        if (activeTestFilter === 'failed' && !isF) return false;
+        if (testSearchQuery) {
+          const matchName = t.name && t.name.toLowerCase().includes(testSearchQuery);
+          const matchErr = t.error && t.error.message && t.error.message.toLowerCase().includes(testSearchQuery);
+          return Boolean(matchName || matchErr);
+        }
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        testsListContainer.innerHTML = '<div style="padding: 16px; text-align: center; color: var(--vscode-descriptionForeground, #858585); font-size: 11px;">No tests match the current filter or search criteria.</div>';
+        return;
+      }
+
+      testsListContainer.innerHTML = '';
+      for (const t of filtered) {
+        const card = document.createElement('div');
+        const isPassed = t.status === 'passed' || t.status === 'pass';
+        card.className = 'test-card ' + (isPassed ? 'test-card-passed' : 'test-card-failed');
+
+        const header = document.createElement('div');
+        header.className = 'test-card-header';
+        header.style.cursor = isPassed ? 'default' : 'pointer';
+
+        const leftGroup = document.createElement('div');
+        leftGroup.style.display = 'flex';
+        leftGroup.style.alignItems = 'center';
+        leftGroup.style.gap = '8px';
+
+        const icon = document.createElement('span');
+        icon.className = 'test-status-icon ' + (isPassed ? 'icon-pass' : 'icon-fail');
+        icon.textContent = isPassed ? '✓' : '✕';
+        leftGroup.appendChild(icon);
+
+        const nameSpan = document.createElement('span');
+        nameSpan.style.fontWeight = '500';
+        nameSpan.style.fontSize = '12px';
+        nameSpan.textContent = t.name;
+        leftGroup.appendChild(nameSpan);
+
+        header.appendChild(leftGroup);
+
+        const rightGroup = document.createElement('div');
+        rightGroup.style.display = 'flex';
+        rightGroup.style.alignItems = 'center';
+        rightGroup.style.gap = '8px';
+
+        const durPill = document.createElement('span');
+        durPill.className = 'test-duration-pill';
+        durPill.textContent = t.durationMs.toFixed(1) + 'ms';
+        rightGroup.appendChild(durPill);
+
+        if (!isPassed) {
+          const toggleSpan = document.createElement('span');
+          toggleSpan.className = 'test-card-toggle';
+          toggleSpan.textContent = '▼';
+          rightGroup.appendChild(toggleSpan);
+        }
+
+        header.appendChild(rightGroup);
+        card.appendChild(header);
+
+        if (!isPassed && t.error) {
+          const body = document.createElement('div');
+          body.className = 'test-card-body';
+
+          const errMsg = document.createElement('div');
+          errMsg.className = 'test-error-message';
+          errMsg.textContent = t.error.message;
+          body.appendChild(errMsg);
+
+          if (t.error.expected !== undefined || t.error.actual !== undefined) {
+            const diffBox = document.createElement('div');
+            diffBox.className = 'test-diff-box';
+
+            if (t.error.expected !== undefined) {
+              const rowExp = document.createElement('div');
+              rowExp.className = 'test-diff-row expected';
+              rowExp.innerHTML = '<span class="diff-label">Expected:</span><span class="diff-val"></span>';
+              rowExp.querySelector('.diff-val').textContent = String(t.error.expected);
+              diffBox.appendChild(rowExp);
+            }
+
+            if (t.error.actual !== undefined) {
+              const rowAct = document.createElement('div');
+              rowAct.className = 'test-diff-row actual';
+              rowAct.innerHTML = '<span class="diff-label">Actual:</span><span class="diff-val"></span>';
+              rowAct.querySelector('.diff-val').textContent = String(t.error.actual);
+              diffBox.appendChild(rowAct);
+            }
+
+            body.appendChild(diffBox);
+          }
+
+          if (t.error.stack) {
+            const stackLines = t.error.stack.split(String.fromCharCode(10)).slice(1, 4).join(String.fromCharCode(10));
+            if (stackLines && stackLines.trim()) {
+              const stackPre = document.createElement('pre');
+              stackPre.style.margin = '6px 0 0 0';
+              stackPre.style.fontSize = '10px';
+              stackPre.style.color = 'var(--vscode-descriptionForeground, #858585)';
+              stackPre.style.fontFamily = 'var(--vscode-editor-font-family, monospace)';
+              stackPre.textContent = stackLines;
+              body.appendChild(stackPre);
+            }
+          }
+
+          card.appendChild(body);
+
+          header.onclick = () => {
+            const isOpen = body.style.display !== 'none';
+            body.style.display = isOpen ? 'none' : 'block';
+            const toggle = header.querySelector('.test-card-toggle');
+            if (toggle) toggle.textContent = isOpen ? '▶' : '▼';
+          };
+        }
+
+        testsListContainer.appendChild(card);
+      }
+    }
+
     function hideTable() {
       if (resultTable) resultTable.style.display = 'none';
       if (tablePagination) tablePagination.style.display = 'none';
@@ -1822,6 +2365,74 @@ export function getQueryEditorHtml(
         }
       }
 
+      updateTestTargetSelectOptions();
+    }
+
+    function updateTestTargetSelectOptions() {
+      const select = document.getElementById('testTargetSelect');
+      if (!select || typeof select.appendChild !== 'function') return;
+      const currentSelected = select.value || (window.localStorage && localStorage.getItem('jsonQueryTools.testTarget')) || 'source';
+      select.innerHTML = '';
+
+      if (currentSources && currentSources.length >= 2) {
+        const allOpt = document.createElement('option');
+        allOpt.value = 'all';
+        allOpt.textContent = 'All Bound Sources (Combined)';
+        select.appendChild(allOpt);
+
+        currentSources.forEach(s => {
+          const opt = document.createElement('option');
+          opt.value = 'source:' + s.alias;
+          const displayLabel = s.label.split('/').pop() || s.label || s.alias;
+          opt.textContent = displayLabel + ' (' + s.alias + ')';
+          select.appendChild(opt);
+        });
+
+        const resOpt = document.createElement('option');
+        resOpt.value = 'result';
+        resOpt.textContent = 'Query Result (result)';
+        select.appendChild(resOpt);
+      } else if (currentSources && currentSources.length === 1) {
+        const s = currentSources[0];
+        const opt = document.createElement('option');
+        opt.value = 'source:' + s.alias;
+        const displayLabel = s.label.split('/').pop() || s.label || s.alias;
+        opt.textContent = displayLabel + ' (' + s.alias + ')';
+        select.appendChild(opt);
+
+        const resOpt = document.createElement('option');
+        resOpt.value = 'result';
+        resOpt.textContent = 'Query Result (result)';
+        select.appendChild(resOpt);
+      } else {
+        const srcOpt = document.createElement('option');
+        srcOpt.value = 'source';
+        srcOpt.textContent = 'Raw Source Data (data)';
+        select.appendChild(srcOpt);
+
+        const resOpt = document.createElement('option');
+        resOpt.value = 'result';
+        resOpt.textContent = 'Query Result (result)';
+        select.appendChild(resOpt);
+      }
+
+      // Check if currentSelected matches any option
+      const optionsArr = select.options ? Array.from(select.options) : [];
+      const exists = optionsArr.some(o => o.value === currentSelected);
+      if (exists) {
+        select.value = currentSelected;
+      } else {
+        if (currentSources && currentSources.length >= 2) {
+          select.value = 'all';
+        } else if (currentSources && currentSources.length === 1) {
+          select.value = 'source:' + currentSources[0].alias;
+        } else {
+          select.value = 'source';
+        }
+      }
+      if (window.localStorage && localStorage.setItem) {
+        localStorage.setItem('jsonQueryTools.testTarget', select.value);
+      }
     }
 
     let currentResultData = null;
@@ -2207,6 +2818,9 @@ export function getQueryEditorHtml(
               // Attach syntax validation on changes (debounced)
               editor.on('change', () => {
                 scheduleSyntaxValidation(200);
+                if (typeof activeEditorMode !== 'undefined' && activeEditorMode === 'tests') {
+                  updateTestCountBadge();
+                }
               });
               editor.on('blur', () => {
                 scheduleSyntaxValidation(0); // immediate check on blur
@@ -2214,6 +2828,9 @@ export function getQueryEditorHtml(
               
               // Setup schema autocomplete
               setupSchemaAutocomplete();
+              if (typeof updateTestCountBadge === 'function') {
+                updateTestCountBadge(testCode);
+              }
               
               // Final check - ensure textarea is completely hidden
               const cmElement = exprTextarea.nextElementSibling;
@@ -4016,6 +4633,57 @@ export function getQueryEditorHtml(
       });
     }
 
+    function buildAssertCompletions() {
+      const methods = [
+        { text: 'strictEqual', display: 'strictEqual(actual, expected, msg?) : strict equal ===' },
+        { text: 'notStrictEqual', display: 'notStrictEqual(actual, expected, msg?) : !==' },
+        { text: 'deepStrictEqual', display: 'deepStrictEqual(actual, expected, msg?) : deep equal' },
+        { text: 'notDeepStrictEqual', display: 'notDeepStrictEqual(actual, expected, msg?) : not deep equal' },
+        { text: 'ok', display: 'ok(value, msg?) : assert truthy' },
+        { text: 'match', display: 'match(string, regexp, msg?) : regex match' },
+        { text: 'doesNotMatch', display: 'doesNotMatch(string, regexp, msg?) : regex does not match' },
+        { text: 'throws', display: 'throws(fn, expected?, msg?) : assert throws' },
+        { text: 'doesNotThrow', display: 'doesNotThrow(fn, msg?) : assert does not throw' },
+        { text: 'fail', display: 'fail(msg?) : trigger failure' }
+      ];
+      return methods.map(function(m) {
+        return { kind: 'method', text: m.text, displayText: m.text + ' : ' + m.display };
+      });
+    }
+
+    function buildExpectCompletions() {
+      const matchers = [
+        { text: 'toBe', display: 'toBe(expected) : strict === equality' },
+        { text: 'toEqual', display: 'toEqual(expected) : deep structural equality' },
+        { text: 'toBeTruthy', display: 'toBeTruthy() : assert truthy' },
+        { text: 'toBeFalsy', display: 'toBeFalsy() : assert falsy' },
+        { text: 'toBeNull', display: 'toBeNull() : assert === null' },
+        { text: 'toBeUndefined', display: 'toBeUndefined() : assert === undefined' },
+        { text: 'toBeDefined', display: 'toBeDefined() : assert !== undefined' },
+        { text: 'toBeNaN', display: 'toBeNaN() : assert is NaN' },
+        { text: 'toBeGreaterThan', display: 'toBeGreaterThan(n) : > comparison' },
+        { text: 'toBeGreaterThanOrEqual', display: 'toBeGreaterThanOrEqual(n) : >= comparison' },
+        { text: 'toBeLessThan', display: 'toBeLessThan(n) : < comparison' },
+        { text: 'toBeLessThanOrEqual', display: 'toBeLessThanOrEqual(n) : <= comparison' },
+        { text: 'toBeCloseTo', display: 'toBeCloseTo(expected, digits?) : close float' },
+        { text: 'toContain', display: 'toContain(item) : array/string/object contains' },
+        { text: 'toHaveLength', display: 'toHaveLength(len) : length or size check' },
+        { text: 'toHaveProperty', display: 'toHaveProperty(path, value?) : nested property check' },
+        { text: 'toMatch', display: 'toMatch(regexp) : regex pattern match' },
+        { text: 'toBeTypeOf', display: 'toBeTypeOf(type) : typeof check' },
+        { text: 'toBeArray', display: 'toBeArray() : assert Array.isArray' },
+        { text: 'toBeObject', display: 'toBeObject() : assert object' },
+        { text: 'toBeString', display: 'toBeString() : assert string' },
+        { text: 'toBeNumber', display: 'toBeNumber() : assert number' },
+        { text: 'toBeBoolean', display: 'toBeBoolean() : assert boolean' },
+        { text: 'toThrow', display: 'toThrow(expected?) : assert function throws' },
+        { text: 'not', display: 'not : invert matcher' }
+      ];
+      return matchers.map(function(m) {
+        return { kind: 'method', text: m.text, displayText: m.text + ' : ' + m.display };
+      });
+    }
+
     function buildAnyFallbackCompletions(receiverName, fullDocText) {
       const list = [];
       const seen = new Set();
@@ -4088,6 +4756,8 @@ export function getQueryEditorHtml(
       if (chain === 'Object') return { typeName: 'Object', schemaPart: null };
       if (chain === 'Array') return { typeName: 'Array', schemaPart: null };
       if (chain === 'console') return { typeName: 'console', schemaPart: null };
+      if (chain === 'assert') return { typeName: 'assert', schemaPart: null };
+      if (chain === 'expect' || chain.startsWith('expect(') || chain.endsWith('.not')) return { typeName: 'expect', schemaPart: null };
 
       // 2. Environment object
       if (chain === 'env' || chain.startsWith('env.')) {
@@ -4747,6 +5417,10 @@ export function getQueryEditorHtml(
               completions = buildArrayConstructorCompletions();
             } else if (receiverType === 'console') {
               completions = buildConsoleCompletions();
+            } else if (receiverType === 'assert') {
+              completions = buildAssertCompletions();
+            } else if (receiverType === 'expect') {
+              completions = buildExpectCompletions();
             } else if (receiverType === TYPE_OBJECT) {
               completions = buildObjectFieldCompletions(inferred.schemaPart);
               completions.push(...buildMethodCompletions(TYPE_OBJECT, inferred.schemaPart));
@@ -4772,7 +5446,11 @@ export function getQueryEditorHtml(
               { kind: 'keyword', text: 'JSON', displayText: 'JSON : built-in' },
               { kind: 'keyword', text: 'Object', displayText: 'Object : built-in' },
               { kind: 'keyword', text: 'Array', displayText: 'Array : built-in' },
-              { kind: 'keyword', text: 'console', displayText: 'console : built-in' }
+              { kind: 'keyword', text: 'console', displayText: 'console : built-in' },
+              { kind: 'keyword', text: 'test', displayText: 'test(name, fn) : declare test case' },
+              { kind: 'keyword', text: 'it', displayText: 'it(name, fn) : declare test case' },
+              { kind: 'keyword', text: 'expect', displayText: 'expect(actual) : test assertion matcher' },
+              { kind: 'keyword', text: 'assert', displayText: 'assert(condition, msg) : assertion' }
             ];
             if (typeof currentSources === 'object' && Array.isArray(currentSources)) {
               for (let sIdx = 0; sIdx < currentSources.length; sIdx++) {
@@ -4900,7 +5578,30 @@ export function getQueryEditorHtml(
         console.warn('Failed to load acorn, syntax validation disabled:', err.message);
       });
 
+    let activeEditorMode = 'query'; // 'query' | 'tests'
+    let queryCode = '';
+    const DEFAULT_TEST_SUITE = [
+      "// Test Suite for JSON Data",
+      "// Available Globals: test, it, expect, assert, data, result, raw",
+      "// Run tests: Ctrl+Enter or Ctrl+Shift+T",
+      "",
+      "test('validates data exists and is defined', () => {",
+      "  expect(data).toBeDefined();",
+      "});",
+      "",
+      "test('validates data structure', () => {",
+      "  if (Array.isArray(data)) {",
+      "    expect(data.length).toBeGreaterThan(0);",
+      "  } else {",
+      "    expect(typeof data).toBe('object');",
+      "  }",
+      "});",
+      ""
+    ].join(String.fromCharCode(10));
+    let testCode = localStorage.getItem('jsonQueryTools.testSuiteCode') || DEFAULT_TEST_SUITE;
+
     const getEditorValue = () => editor ? editor.getValue().trim() : (exprTextarea ? exprTextarea.value.trim() : '');
+    const getRawEditorValue = () => editor ? editor.getValue() : (exprTextarea ? exprTextarea.value : '');
     const setEditorValue = (value) => {
       if (editor) {
         editor.setValue(value || '');
@@ -4911,17 +5612,99 @@ export function getQueryEditorHtml(
       }
     };
 
-    function setLoading(isLoading) {
-      const runBtn = document.getElementById('run');
-      if (isLoading) {
-        runBtn.classList.add('loading');
-        runBtn.disabled = true;
+    function updateTestCountBadge(code) {
+      if (!testsCountBadge) return;
+      const content = typeof code === 'string' ? code : (activeEditorMode === 'tests' ? getRawEditorValue() : testCode);
+      const matches = content.match(new RegExp('(?:test|it)\\\\s*\\\\(', 'g'));
+      const count = matches ? matches.length : 0;
+      if (count > 0) {
+        testsCountBadge.textContent = count + (count === 1 ? ' test' : ' tests');
+        testsCountBadge.style.display = 'inline-block';
       } else {
-        runBtn.classList.remove('loading');
-        runBtn.disabled = false;
+        testsCountBadge.style.display = 'none';
       }
     }
-    
+
+    function switchEditorMode(newMode) {
+      if (newMode === activeEditorMode) return;
+      clearSyntaxError();
+      if (newMode === 'tests') {
+        // Save current query code
+        queryCode = getRawEditorValue();
+        activeEditorMode = 'tests';
+
+        if (modeQueryBtn) modeQueryBtn.classList.remove('active');
+        if (modeTestsBtn) modeTestsBtn.classList.add('active');
+
+        if (queryToolbar) queryToolbar.style.display = 'none';
+        if (testsToolbar) testsToolbar.style.display = 'flex';
+
+        setEditorValue(testCode);
+        if (editor && editor.clearHistory) editor.clearHistory();
+
+        if (exprTextarea) exprTextarea.placeholder = "test('validates data', () => { expect(data).toBeDefined(); });";
+        if (editorKeyboardHint) {
+          editorKeyboardHint.innerHTML = 'Press <kbd>Ctrl+Enter</kbd> to run tests | <kbd>Ctrl+Shift+E</kbd> to switch to query | <kbd>Ctrl+S</kbd> to save tests';
+        }
+        updateTestCountBadge(testCode);
+      } else {
+        // Save test code to state and localStorage
+        testCode = getRawEditorValue();
+        localStorage.setItem('jsonQueryTools.testSuiteCode', testCode);
+        updateTestCountBadge(testCode);
+        activeEditorMode = 'query';
+
+        if (modeQueryBtn) modeQueryBtn.classList.add('active');
+        if (modeTestsBtn) modeTestsBtn.classList.remove('active');
+
+        if (queryToolbar) queryToolbar.style.display = 'flex';
+        if (testsToolbar) testsToolbar.style.display = 'none';
+
+        setEditorValue(queryCode);
+        if (editor && editor.clearHistory) editor.clearHistory();
+
+        if (exprTextarea) exprTextarea.placeholder = ".filter(x=>x.active).map(x=>({name:x.name})) — Template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}";
+        if (editorKeyboardHint) {
+          editorKeyboardHint.innerHTML = 'Press <kbd>Ctrl+Enter</kbd> to run | <kbd>Ctrl+Shift+T</kbd> to run tests | <kbd>Ctrl+S</kbd> to save';
+        }
+      }
+      if (editor) {
+        editor.refresh();
+        editor.focus();
+      }
+    }
+
+    function toggleEditorMode() {
+      switchEditorMode(activeEditorMode === 'query' ? 'tests' : 'query');
+    }
+
+    function saveTestSuite() {
+      testCode = getRawEditorValue();
+      localStorage.setItem('jsonQueryTools.testSuiteCode', testCode);
+      updateTestCountBadge(testCode);
+      if (saveTestsBtn) {
+        const orig = saveTestsBtn.textContent;
+        saveTestsBtn.textContent = '✓ Saved';
+        setTimeout(() => {
+          saveTestsBtn.textContent = orig;
+        }, 1500);
+      }
+    }
+
+    function setLoading(isLoading) {
+      const runBtn = document.getElementById('run');
+      const runBtnMode = document.getElementById('runTestsModeBtn');
+      if (isLoading) {
+        if (runBtn) { runBtn.classList.add('loading'); runBtn.disabled = true; }
+        if (runBtnMode) { runBtnMode.classList.add('loading'); runBtnMode.disabled = true; }
+        if (runTestsBtn) { runTestsBtn.disabled = true; }
+      } else {
+        if (runBtn) { runBtn.classList.remove('loading'); runBtn.disabled = false; }
+        if (runBtnMode) { runBtnMode.classList.remove('loading'); runBtnMode.disabled = false; }
+        if (runTestsBtn) { runTestsBtn.disabled = false; }
+      }
+    }
+
     function clearSyntaxError() {
       if (syntaxErrorMarker && editor) {
         syntaxErrorMarker.clear();
@@ -5027,7 +5810,60 @@ export function getQueryEditorHtml(
       vscode.postMessage({ type: 'run', expr, save: true });
     }
 
+    function runTests() {
+      const expr = getEditorValue();
+      if (!expr) {
+        resultPre.textContent = 'Error: Expression is empty';
+        resultPre.className = 'error';
+        if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+        if (resultInfo) resultInfo.textContent = '';
+        lastBenchmark = null;
+        return;
+      }
+      
+      if (typeof acorn !== 'undefined') {
+        clearSyntaxError();
+        try {
+          acorn.parse(expr, {
+            ecmaVersion: 'latest',
+            locations: true,
+            allowReturnOutsideFunction: true,
+            allowAwaitOutsideFunction: true
+          });
+        } catch (e) {
+          const anyErr = e;
+          const loc = anyErr && anyErr.loc;
+          const msg = anyErr && anyErr.message ? String(anyErr.message) : 'Syntax error';
+          const line = loc && typeof loc.line === 'number' ? loc.line : 1;
+          const column = loc && typeof loc.column === 'number' ? loc.column : 0;
+          showSyntaxError(msg, line, column);
+          resultPre.textContent = 'Syntax error: ' + msg + ' (' + line + ':' + (column + 1) + ')';
+          resultPre.className = 'error';
+          if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+          if (resultInfo) resultInfo.textContent = '';
+          lastBenchmark = null;
+          return;
+        }
+      }
+      
+      clearConsoleOutput();
+      setLoading(true);
+      resultPre.textContent = 'Running tests...';
+      resultPre.className = '';
+      if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+      if (resultInfo) resultInfo.textContent = '';
+      lastBenchmark = null;
+
+      const testTarget = (activeEditorMode === 'tests' && testTargetSelect) ? testTargetSelect.value : 'source';
+      const queryExpr = activeEditorMode === 'tests' ? queryCode : '';
+      vscode.postMessage({ type: 'runTests', expr, target: testTarget, queryExpr, save: true, isTestMode: true });
+    }
+
     function saveExpression() {
+      if (activeEditorMode === 'tests') {
+        saveTestSuite();
+        return;
+      }
       const expr = getEditorValue();
       if (!expr) {
         return;
@@ -5035,11 +5871,13 @@ export function getQueryEditorHtml(
       vscode.postMessage({ type: 'save', expr });
       // Visual feedback
       const saveBtn = document.getElementById('save');
-      const originalText = saveBtn.textContent;
-      saveBtn.textContent = '✓ Saved';
-      setTimeout(() => {
-        saveBtn.textContent = originalText;
-      }, 1500);
+      if (saveBtn) {
+        const originalText = saveBtn.textContent;
+        saveBtn.textContent = '✓ Saved';
+        setTimeout(() => {
+          saveBtn.textContent = originalText;
+        }, 1500);
+      }
     }
 
     function beautifyExpression() {
@@ -5072,12 +5910,14 @@ export function getQueryEditorHtml(
         setEditorValue(formatted);
         if (editor) editor.focus();
         
-        const beautifyBtn = document.getElementById('beautify');
-        const originalText = beautifyBtn.textContent;
-        beautifyBtn.textContent = '✓ Beautified';
-        setTimeout(() => {
-          beautifyBtn.textContent = originalText;
-        }, 1500);
+        const targetBtn = activeEditorMode === 'tests' ? beautifyTestsBtn : document.getElementById('beautify');
+        if (targetBtn) {
+          const originalText = targetBtn.textContent;
+          targetBtn.textContent = '✓ Beautified';
+          setTimeout(() => {
+            targetBtn.textContent = originalText;
+          }, 1500);
+        }
       } catch (e) {
         console.error('Beautify error:', e);
         throw new Error('Beautify failed: ' + String(e));
@@ -5259,6 +6099,206 @@ export function getQueryEditorHtml(
       scratchpadBtn.onclick = () => vscode.postMessage({ type: 'switchToScratchpad' });
     }
 
+    if (modeQueryBtn) {
+      modeQueryBtn.onclick = () => switchEditorMode('query');
+    }
+    if (modeTestsBtn) {
+      modeTestsBtn.onclick = () => switchEditorMode('tests');
+    }
+    if (runTestsModeBtn) {
+      runTestsModeBtn.onclick = runTests;
+    }
+    if (saveTestsBtn) {
+      saveTestsBtn.onclick = saveTestSuite;
+    }
+    if (beautifyTestsBtn) {
+      beautifyTestsBtn.onclick = () => beautifyExpression();
+    }
+    if (clearTestsBtn) {
+      clearTestsBtn.onclick = () => {
+        setEditorValue('');
+        testCode = '';
+        localStorage.removeItem('jsonQueryTools.testSuiteCode');
+        updateTestCountBadge('');
+        if (editor) editor.focus();
+      };
+    }
+    if (importTestFileBtn) {
+      importTestFileBtn.onclick = () => {
+        vscode.postMessage({ type: 'importTestSuite' });
+      };
+    }
+    if (exportTestFileBtn) {
+      exportTestFileBtn.onclick = () => {
+        vscode.postMessage({ type: 'exportTestSuite', expr: getRawEditorValue() });
+      };
+    }
+    if (testTargetSelect) {
+      updateTestTargetSelectOptions();
+      if (typeof testTargetSelect.addEventListener === 'function') {
+        testTargetSelect.addEventListener('change', () => {
+          if (window.localStorage && localStorage.setItem) {
+            localStorage.setItem('jsonQueryTools.testTarget', testTargetSelect.value);
+          }
+        });
+      }
+    }
+
+    const TEST_SNIPPETS = {
+      contract_full: [
+        "// Comprehensive API Contract Suite",
+        "test('status is ok and data exists', () => {",
+        "  expect(data).toBeDefined();",
+        "  expect(data).not.toBeNull();",
+        "});",
+        "",
+        "test('data contains expected fields', () => {",
+        "  if (Array.isArray(data)) {",
+        "    expect(data.length).toBeGreaterThan(0);",
+        "    expect(data[0]).toHaveProperty('id');",
+        "  } else {",
+        "    expect(typeof data).toBe('object');",
+        "  }",
+        "});"
+      ].join(String.fromCharCode(10)),
+      schema_validation: [
+        "// Schema & Types Validation",
+        "test('validates types of core fields', () => {",
+        "  const item = Array.isArray(data) ? data[0] : data;",
+        "  expect(typeof item).toBe('object');",
+        "  expect(item).toHaveProperty('id');",
+        "  expect(typeof item.id).toMatch(/^(string|number)$/);",
+        "});"
+      ].join(String.fromCharCode(10)),
+      status_codes: [
+        "// Status & Timestamp Validation",
+        "test('response status and timestamps', () => {",
+        "  if (data.status) {",
+        "    expect(data.status).toMatch(/^(success|ok|200)$/i);",
+        "  }",
+        "  if (data.timestamp || data.createdAt) {",
+        "    const ts = new Date(data.timestamp || data.createdAt).getTime();",
+        "    expect(Number.isNaN(ts)).toBe(false);",
+        "  }",
+        "});"
+      ].join(String.fromCharCode(10)),
+      array_items_deep: [
+        "// Array Elements & Sub-properties",
+        "test('every item in array satisfies schema constraints', () => {",
+        "  const items = Array.isArray(data) ? data : (data.items || data.results || []);",
+        "  expect(items.length).toBeGreaterThan(0);",
+        "  items.forEach((item, index) => {",
+        "    expect(item).toBeDefined();",
+        "    expect(typeof item).toBe('object');",
+        "  });",
+        "});"
+      ].join(String.fromCharCode(10)),
+      node_assert: [
+        "// Node.js Assert Interface",
+        "test('Node assert contract verification', () => {",
+        "  assert.ok(data, 'data must be truthy');",
+        "  if (Array.isArray(data)) {",
+        "    assert.ok(data.length > 0, 'array must not be empty');",
+        "  } else {",
+        "    assert.strictEqual(typeof data, 'object', 'data must be an object');",
+        "  }",
+        "});"
+      ].join(String.fromCharCode(10)),
+      multi_source_contract: [
+        "// Cross-Source Contract (when multiple files or endpoints are bound)",
+        "// Each bound source is accessible directly by its alias identifier (e.g. users, orders).",
+        "// 'data' and 'raw' provide the composite dictionary of all sources.",
+        "test('all bound sources are accessible by alias', () => {",
+        "  expect(data).toBeDefined();",
+        "  expect(raw).toBeDefined();",
+        "});",
+        "test('cross-source relational integrity', () => {",
+        "  // Example: expect(users).toBeArray();",
+        "  // Example: expect(orders).toBeArray();",
+        "});"
+      ].join(String.fromCharCode(10)),
+      query_result_contract: [
+        "// Validate Query Result (Target: Query Result)",
+        "// 'data' points to the transformed query result.",
+        "// 'raw' holds the original un-queried input.",
+        "test('query output contains transformed items', () => {",
+        "  expect(data).toBeDefined();",
+        "  if (Array.isArray(data)) {",
+        "    expect(data.length).toBeGreaterThan(0);",
+        "  }",
+        "  expect(raw).toBeDefined();",
+        "});"
+      ].join(String.fromCharCode(10))
+    };
+
+    if (testSnippetSelect) {
+      testSnippetSelect.addEventListener('change', () => {
+        const val = testSnippetSelect.value;
+        if (!val) return;
+        const code = TEST_SNIPPETS[val];
+        if (code) {
+          insertSnippetCode(code);
+          updateTestCountBadge();
+        }
+        testSnippetSelect.value = '';
+      });
+    }
+
+    if (runTestsBtn) {
+      runTestsBtn.onclick = runTests;
+    }
+    if (rerunTestsBtn) {
+      rerunTestsBtn.onclick = runTests;
+    }
+    if (testSuiteBadge) {
+      testSuiteBadge.onclick = () => {
+        if (resultFormat) {
+          resultFormat.value = 'tests';
+          updateResultDisplay('', currentResultData);
+        }
+      };
+    }
+    if (testFilterAll) testFilterAll.onclick = () => setTestFilter('all');
+    if (testFilterPassed) testFilterPassed.onclick = () => setTestFilter('passed');
+    if (testFilterFailed) testFilterFailed.onclick = () => setTestFilter('failed');
+    if (testSearchInput) {
+      testSearchInput.oninput = (e) => {
+        testSearchQuery = (e.target.value || '').toLowerCase().trim();
+        renderTestCards();
+      };
+    }
+    if (copyTestReportBtn) {
+      copyTestReportBtn.onclick = () => {
+        if (!currentTestSuite) return;
+        const s = currentTestSuite;
+        const status = s.failed === 0 ? 'PASSED' : 'FAILED';
+        const lines = [
+          '# Test Suite Results (' + status + ')',
+          '',
+          '- **Total:** ' + s.total,
+          '- **Passed:** ' + s.passed,
+          '- **Failed:** ' + s.failed,
+          '- **Duration:** ' + s.durationMs.toFixed(1) + 'ms',
+          '',
+          '## Test Cases'
+        ];
+        for (const t of s.tests) {
+          const icon = (t.status === 'passed' || t.status === 'pass') ? '[x]' : '[ ]';
+          lines.push('- ' + icon + ' **' + t.name + '** (' + t.durationMs.toFixed(1) + 'ms)');
+          if (t.error) {
+            lines.push('  - *Error:* ' + t.error.message);
+            if (t.error.expected !== undefined) {
+              lines.push('  - *Expected:* ' + JSON.stringify(t.error.expected));
+            }
+            if (t.error.actual !== undefined) {
+              lines.push('  - *Actual:* ' + JSON.stringify(t.error.actual));
+            }
+          }
+        }
+        vscode.postMessage({ type: 'copyToClipboard', text: lines.join(String.fromCharCode(10)) });
+      };
+    }
+
     // Snippet Library & Cheatsheet System
     function insertSnippetCode(code) {
       if (!code) return;
@@ -5284,6 +6324,57 @@ export function getQueryEditorHtml(
     }
 
     const SNIPPET_LIBRARY = [
+      {
+        id: 'test_contract',
+        title: 'API Contract Test Suite (test & expect)',
+        category: 'testing',
+        categoryLabel: 'Tests & Assertions',
+        description: 'Complete API contract test suite validating structure, data types, and properties',
+        code: [
+          'test("Response is defined and valid", () => {',
+          '  expect(data).toBeDefined();',
+          '  expect(data).not.toBeNull();',
+          '});',
+          '',
+          'test("Root object has expected fields", () => {',
+          '  if (Array.isArray(data)) {',
+          '    expect(data.length).toBeGreaterThan(0);',
+          '  } else {',
+          '    expect(data).toBeObject();',
+          '  }',
+          '});'
+        ].join(String.fromCharCode(10))
+      },
+      {
+        id: 'test_status_schema',
+        title: 'Status & Property Validation',
+        category: 'testing',
+        categoryLabel: 'Tests & Assertions',
+        description: 'Validate HTTP status, headers, and top-level response schema using expect()',
+        code: [
+          'test("Status code and payload schema", () => {',
+          '  expect(data).toHaveProperty("id");',
+          '  expect(data.id).toBeNumber();',
+          '});'
+        ].join(String.fromCharCode(10))
+      },
+      {
+        id: 'test_array_items',
+        title: 'Array Items Deep Assertions',
+        category: 'testing',
+        categoryLabel: 'Tests & Assertions',
+        description: 'Validate each item in an array conforms to contract requirements',
+        code: [
+          'test("Validate array collection contract", () => {',
+          '  expect(data).toBeArray();',
+          '  expect(data.length).toBeGreaterThan(0);',
+          '  for (const item of data) {',
+          '    expect(item).toHaveProperty("id");',
+          '    expect(item.id).toBeNumber();',
+          '  }',
+          '});'
+        ].join(String.fromCharCode(10))
+      },
       {
         id: 'group_by',
         title: 'Group by Property (Object.groupBy)',
@@ -5683,6 +6774,9 @@ export function getQueryEditorHtml(
         if (cheatsheetModal && cheatsheetModal.style.display !== 'none') {
           closeCheatsheetModal();
         }
+      } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'E' || e.key === 'e')) {
+        e.preventDefault();
+        toggleEditorMode();
       }
     });
     function escapeCsvCell(val) {
@@ -6473,8 +7567,27 @@ export function getQueryEditorHtml(
         }
 
         editor.setOption('extraKeys', {
-          'Ctrl-Enter': () => { runExpression(); return false; },
-          'Cmd-Enter': () => { runExpression(); return false; },
+          ...editor.getOption('extraKeys'),
+          'Ctrl-Enter': () => {
+            if (activeEditorMode === 'tests') {
+              runTests();
+            } else {
+              runExpression();
+            }
+            return false;
+          },
+          'Cmd-Enter': () => {
+            if (activeEditorMode === 'tests') {
+              runTests();
+            } else {
+              runExpression();
+            }
+            return false;
+          },
+          'Ctrl-Shift-T': () => { runTests(); return false; },
+          'Cmd-Shift-T': () => { runTests(); return false; },
+          'Ctrl-Shift-E': () => { toggleEditorMode(); return false; },
+          'Cmd-Shift-E': () => { toggleEditorMode(); return false; },
           'Ctrl-S': (cm) => { saveExpression(); return false; },
           'Cmd-S': (cm) => { saveExpression(); return false; },
           // Toggle line comments in the embedded CodeMirror editor
@@ -6493,9 +7606,19 @@ export function getQueryEditorHtml(
       } else if (exprTextarea) {
         // Also add keyboard shortcuts for textarea fallback
         exprTextarea.addEventListener('keydown', (e) => {
-          if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'T' || e.key === 't')) {
             e.preventDefault();
-            runExpression();
+            runTests();
+          } else if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'E' || e.key === 'e')) {
+            e.preventDefault();
+            toggleEditorMode();
+          } else if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+            e.preventDefault();
+            if (activeEditorMode === 'tests') {
+              runTests();
+            } else {
+              runExpression();
+            }
           } else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
             e.preventDefault();
             saveExpression();
@@ -6562,11 +7685,24 @@ export function getQueryEditorHtml(
         }
       } else if (msg.type === 'insert') {
         hideAiAlert();
+        if (activeEditorMode === 'tests') {
+          switchEditorMode('query');
+        }
         setEditorValue(msg.expr || '');
         const aiBtn = document.getElementById('aiGenerate');
         if (aiBtn) {
           aiBtn.disabled = false;
           aiBtn.textContent = 'Generate';
+        }
+      } else if (msg.type === 'insertTest') {
+        const code = String(msg.testExpr || '');
+        testCode = code;
+        localStorage.setItem('jsonQueryTools.testSuiteCode', code);
+        updateTestCountBadge(code);
+        if (activeEditorMode !== 'tests') {
+          switchEditorMode('tests');
+        } else {
+          setEditorValue(code);
         }
       } else if (msg.type === 'aiError') {
         const aiBtn = document.getElementById('aiGenerate');
@@ -6618,6 +7754,17 @@ export function getQueryEditorHtml(
           currentResultText = msg.text ?? '';
           updateBenchmarkMeter(msg.durationMs, msg.byteSize, msg.text);
           updateResultDisplay(msg.text ?? '', currentResultData);
+        }
+        if (msg.testSuite) {
+          currentTestSuite = msg.testSuite;
+          updateTestSuiteBadge(msg.testSuite);
+          if (msg.isTestMode || (resultFormat && resultFormat.value === 'tests')) {
+            if (resultFormat) resultFormat.value = 'tests';
+            updateResultDisplay(msg.text ?? '', currentResultData);
+          }
+        } else if (!msg.error) {
+          currentTestSuite = null;
+          updateTestSuiteBadge(null);
         }
       } else if (msg.type === 'resultStart') {
         // Initialize streaming
@@ -6695,6 +7842,17 @@ export function getQueryEditorHtml(
         streamingData = null;
         updateBenchmarkMeter(msg.durationMs, msg.byteSize, msg.text);
         updateResultDisplay(msg.text ?? '', currentResultData);
+        if (msg.testSuite) {
+          currentTestSuite = msg.testSuite;
+          updateTestSuiteBadge(msg.testSuite);
+          if (msg.isTestMode || (resultFormat && resultFormat.value === 'tests')) {
+            if (resultFormat) resultFormat.value = 'tests';
+            updateResultDisplay(msg.text ?? '', currentResultData);
+          }
+        } else {
+          currentTestSuite = null;
+          updateTestSuiteBadge(null);
+        }
       } else if (msg.type === 'updateModels') {
         aiModel.innerHTML = '<option value="" disabled selected>Select Model...</option>';
         if (msg.models && msg.models.length > 0) {
@@ -6719,6 +7877,8 @@ export function getQueryEditorHtml(
         }
       } else if (msg.type === 'triggerDiff') {
         if (diffResultBtn) diffResultBtn.click();
+      } else if (msg.type === 'triggerRunTests') {
+        runTests();
       }
     });
 
@@ -6944,6 +8104,22 @@ export function getQueryEditorHtml(
       }
 
       // Display based on format
+      if (format === 'tests') {
+        resultPre.style.display = 'none';
+        if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'none';
+        hideTable();
+        hideChart();
+        if (resultTestsContainer) {
+          resultTestsContainer.style.display = 'block';
+        }
+        copyResultBtn.style.display = 'none';
+        updateExportButtons('tests', false);
+        renderTestResults();
+        return;
+      }
+
+      hideTests();
+
       if (format === 'table') {
         // Table view
         resultPre.style.display = 'none';
@@ -7338,6 +8514,11 @@ export function getQueryEditorHtml(
     }
 
     resultFormat.addEventListener('change', () => {
+      const format = resultFormat.value;
+      if (format === 'tests') {
+        updateResultDisplay('', currentResultData);
+        return;
+      }
       // Handle format change - support both completed and streaming data
       const dataToUse = currentResultData !== null && currentResultData !== undefined 
         ? currentResultData 

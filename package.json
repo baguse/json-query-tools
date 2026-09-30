@@ -22,7 +22,8 @@
     "onCommand:jsonQueryTools.diffResult",
     "onCommand:jsonQueryTools.exportHistory",
     "onCommand:jsonQueryTools.importHistory",
-    "onCommand:jsonQueryTools.generateTypes"
+    "onCommand:jsonQueryTools.generateTypes",
+    "onCommand:jsonQueryTools.runTests"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -54,6 +55,10 @@
       {
         "command": "jsonQueryTools.generateTypes",
         "title": "JSON Tools: Generate Types & Contracts (TypeScript, Zod, Python, JSON Schema)"
+      },
+      {
+        "command": "jsonQueryTools.runTests",
+        "title": "JSON Tools: Run Query as Test Suite"
       }
     ],
     "configuration": {
