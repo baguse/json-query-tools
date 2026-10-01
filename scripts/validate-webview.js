@@ -211,6 +211,12 @@ async function validate() {
       'id="importPipelineJsonBtn"',
       'id="exportPipelineJsonBtn"',
       'id="pipelineResultBadge"',
+      'id="workspaceLayout"',
+      'id="editorPane"',
+      'id="resultPane"',
+      'id="layoutToggleBtn"',
+      'id="toggleAiDrawerBtn"',
+      'id="aiDrawer"',
       'class="search-icon">&#128269;</span>'
     ];
 

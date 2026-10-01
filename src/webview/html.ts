@@ -874,6 +874,106 @@ export function getQueryEditorHtml(
       cursor: not-allowed;
       transform: none !important;
     }
+    body.layout-split {
+      overflow: hidden;
+      height: 100vh;
+    }
+    .workspace-layout {
+      display: flex;
+      flex: 1;
+      width: 100%;
+      min-height: 0;
+    }
+    .workspace-layout.stacked {
+      flex-direction: column;
+    }
+    .workspace-layout.split {
+      flex-direction: row;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .workspace-pane {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+    }
+    .workspace-layout.stacked .workspace-pane {
+      width: 100%;
+    }
+    .workspace-layout.split .editor-pane {
+      flex: 1 1 50%;
+      min-width: 320px;
+      border-right: 1px solid var(--vscode-panel-border, #3e3e42);
+      overflow-y: auto;
+      height: 100%;
+    }
+    .workspace-layout.split .result-pane {
+      flex: 1 1 50%;
+      min-width: 320px;
+      overflow-y: auto;
+      height: 100%;
+    }
+    .workspace-layout.split #result {
+      border-top: none;
+      height: 100%;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+    }
+    .workspace-layout.split #resultContainer {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .workspace-layout.split #resultContainer .CodeMirror {
+      flex: 1;
+      height: 100% !important;
+      min-height: 350px;
+    }
+    .workspace-layout.split #resultPre {
+      flex: 1;
+      min-height: 350px;
+    }
+    .workspace-layout.split #editorRow .CodeMirror {
+      height: 240px !important;
+    }
+    .workspace-layout.split #history {
+      border-top: 1px solid var(--vscode-panel-border, #3e3e42);
+      max-height: 320px;
+    }
+    #toggleAiDrawerBtn.active, #layoutToggleBtn.active {
+      background: var(--vscode-button-secondaryHoverBackground, rgba(255, 255, 255, 0.15));
+      border-color: var(--vscode-focusBorder, #007acc);
+      color: var(--vscode-textLink-foreground, #3794ff);
+    }
+    .ai-drawer {
+      transition: all 0.2s ease;
+    }
+
+    @media (max-width: 768px) {
+      body.layout-split {
+        overflow: auto !important;
+        height: auto !important;
+      }
+      .workspace-layout.split {
+        flex-direction: column !important;
+        height: auto !important;
+        overflow: visible !important;
+      }
+      .workspace-layout.split .editor-pane,
+      .workspace-layout.split .result-pane {
+        width: 100% !important;
+        flex: 1 1 100% !important;
+        border-right: none !important;
+        height: auto !important;
+      }
+      .workspace-layout.split #resultContainer .CodeMirror {
+        height: 200px !important;
+        min-height: 150px;
+      }
+    }
     #result {
       border-top: 1px solid var(--vscode-panel-border, #3e3e42);
       padding: 16px 20px;
@@ -1250,6 +1350,8 @@ export function getQueryEditorHtml(
         <button id="addUrl" class="secondary" style="padding: 4px 8px; font-size: 11px;" title="Fetch data directly from an HTTP/HTTPS URL with custom headers">+ Add URL</button>
     </div>
     <div style="margin-left: auto; display: flex; gap: 6px; align-items: center;">
+      <button id="toggleAiDrawerBtn" class="secondary" title="Toggle AI Query Assistant Panel">🤖 AI Assistant</button>
+      <button id="layoutToggleBtn" class="secondary" title="Toggle Side-by-Side (Split) / Stacked Layout Mode"><span id="layoutToggleIcon">◫</span> <span id="layoutToggleLabel">Split View</span></button>
       <div class="env-selector-container" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #252526);" title="Active Environment for Request Fetcher and Template Variables">
         <span style="font-size: 11px; opacity: 0.85; display: inline-flex; align-items: center; gap: 3px;">🌐</span>
         <select id="envSelect" style="padding: 2px 4px; font-size: 11px; border: none; background: transparent; color: var(--vscode-input-foreground, #cccccc); cursor: pointer; outline: none;" title="Select active environment (local, staging, production, etc.)">
@@ -1264,7 +1366,7 @@ export function getQueryEditorHtml(
   </header>
 
 
-  <div class="row" style="background: var(--vscode-sideBar-background); border-bottom: 1px solid var(--vscode-panel-border); padding: 14px 20px; flex-direction: column; gap: 10px;">
+  <div id="aiDrawer" class="row ai-drawer" style="display: none; background: var(--vscode-sideBar-background); border-bottom: 1px solid var(--vscode-panel-border); padding: 14px 20px; flex-direction: column; gap: 10px;">
     <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 2px;">
       <span style="font-weight: 600; font-size: 12px; display: flex; align-items: center; gap: 6px; color: var(--vscode-descriptionForeground, #858585); text-transform: uppercase; letter-spacing: 0.3px;">🤖 AI Query</span>
       <select id="aiProvider" style="padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;">
@@ -1294,19 +1396,21 @@ export function getQueryEditorHtml(
     </div>
   </div>
 
-  <div id="securityWarning" class="security-warning" style="display: none; margin-top: 10px;">
-    <div class="security-warning-content">
-      <span class="security-warning-icon">⚠</span>
-      <div class="security-warning-text">
-        <strong>Security Warning</strong>
-        <span id="securityWarningMessage"></span>
+  <div id="workspaceLayout" class="workspace-layout stacked">
+    <div id="editorPane" class="workspace-pane editor-pane">
+      <div id="securityWarning" class="security-warning" style="display: none; margin-top: 10px;">
+        <div class="security-warning-content">
+          <span class="security-warning-icon">⚠</span>
+          <div class="security-warning-text">
+            <strong>Security Warning</strong>
+            <span id="securityWarningMessage"></span>
+          </div>
+          <button id="runAnyway" class="danger">Run Anyway</button>
+          <button id="dismissWarning" class="secondary">Cancel</button>
+        </div>
       </div>
-      <button id="runAnyway" class="danger">Run Anyway</button>
-      <button id="dismissWarning" class="secondary">Cancel</button>
-    </div>
-  </div>
 
-  <div class="row">
+      <div id="editorRow" class="row editor-row">
     <div id="editorModeBar" class="editor-mode-bar">
       <button id="modeQueryBtn" class="editor-mode-tab active" type="button" title="Query Transformation Editor (JavaScript expression)">
         <span>⚡</span> Query
@@ -1484,8 +1588,10 @@ export function getQueryEditorHtml(
     </div>
     <div id="consoleOutput" style="max-height: 180px; overflow-y: auto; padding: 8px 10px; font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Roboto Mono', Consolas, monospace; font-size: 11px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; color: var(--vscode-editor-foreground, var(--vscode-foreground, #cccccc));"></div>
   </div>
+  </div>
 
-  <div id="result">
+  <div id="resultPane" class="workspace-pane result-pane">
+    <div id="result">
     <div class="result-header">
       <div style="display: flex; align-items: center; gap: 8px; flex: 1; flex-wrap: wrap;">
         <h4 style="margin: 0;">Result</h4>
@@ -1740,6 +1846,7 @@ export function getQueryEditorHtml(
       </div>
     </div>
   </div>
+  </div>
 
   <div id="history">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
@@ -1754,6 +1861,7 @@ export function getQueryEditorHtml(
       <input type="text" id="historySearch" class="search-input" placeholder="Search saved queries..." />
     </div>
     <div id="list"></div>
+  </div>
   </div>
 
   <!-- URL Source Modal -->
@@ -3114,6 +3222,131 @@ export function getQueryEditorHtml(
     if (aiAlertDismiss) {
       aiAlertDismiss.onclick = hideAiAlert;
     }
+
+    // Workspace Layout & AI Drawer Controls
+    const aiDrawer = document.getElementById('aiDrawer');
+    const toggleAiDrawerBtn = document.getElementById('toggleAiDrawerBtn');
+    const layoutToggleBtn = document.getElementById('layoutToggleBtn');
+    const layoutToggleIcon = document.getElementById('layoutToggleIcon');
+    const layoutToggleLabel = document.getElementById('layoutToggleLabel');
+    const workspaceLayout = document.getElementById('workspaceLayout');
+    const editorPane = document.getElementById('editorPane');
+    const resultPane = document.getElementById('resultPane');
+
+    function refreshEditors() {
+      setTimeout(function() {
+        if (typeof editor !== 'undefined' && editor && typeof editor.refresh === 'function') {
+          editor.refresh();
+        }
+        if (typeof resultJsonEditor !== 'undefined' && resultJsonEditor && typeof resultJsonEditor.refresh === 'function') {
+          resultJsonEditor.refresh();
+        }
+      }, 50);
+      setTimeout(function() {
+        if (typeof editor !== 'undefined' && editor && typeof editor.refresh === 'function') {
+          editor.refresh();
+        }
+        if (typeof resultJsonEditor !== 'undefined' && resultJsonEditor && typeof resultJsonEditor.refresh === 'function') {
+          resultJsonEditor.refresh();
+        }
+      }, 150);
+    }
+
+    function toggleAiDrawer(forceState) {
+      if (!aiDrawer) return;
+      const isOpen = typeof forceState === 'boolean'
+        ? forceState
+        : (aiDrawer.style && aiDrawer.style.display === 'none');
+      if (aiDrawer.style) {
+        aiDrawer.style.display = isOpen ? 'flex' : 'none';
+      }
+      if (toggleAiDrawerBtn) {
+        if (toggleAiDrawerBtn.classList) toggleAiDrawerBtn.classList.toggle('active', isOpen);
+        toggleAiDrawerBtn.title = isOpen ? 'Hide AI Query Assistant Panel' : 'Show AI Query Assistant Panel';
+      }
+      try {
+        if (window.localStorage && localStorage.setItem) {
+          localStorage.setItem('jsonQueryTools.aiDrawerOpen', isOpen ? 'true' : 'false');
+        }
+      } catch (e) {}
+      refreshEditors();
+    }
+
+    if (toggleAiDrawerBtn) {
+      toggleAiDrawerBtn.onclick = function() {
+        toggleAiDrawer();
+      };
+    }
+
+    function updateHistoryPlacement(mode) {
+      if (typeof document === 'undefined') return;
+      const historyEl = document.getElementById('history');
+      if (!historyEl || !editorPane || !workspaceLayout) return;
+      if (mode === 'split') {
+        if (historyEl.parentElement !== editorPane && typeof editorPane.appendChild === 'function') {
+          editorPane.appendChild(historyEl);
+        }
+      } else {
+        if (historyEl.parentElement !== workspaceLayout && typeof workspaceLayout.appendChild === 'function') {
+          workspaceLayout.appendChild(historyEl);
+        }
+      }
+    }
+
+    function setLayoutMode(mode) {
+      const isSplit = mode === 'split';
+      if (workspaceLayout && workspaceLayout.classList) {
+        workspaceLayout.classList.toggle('split', isSplit);
+        workspaceLayout.classList.toggle('stacked', !isSplit);
+      }
+      if (typeof document !== 'undefined' && document.body && document.body.classList) {
+        document.body.classList.toggle('layout-split', isSplit);
+      }
+
+      if (layoutToggleBtn) {
+        if (layoutToggleBtn.classList) layoutToggleBtn.classList.toggle('active', isSplit);
+        if (layoutToggleIcon) layoutToggleIcon.textContent = isSplit ? '☰' : '◫';
+        if (layoutToggleLabel) layoutToggleLabel.textContent = isSplit ? 'Stacked View' : 'Split View';
+        layoutToggleBtn.title = isSplit
+          ? 'Switch to Stacked (Vertical) Layout Mode'
+          : 'Switch to Side-by-Side (Split) Layout Mode';
+      }
+
+      updateHistoryPlacement(mode);
+
+      try {
+        if (window.localStorage && localStorage.setItem) {
+          localStorage.setItem('jsonQueryTools.layoutMode', mode);
+        }
+      } catch (e) {}
+
+      refreshEditors();
+    }
+
+    if (layoutToggleBtn) {
+      layoutToggleBtn.onclick = function() {
+        const currentMode = workspaceLayout && workspaceLayout.classList && workspaceLayout.classList.contains('split') ? 'split' : 'stacked';
+        const nextMode = currentMode === 'split' ? 'stacked' : 'split';
+        setLayoutMode(nextMode);
+      };
+    }
+
+    // Restore saved layout and drawer preferences
+    let savedLayout = 'stacked';
+    try {
+      if (window.localStorage && localStorage.getItem) {
+        savedLayout = localStorage.getItem('jsonQueryTools.layoutMode') || 'stacked';
+      }
+    } catch (e) {}
+    setLayoutMode(savedLayout);
+
+    let savedAiDrawerOpen = false;
+    try {
+      if (window.localStorage && localStorage.getItem) {
+        savedAiDrawerOpen = localStorage.getItem('jsonQueryTools.aiDrawerOpen') === 'true';
+      }
+    } catch (e) {}
+    toggleAiDrawer(savedAiDrawerOpen);
 
     // Initialize Config
     const savedProvider = localStorage.getItem('jsonQueryTools.aiProvider') || 'ollama';
