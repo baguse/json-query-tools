@@ -1542,6 +1542,7 @@ export function getQueryEditorHtml(
         <button id="diffResultBtn" class="secondary" style="padding: 6px 10px;" title="Compare Original JSON with Transformed Result in Side-by-Side Diff (vscode.diff)">⚖️ Diff</button>
         <button id="toggleVisualLensBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Toggle Visual Lens (JSON Path &amp; Expression Picker)">🔍 Lens</button>
         <button id="toggleConsoleResultBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Toggle Console Output Drawer">📟 Console <span id="consoleBadgeResult" style="display: none; background: var(--vscode-badge-background, #4d4d4d); color: var(--vscode-badge-foreground, #ffffff); border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: bold;">0</span></button>
+        <button id="toggleMockServerBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Serve query result as local mock REST API (http://localhost:3000/api)">📡 Mock API <span id="mockServerStatusDot" style="display: none; width: 7px; height: 7px; border-radius: 50%; background: #4ec9b0; box-shadow: 0 0 5px #4ec9b0;"></span></button>
       </div>
     </div>
 
@@ -1567,6 +1568,94 @@ export function getQueryEditorHtml(
         <button id="lensCloseBtn" class="secondary" style="padding: 3px 6px; font-size: 10px; opacity: 0.7;" title="Hide Visual Lens bar">✕</button>
       </div>
     </div>
+
+    <!-- Instant Local Mock Server Panel -->
+    <div id="mockServerPanel" style="display: none; flex-direction: column; gap: 10px; padding: 10px 14px; margin-bottom: 12px; background: var(--vscode-editor-inactiveSelectionBackground, rgba(58, 61, 65, 0.3)); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 6px; font-size: 11px;">
+      <!-- Header / Status Bar -->
+      <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span style="font-weight: 600; font-size: 12px; display: inline-flex; align-items: center; gap: 5px;">
+            📡 Local Mock REST API Server
+          </span>
+          <span id="mockServerStatusBadge" style="padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 600; background: rgba(128,128,128,0.2); color: var(--vscode-descriptionForeground, #858585);">
+            ⚪ Offline
+          </span>
+          <code id="mockServerUrlDisplay" style="display: none; font-family: var(--vscode-editor-font-family, monospace); background: var(--vscode-textCodeBlock-background, #1e1e1e); padding: 2px 8px; border-radius: 3px; color: #4ec9b0; border: 1px solid var(--vscode-input-border, #3e3e42); user-select: all;" title="Active Mock Endpoint URL">http://localhost:3000/api</code>
+        </div>
+        <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <button id="startMockServerBtn" class="primary" style="padding: 4px 10px; font-size: 11px;">▶ Start Server</button>
+          <button id="stopMockServerBtn" class="danger" style="display: none; padding: 4px 10px; font-size: 11px;">■ Stop Server</button>
+          <button id="copyMockUrlBtn" class="secondary" style="display: none; padding: 4px 8px; font-size: 11px;" title="Copy mock endpoint URL to clipboard">📋 Copy URL</button>
+          <button id="openMockBrowserBtn" class="secondary" style="display: none; padding: 4px 8px; font-size: 11px;" title="Open endpoint in browser">↗ Open</button>
+          <button id="copyMockCurlBtn" class="secondary" style="display: none; padding: 4px 8px; font-size: 11px;" title="Copy cURL snippet">📋 cURL</button>
+          <button id="closeMockPanelBtn" class="secondary" style="padding: 3px 7px; font-size: 10px; margin-left: 4px;" title="Close mock panel">✕</button>
+        </div>
+      </div>
+
+      <!-- Settings Row -->
+      <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: rgba(0,0,0,0.15); padding: 8px 10px; border-radius: 4px;">
+        <label style="display: inline-flex; align-items: center; gap: 4px;">
+          <span>Port:</span>
+          <input type="number" id="mockPortInput" value="3000" min="1024" max="65535" style="width: 60px; padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px;">
+        </label>
+        <label style="display: inline-flex; align-items: center; gap: 4px;">
+          <span>Endpoint:</span>
+          <input type="text" id="mockEndpointInput" value="/api" style="width: 90px; padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px;">
+        </label>
+        <label style="display: inline-flex; align-items: center; gap: 4px;">
+          <span>Mode:</span>
+          <select id="mockModeSelect" style="padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px;">
+            <option value="static">Static Snapshot</option>
+            <option value="dynamic">Live Evaluation</option>
+          </select>
+        </label>
+        <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="Automatically filter array results by query parameters (e.g. ?category=fruit&limit=5)">
+          <input type="checkbox" id="mockAutoFilterToggle" checked style="margin: 0; cursor: pointer;">
+          <span>Auto-filter (?key=val)</span>
+        </label>
+        <label style="display: inline-flex; align-items: center; gap: 4px;">
+          <span>Latency:</span>
+          <select id="mockLatencySelect" style="padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px;">
+            <option value="0">0ms</option>
+            <option value="50">50ms</option>
+            <option value="150">150ms</option>
+            <option value="300">300ms</option>
+            <option value="500">500ms</option>
+            <option value="1000">1000ms</option>
+          </select>
+        </label>
+        <label style="display: inline-flex; align-items: center; gap: 4px;">
+          <span>Status:</span>
+          <input type="number" id="mockStatusInput" value="200" min="100" max="599" style="width: 48px; padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px;">
+        </label>
+      </div>
+
+      <!-- Request Activity Feed -->
+      <div style="display: flex; flex-direction: column; gap: 4px;">
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <span style="font-weight: 600; font-size: 11px; color: var(--vscode-descriptionForeground, #858585);">
+            Incoming Requests Feed (<span id="mockRequestCountBadge">0</span>)
+          </span>
+          <button id="clearMockLogsBtn" class="secondary" style="padding: 2px 6px; font-size: 10px;">Clear Feed</button>
+        </div>
+        <div id="mockLogsContainer" style="max-height: 120px; overflow-y: auto; background: var(--vscode-textCodeBlock-background, #1e1e1e); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; padding: 6px; font-family: var(--vscode-editor-font-family, monospace); font-size: 10px;">
+          <div id="mockLogsEmptyMsg" style="color: var(--vscode-descriptionForeground, #858585); text-align: center; padding: 8px;">No incoming HTTP requests yet. Run <code>curl http://localhost:3000/api</code> or test with frontend apps.</div>
+          <table id="mockLogsTable" style="display: none; width: 100%; border-collapse: collapse; text-align: left;">
+            <thead>
+              <tr style="border-bottom: 1px solid rgba(128,128,128,0.2); color: var(--vscode-descriptionForeground, #858585);">
+                <th style="padding: 2px 4px;">Time</th>
+                <th style="padding: 2px 4px;">Method</th>
+                <th style="padding: 2px 4px;">Path</th>
+                <th style="padding: 2px 4px;">Status</th>
+                <th style="padding: 2px 4px;">Latency</th>
+              </tr>
+            </thead>
+            <tbody id="mockLogsTbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <div id="resultContainer">
       <textarea id="resultJsonEditor" style="display: none;"></textarea>
       <pre id="resultPre" class="empty">(no result yet)</pre>
@@ -2159,6 +2248,31 @@ export function getQueryEditorHtml(
     const importPipelineJsonBtn = document.getElementById('importPipelineJsonBtn');
     const exportPipelineJsonBtn = document.getElementById('exportPipelineJsonBtn');
     const pipelineResultBadge = document.getElementById('pipelineResultBadge');
+
+    const toggleMockServerBtn = document.getElementById('toggleMockServerBtn');
+    const mockServerStatusDot = document.getElementById('mockServerStatusDot');
+    const mockServerPanel = document.getElementById('mockServerPanel');
+    const mockServerStatusBadge = document.getElementById('mockServerStatusBadge');
+    const mockServerUrlDisplay = document.getElementById('mockServerUrlDisplay');
+    const startMockServerBtn = document.getElementById('startMockServerBtn');
+    const stopMockServerBtn = document.getElementById('stopMockServerBtn');
+    const copyMockUrlBtn = document.getElementById('copyMockUrlBtn');
+    const openMockBrowserBtn = document.getElementById('openMockBrowserBtn');
+    const copyMockCurlBtn = document.getElementById('copyMockCurlBtn');
+    const closeMockPanelBtn = document.getElementById('closeMockPanelBtn');
+    const mockPortInput = document.getElementById('mockPortInput');
+    const mockEndpointInput = document.getElementById('mockEndpointInput');
+    const mockModeSelect = document.getElementById('mockModeSelect');
+    const mockAutoFilterToggle = document.getElementById('mockAutoFilterToggle');
+    const mockLatencySelect = document.getElementById('mockLatencySelect');
+    const mockStatusInput = document.getElementById('mockStatusInput');
+    const mockRequestCountBadge = document.getElementById('mockRequestCountBadge');
+    const clearMockLogsBtn = document.getElementById('clearMockLogsBtn');
+    const mockLogsContainer = document.getElementById('mockLogsContainer');
+    const mockLogsEmptyMsg = document.getElementById('mockLogsEmptyMsg');
+    const mockLogsTable = document.getElementById('mockLogsTable');
+    const mockLogsTbody = document.getElementById('mockLogsTbody');
+    let activeMockServerState = null;
 
     let pipelineSteps = [
       { id: 'step_1', name: 'Filter / Clean', alias: 'step1', expr: '// Step 1: Filter / Clean data\\nreturn Array.isArray(data) ? data.filter(item => item != null) : data;', enabled: true },
@@ -8325,6 +8439,293 @@ export function getQueryEditorHtml(
       };
     }
 
+    // ==========================================
+    // Instant Local Mock REST API Server UI
+    // ==========================================
+
+    function appendMockLogRow(log, prepend) {
+      if (!mockLogsTbody || !log) return;
+      if (mockLogsEmptyMsg) mockLogsEmptyMsg.style.display = 'none';
+      if (mockLogsTable) mockLogsTable.style.display = 'table';
+
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px solid rgba(128,128,128,0.15)';
+
+      const timeStr = log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '';
+      let methodColor = '#9cdcfe';
+      if (log.method === 'GET') methodColor = '#4ec9b0';
+      else if (log.method === 'POST') methodColor = '#dcdcaa';
+      else if (log.method === 'DELETE') methodColor = '#f44747';
+      else if (log.method === 'PUT' || log.method === 'PATCH') methodColor = '#ce9178';
+
+      let statusColor = '#4ec9b0';
+      const sc = Number(log.statusCode || 200);
+      if (sc >= 400 && sc < 500) statusColor = '#ce9178';
+      else if (sc >= 500) statusColor = '#f44747';
+
+      let displayPath = log.path || '/';
+      if (log.query && typeof log.query === 'object' && Object.keys(log.query).length > 0) {
+        const qParts = [];
+        for (const k of Object.keys(log.query)) {
+          qParts.push(encodeURIComponent(k) + '=' + encodeURIComponent(log.query[k]));
+        }
+        if (!displayPath.includes('?')) {
+          displayPath += '?' + qParts.join('&');
+        }
+      }
+
+      tr.innerHTML =
+        '<td style="padding: 2px 4px; color: var(--vscode-descriptionForeground, #858585); white-space: nowrap;">' + escapeHtml(timeStr) + '</td>' +
+        '<td style="padding: 2px 4px; font-weight: bold; color: ' + methodColor + '; white-space: nowrap;">' + escapeHtml(log.method || 'GET') + '</td>' +
+        '<td style="padding: 2px 4px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="' + escapeHtml(displayPath) + '">' + escapeHtml(displayPath) + '</td>' +
+        '<td style="padding: 2px 4px; font-weight: bold; color: ' + statusColor + '; white-space: nowrap;">' + escapeHtml(String(sc)) + '</td>' +
+        '<td style="padding: 2px 4px; color: var(--vscode-descriptionForeground, #858585); white-space: nowrap;">' + escapeHtml(String(log.durationMs || 0)) + 'ms</td>';
+
+      if (prepend && mockLogsTbody.firstChild) {
+        mockLogsTbody.insertBefore(tr, mockLogsTbody.firstChild);
+        while (mockLogsTbody.children.length > 50) {
+          mockLogsTbody.removeChild(mockLogsTbody.lastChild);
+        }
+      } else {
+        mockLogsTbody.appendChild(tr);
+      }
+    }
+
+    function renderMockLogs(requests) {
+      if (!mockLogsTbody) return;
+      mockLogsTbody.innerHTML = '';
+      const list = requests || [];
+      if (mockRequestCountBadge) mockRequestCountBadge.textContent = String(list.length);
+
+      if (list.length === 0) {
+        if (mockLogsEmptyMsg) mockLogsEmptyMsg.style.display = 'block';
+        if (mockLogsTable) mockLogsTable.style.display = 'none';
+        return;
+      }
+
+      if (mockLogsEmptyMsg) mockLogsEmptyMsg.style.display = 'none';
+      if (mockLogsTable) mockLogsTable.style.display = 'table';
+
+      for (let i = 0; i < list.length; i++) {
+        appendMockLogRow(list[i], false);
+      }
+    }
+
+    function renderMockServerState(state) {
+      activeMockServerState = state;
+      const isRunning = Boolean(state && state.isRunning);
+
+      if (mockServerStatusDot) {
+        mockServerStatusDot.style.display = isRunning ? 'inline-block' : 'none';
+      }
+
+      if (mockServerStatusBadge) {
+        if (isRunning) {
+          mockServerStatusBadge.textContent = '🟢 Online (:' + state.port + ')';
+          mockServerStatusBadge.style.background = 'rgba(78, 201, 176, 0.2)';
+          mockServerStatusBadge.style.color = '#4ec9b0';
+        } else {
+          mockServerStatusBadge.textContent = '⚪ Offline';
+          mockServerStatusBadge.style.background = 'rgba(128, 128, 128, 0.2)';
+          mockServerStatusBadge.style.color = 'var(--vscode-descriptionForeground, #858585)';
+        }
+      }
+
+      if (mockServerUrlDisplay) {
+        if (isRunning && state && state.url) {
+          mockServerUrlDisplay.textContent = state.url;
+          mockServerUrlDisplay.style.display = 'inline-block';
+        } else {
+          mockServerUrlDisplay.style.display = 'none';
+        }
+      }
+
+      if (startMockServerBtn) {
+        startMockServerBtn.style.display = isRunning ? 'none' : 'inline-flex';
+        startMockServerBtn.disabled = false;
+        startMockServerBtn.textContent = '▶ Start Server';
+      }
+      if (stopMockServerBtn) {
+        stopMockServerBtn.style.display = isRunning ? 'inline-flex' : 'none';
+        stopMockServerBtn.disabled = false;
+        stopMockServerBtn.textContent = '■ Stop Server';
+      }
+      if (copyMockUrlBtn) {
+        copyMockUrlBtn.style.display = isRunning ? 'inline-flex' : 'none';
+      }
+      if (openMockBrowserBtn) {
+        openMockBrowserBtn.style.display = isRunning ? 'inline-flex' : 'none';
+      }
+      if (copyMockCurlBtn) {
+        copyMockCurlBtn.style.display = isRunning ? 'inline-flex' : 'none';
+      }
+
+      if (mockPortInput) mockPortInput.disabled = isRunning;
+      if (mockEndpointInput) mockEndpointInput.disabled = isRunning;
+
+      if (state && isRunning) {
+        if (state.port && mockPortInput) mockPortInput.value = state.port;
+        if (state.endpoint && mockEndpointInput) mockEndpointInput.value = state.endpoint;
+        if (state.mode && mockModeSelect) mockModeSelect.value = state.mode;
+        if (state.autoFilter !== undefined && mockAutoFilterToggle) mockAutoFilterToggle.checked = Boolean(state.autoFilter);
+        if (state.latencyMs !== undefined && mockLatencySelect) mockLatencySelect.value = String(state.latencyMs);
+        if (state.statusCode !== undefined && mockStatusInput) mockStatusInput.value = state.statusCode;
+      }
+      if (state && Array.isArray(state.requests)) {
+        renderMockLogs(state.requests);
+      }
+    }
+
+    function setupMockServerUI() {
+      try {
+        const savedPort = localStorage.getItem('jsonQueryTools.mockPort');
+        if (savedPort && mockPortInput) mockPortInput.value = savedPort;
+        const savedEndpoint = localStorage.getItem('jsonQueryTools.mockEndpoint');
+        if (savedEndpoint && mockEndpointInput) mockEndpointInput.value = savedEndpoint;
+        const savedMode = localStorage.getItem('jsonQueryTools.mockMode');
+        if (savedMode && mockModeSelect) mockModeSelect.value = savedMode;
+        const savedAutoFilter = localStorage.getItem('jsonQueryTools.mockAutoFilter');
+        if (savedAutoFilter !== null && mockAutoFilterToggle) mockAutoFilterToggle.checked = savedAutoFilter === 'true';
+        const savedLatency = localStorage.getItem('jsonQueryTools.mockLatency');
+        if (savedLatency && mockLatencySelect) mockLatencySelect.value = savedLatency;
+        const savedStatus = localStorage.getItem('jsonQueryTools.mockStatus');
+        if (savedStatus && mockStatusInput) mockStatusInput.value = savedStatus;
+      } catch (e) {
+        console.error('Failed to load mock server settings from localStorage:', e);
+      }
+
+      if (mockPortInput) {
+        mockPortInput.addEventListener('change', function() {
+          localStorage.setItem('jsonQueryTools.mockPort', mockPortInput.value);
+        });
+      }
+      if (mockEndpointInput) {
+        mockEndpointInput.addEventListener('change', function() {
+          let ep = mockEndpointInput.value.trim();
+          if (ep && !ep.startsWith('/')) ep = '/' + ep;
+          mockEndpointInput.value = ep || '/api';
+          localStorage.setItem('jsonQueryTools.mockEndpoint', mockEndpointInput.value);
+        });
+      }
+      if (mockModeSelect) {
+        mockModeSelect.addEventListener('change', function() {
+          localStorage.setItem('jsonQueryTools.mockMode', mockModeSelect.value);
+        });
+      }
+      if (mockAutoFilterToggle) {
+        mockAutoFilterToggle.addEventListener('change', function() {
+          localStorage.setItem('jsonQueryTools.mockAutoFilter', String(mockAutoFilterToggle.checked));
+        });
+      }
+      if (mockLatencySelect) {
+        mockLatencySelect.addEventListener('change', function() {
+          localStorage.setItem('jsonQueryTools.mockLatency', mockLatencySelect.value);
+        });
+      }
+      if (mockStatusInput) {
+        mockStatusInput.addEventListener('change', function() {
+          localStorage.setItem('jsonQueryTools.mockStatus', mockStatusInput.value);
+        });
+      }
+
+      if (toggleMockServerBtn) {
+        toggleMockServerBtn.onclick = function() {
+          if (!mockServerPanel) return;
+          const isHidden = mockServerPanel.style.display === 'none';
+          mockServerPanel.style.display = isHidden ? 'flex' : 'none';
+          if (isHidden) {
+            vscode.postMessage({ type: 'getMockServerState' });
+          }
+        };
+      }
+
+      if (closeMockPanelBtn) {
+        closeMockPanelBtn.onclick = function() {
+          if (mockServerPanel) mockServerPanel.style.display = 'none';
+        };
+      }
+
+      if (startMockServerBtn) {
+        startMockServerBtn.onclick = function() {
+          const port = parseInt(mockPortInput ? mockPortInput.value : '3000', 10) || 3000;
+          let endpoint = (mockEndpointInput ? mockEndpointInput.value : '/api').trim();
+          if (!endpoint.startsWith('/')) endpoint = '/' + endpoint;
+          const mode = mockModeSelect ? mockModeSelect.value : 'static';
+          const autoFilter = mockAutoFilterToggle ? mockAutoFilterToggle.checked : true;
+          const latencyMs = parseInt(mockLatencySelect ? mockLatencySelect.value : '0', 10) || 0;
+          const statusCode = parseInt(mockStatusInput ? mockStatusInput.value : '200', 10) || 200;
+
+          startMockServerBtn.disabled = true;
+          startMockServerBtn.textContent = '⏳ Starting...';
+
+          vscode.postMessage({
+            type: 'startMockServer',
+            config: {
+              port: port,
+              endpoint: endpoint,
+              mode: mode,
+              autoFilter: autoFilter,
+              latencyMs: latencyMs,
+              statusCode: statusCode
+            },
+            expr: typeof getEditorValue === 'function' ? getEditorValue() : undefined
+          });
+        };
+      }
+
+      if (stopMockServerBtn) {
+        stopMockServerBtn.onclick = function() {
+          stopMockServerBtn.disabled = true;
+          stopMockServerBtn.textContent = '⏳ Stopping...';
+          vscode.postMessage({ type: 'stopMockServer' });
+        };
+      }
+
+      if (copyMockUrlBtn) {
+        copyMockUrlBtn.onclick = function() {
+          const url = (activeMockServerState && activeMockServerState.url)
+            ? activeMockServerState.url
+            : ('http://localhost:' + (mockPortInput ? mockPortInput.value : '3000') + (mockEndpointInput ? mockEndpointInput.value : '/api'));
+          navigator.clipboard.writeText(url).then(function() {
+            copyMockUrlBtn.textContent = '✓ Copied';
+            setTimeout(function() { copyMockUrlBtn.textContent = '📋 Copy URL'; }, 1200);
+          });
+        };
+      }
+
+      if (openMockBrowserBtn) {
+        openMockBrowserBtn.onclick = function() {
+          const url = (activeMockServerState && activeMockServerState.url) ? activeMockServerState.url : undefined;
+          vscode.postMessage({ type: 'openMockServerBrowser', url: url });
+        };
+      }
+
+      if (copyMockCurlBtn) {
+        copyMockCurlBtn.onclick = function() {
+          const url = (activeMockServerState && activeMockServerState.url)
+            ? activeMockServerState.url
+            : ('http://localhost:' + (mockPortInput ? mockPortInput.value : '3000') + (mockEndpointInput ? mockEndpointInput.value : '/api'));
+          const curlCmd = 'curl -i -X GET "' + url + '"';
+          navigator.clipboard.writeText(curlCmd).then(function() {
+            copyMockCurlBtn.textContent = '✓ Copied';
+            setTimeout(function() { copyMockCurlBtn.textContent = '📋 cURL'; }, 1200);
+          });
+        };
+      }
+
+      if (clearMockLogsBtn) {
+        clearMockLogsBtn.onclick = function() {
+          vscode.postMessage({ type: 'clearMockServerLogs' });
+          if (mockLogsTbody) mockLogsTbody.innerHTML = '';
+          if (mockRequestCountBadge) mockRequestCountBadge.textContent = '0';
+          if (mockLogsTable) mockLogsTable.style.display = 'none';
+          if (mockLogsEmptyMsg) mockLogsEmptyMsg.style.display = 'block';
+        };
+      }
+    }
+
+    setupMockServerUI();
+
     // Setup keyboard shortcuts after editor is initialized
     function setupKeyboardShortcuts() {
       if (editor) {
@@ -8866,6 +9267,28 @@ export function getQueryEditorHtml(
           level: 'info',
           message: '[Stream] Buffer cleared for ' + (msg.sourceId || 'all')
         });
+      } else if (msg.type === 'mockServerState') {
+        renderMockServerState(msg.state);
+      } else if (msg.type === 'mockServerRequest') {
+        appendMockLogRow(msg.log, true);
+        if (mockRequestCountBadge) {
+          const cur = parseInt(mockRequestCountBadge.textContent || '0', 10) || 0;
+          mockRequestCountBadge.textContent = String(cur + 1);
+        }
+      } else if (msg.type === 'mockServerError') {
+        if (startMockServerBtn) {
+          startMockServerBtn.disabled = false;
+          startMockServerBtn.textContent = '▶ Start Server';
+        }
+        appendConsoleEntry({
+          level: 'error',
+          message: '[Mock Server] ' + (msg.error || 'Server error')
+        });
+      } else if (msg.type === 'triggerStartMockServer') {
+        if (mockServerPanel) mockServerPanel.style.display = 'flex';
+        if (startMockServerBtn && (!activeMockServerState || !activeMockServerState.isRunning)) {
+          startMockServerBtn.click();
+        }
       }
     });
 
@@ -9078,6 +9501,10 @@ export function getQueryEditorHtml(
         } else if (lastBenchmark.byteSize !== undefined) {
           if (benchmarkByteSize) benchmarkByteSize.textContent = '💾 ' + formatBytes(lastBenchmark.byteSize);
         }
+      }
+
+      if (activeMockServerState && activeMockServerState.isRunning && data !== undefined && !isStreaming) {
+        vscode.postMessage({ type: 'updateMockServerPayload', payload: data });
       }
       
       function updateExportButtons(fmt, hasData) {

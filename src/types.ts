@@ -132,3 +132,48 @@ export interface PipelineExecutionResult {
   failedStepId?: string;
   error?: string;
 }
+
+// Mock Server types
+export interface MockServerConfig {
+  port: number;
+  endpoint: string;
+  mode: 'static' | 'dynamic';
+  autoFilter: boolean;
+  latencyMs: number;
+  statusCode: number;
+  cors: boolean;
+}
+
+export interface MockServerRequestLog {
+  id: string;
+  timestamp: number;
+  method: string;
+  path: string;
+  query: Record<string, string | string[]>;
+  status: number;
+  durationMs: number;
+  ip?: string;
+}
+
+export interface MockServerState {
+  isRunning: boolean;
+  port: number;
+  endpoint: string;
+  url: string;
+  mode: 'static' | 'dynamic';
+  autoFilter: boolean;
+  latencyMs: number;
+  statusCode: number;
+  requestCount: number;
+  logs: MockServerRequestLog[];
+  error?: string;
+}
+
+export interface MockRequestContext {
+  method: string;
+  url: string;
+  path: string;
+  query: Record<string, string | string[]>;
+  headers: Record<string, string | string[] | undefined>;
+  body: unknown;
+}

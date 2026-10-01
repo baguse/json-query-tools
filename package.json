@@ -23,7 +23,9 @@
     "onCommand:jsonQueryTools.exportHistory",
     "onCommand:jsonQueryTools.importHistory",
     "onCommand:jsonQueryTools.generateTypes",
-    "onCommand:jsonQueryTools.runTests"
+    "onCommand:jsonQueryTools.runTests",
+    "onCommand:jsonQueryTools.startMockServer",
+    "onCommand:jsonQueryTools.stopMockServer"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -59,6 +61,14 @@
       {
         "command": "jsonQueryTools.runTests",
         "title": "JSON Tools: Run Query as Test Suite"
+      },
+      {
+        "command": "jsonQueryTools.startMockServer",
+        "title": "JSON Tools: Start Local Mock REST API Server"
+      },
+      {
+        "command": "jsonQueryTools.stopMockServer",
+        "title": "JSON Tools: Stop Local Mock REST API Server"
       }
     ],
     "configuration": {

@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { commandTransformWithExpression, commandOpenQueryEditor, commandOpenScratchpad, commandDiffResult, commandExportHistory, commandImportHistory, commandGenerateTypes, commandRunTests, diffProvider } from './commands';
+import { commandTransformWithExpression, commandOpenQueryEditor, commandOpenScratchpad, commandDiffResult, commandExportHistory, commandImportHistory, commandGenerateTypes, commandRunTests, commandStartMockServer, commandStopMockServer, commandOpenMockServerBrowser, diffProvider } from './commands';
 import { DIFF_SCHEME } from './diff';
 
 export function activate(context: vscode.ExtensionContext) {
@@ -12,11 +12,15 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('jsonQueryTools.exportHistory', () => commandExportHistory(context)),
     vscode.commands.registerCommand('jsonQueryTools.importHistory', () => commandImportHistory(context)),
     vscode.commands.registerCommand('jsonQueryTools.generateTypes', () => commandGenerateTypes(context)),
-    vscode.commands.registerCommand('jsonQueryTools.runTests', () => commandRunTests(context))
+    vscode.commands.registerCommand('jsonQueryTools.runTests', () => commandRunTests(context)),
+    vscode.commands.registerCommand('jsonQueryTools.startMockServer', () => commandStartMockServer(context)),
+    vscode.commands.registerCommand('jsonQueryTools.stopMockServer', () => commandStopMockServer()),
+    vscode.commands.registerCommand('jsonQueryTools.openMockServerBrowser', () => commandOpenMockServerBrowser())
   );
 }
 
 export function deactivate() {
+  commandStopMockServer();
   diffProvider.dispose();
 }
 

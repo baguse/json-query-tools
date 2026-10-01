@@ -3,8 +3,9 @@ import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { HISTORY_KEY, URL_SOURCES_KEY, URL_CACHE_MAX_SIZE, URL_CACHE_DEFAULT_TTL_MS, AI_API_KEY_SECRET } from './constants';
 import { LruCache } from './cache';
-import { BoundFile, BoundUrl, SerializedBoundSource, StreamEvent, StreamMode, PipelineStep, PipelineStepResult, PipelineExecutionResult } from './types';
+import { BoundFile, BoundUrl, SerializedBoundSource, StreamEvent, StreamMode, PipelineStep, PipelineStepResult, PipelineExecutionResult, MockServerConfig, MockServerRequestLog, MockServerState, MockRequestContext } from './types';
 import { StreamManager } from './streamer';
+import { MockServerManager } from './mockServer';
 import { executePipeline, exportPipelineToSingleQuery } from './pipeline';
 import { getHistory, pushHistory, serializeHistoryJson, parseHistoryJson, saveImportedHistory } from './history';
 import { evaluateExpression, evaluateTestSuiteAgainstSources, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression, StdoutEntry, TestSuiteResult } from './evaluator';
@@ -331,6 +332,12 @@ export async function commandTransformWithExpression(context: vscode.ExtensionCo
 
 export let currentPanel: vscode.WebviewPanel | undefined;
 let panelSwitchToScratchpad: (() => void) | undefined;
+let mockStatusBarItem: vscode.StatusBarItem | undefined;
+let activeMockServerManager: MockServerManager | undefined;
+
+export function getActiveMockServerManager(): MockServerManager | undefined {
+  return activeMockServerManager;
+}
 
 export function getCurrentPanel(): vscode.WebviewPanel | undefined {
   return currentPanel;
@@ -403,10 +410,40 @@ export async function commandOpenQueryEditor(
   let lastResultData: unknown = undefined;
   let hasEvaluatedResult = false;
 
+  if (!mockStatusBarItem && typeof vscode?.window?.createStatusBarItem === 'function') {
+    mockStatusBarItem = vscode.window.createStatusBarItem(vscode?.StatusBarAlignment?.Right ?? 2, 100);
+    if (context?.subscriptions) {
+      context.subscriptions.push(mockStatusBarItem);
+    }
+  }
+
+  const mockServerManager = new MockServerManager({
+    onStateChange: (state) => {
+      panel.webview.postMessage({ type: 'mockServerState', state });
+      if (state.isRunning) {
+        if (mockStatusBarItem) {
+          mockStatusBarItem.text = `$(broadcast) Mock API: ${state.port}`;
+          mockStatusBarItem.tooltip = `Mock API Server running at ${state.url}\nClick to open in browser`;
+          mockStatusBarItem.command = 'jsonQueryTools.openMockServerBrowser';
+          mockStatusBarItem.show();
+        }
+      } else {
+        mockStatusBarItem?.hide();
+      }
+    },
+    onRequest: (log) => {
+      panel.webview.postMessage({ type: 'mockServerRequest', log });
+    }
+  });
+  activeMockServerManager = mockServerManager;
+
   let envWatcher: vscode.FileSystemWatcher | undefined;
   let dotEnvWatcher: vscode.FileSystemWatcher | undefined;
 
   panel.onDidDispose(() => {
+    mockServerManager.stop();
+    mockStatusBarItem?.hide();
+    activeMockServerManager = undefined;
     streamManager.dispose();
     benchmarkStatusBar?.dispose();
     activeAiController?.abort();
@@ -781,6 +818,7 @@ export async function commandOpenQueryEditor(
     if (!isTestMode) {
       lastResultData = result;
       hasEvaluatedResult = true;
+      mockServerManager.updatePayload(result);
     }
     if (saveToHistory && !isTestMode) {
       await pushHistory(context, expr);
@@ -832,6 +870,7 @@ export async function commandOpenQueryEditor(
     if (!targetStep && pipelineResult.steps.length > 0) {
       targetStep = [...pipelineResult.steps].reverse().find(s => s.enabled) || pipelineResult.steps[pipelineResult.steps.length - 1];
     }
+    mockServerManager.updatePayload(targetStep?.output !== undefined ? targetStep.output : pipelineResult.finalResult);
 
     panel.webview.postMessage({
       type: 'pipelineResult',
@@ -881,6 +920,7 @@ export async function commandOpenQueryEditor(
       if (msg.type === 'ready') {
         sendHistory();
         sendSources();
+        panel.webview.postMessage({ type: 'mockServerState', state: mockServerManager.getState() });
         const storedApiKey = await context.secrets.get(AI_API_KEY_SECRET);
         if (storedApiKey) {
           panel.webview.postMessage({ type: 'hydrateAiApiKey', apiKey: storedApiKey });
@@ -1852,6 +1892,59 @@ export async function commandOpenQueryEditor(
                 activeAiController = null;
             }
         }
+      } else if (msg.type === 'startMockServer') {
+        const config = msg.config || {};
+        try {
+          const dynamicEvaluator = async (reqContext: MockRequestContext) => {
+            const rawDataMap = await buildDataMap();
+            const exprToEval = msg.expr || currentPollExpr || 'data';
+            const evalDataMap = {
+              ...rawDataMap,
+              req: reqContext
+            };
+            return evaluateExpression(boundFiles, evalDataMap, exprToEval, activeEnvResolved);
+          };
+
+          let payloadToServe = lastResultData;
+          if (payloadToServe === undefined) {
+            const rawDataMap = await buildDataMap();
+            if (boundFiles.length === 1 && rawDataMap[boundFiles[0].alias] !== undefined) {
+              payloadToServe = rawDataMap[boundFiles[0].alias];
+            } else if (rawDataMap['data'] !== undefined) {
+              payloadToServe = rawDataMap['data'];
+            }
+          }
+          mockServerManager.updatePayload(payloadToServe);
+          const state = await mockServerManager.start(config, dynamicEvaluator);
+          panel.webview.postMessage({ type: 'mockServerState', state });
+          vscode.window.showInformationMessage(`Mock API Server started at ${state.url}`);
+        } catch (err: any) {
+          panel.webview.postMessage({
+            type: 'mockServerError',
+            error: `Failed to start Mock Server: ${err?.message || err}`
+          });
+          vscode.window.showErrorMessage(`Failed to start Mock Server: ${err?.message || err}`);
+        }
+      } else if (msg.type === 'stopMockServer') {
+        await mockServerManager.stop();
+        panel.webview.postMessage({ type: 'mockServerState', state: mockServerManager.getState() });
+      } else if (msg.type === 'getMockServerState') {
+        panel.webview.postMessage({ type: 'mockServerState', state: mockServerManager.getState() });
+      } else if (msg.type === 'updateMockServerPayload') {
+        mockServerManager.updatePayload(msg.payload !== undefined ? msg.payload : lastResultData);
+      } else if (msg.type === 'clearMockServerLogs') {
+        mockServerManager.clearLogs();
+      } else if (msg.type === 'openMockServerBrowser') {
+        const urlToOpen = msg.url || mockServerManager.getState().url;
+        if (urlToOpen) {
+          vscode.env.openExternal(vscode.Uri.parse(urlToOpen));
+        }
+      } else if (msg.type === 'copyMockServerUrl') {
+        const urlToCopy = msg.url || mockServerManager.getState().url;
+        if (urlToCopy) {
+          await vscode.env.clipboard.writeText(urlToCopy);
+          vscode.window.showInformationMessage(`Copied Mock API URL to clipboard: ${urlToCopy}`);
+        }
       }
     } catch (err: any) {
       panel.webview.postMessage({ type: 'result', error: err?.message ?? String(err) });
@@ -1872,4 +1965,36 @@ export const copyToClipBoard = copyToClipboard;
 
 export async function commandOpenScratchpad(context: vscode.ExtensionContext) {
   return commandOpenQueryEditor(context, { standalone: true });
+}
+
+export async function commandStartMockServer(context: vscode.ExtensionContext): Promise<void> {
+  if (activeMockServerManager && activeMockServerManager.getState().isRunning) {
+    vscode.window.showInformationMessage(`Mock API Server is already running at ${activeMockServerManager.getState().url}`);
+    return;
+  }
+  if (currentPanel) {
+    currentPanel.webview.postMessage({ type: 'triggerStartMockServer' });
+  } else {
+    await commandOpenQueryEditor(context);
+    currentPanel?.webview.postMessage({ type: 'triggerStartMockServer' });
+  }
+}
+
+export async function commandStopMockServer(): Promise<void> {
+  if (activeMockServerManager && activeMockServerManager.getState().isRunning) {
+    await activeMockServerManager.stop();
+    mockStatusBarItem?.hide();
+    vscode.window.showInformationMessage('Mock API Server stopped.');
+  } else {
+    vscode.window.showInformationMessage('Mock API Server is not running.');
+  }
+}
+
+export async function commandOpenMockServerBrowser(): Promise<void> {
+  const state = activeMockServerManager?.getState();
+  if (state?.isRunning && state.url) {
+    vscode.env.openExternal(vscode.Uri.parse(state.url));
+  } else {
+    vscode.window.showInformationMessage('Mock API Server is not running.');
+  }
 }
