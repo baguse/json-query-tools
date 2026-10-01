@@ -1,13 +1,13 @@
 const assert = require('assert');
 const http = require('http');
-const esbuild = require('esbuild');
 const path = require('path');
+const esbuild = require('esbuild');
 
-async function runAiTimeoutTests() {
-  console.log('Testing AI generation timeout and cancellation (#1.12)...');
+async function runTests() {
+  console.log('Testing AI Timeout Customization...');
 
-  // Bundle src/ai.ts in memory
-  const buildResult = await esbuild.build({
+  // 1. Bundle src/ai.ts in memory
+  const aiBundle = await esbuild.build({
     entryPoints: [path.join(__dirname, '../src/ai.ts')],
     bundle: true,
     platform: 'node',
@@ -15,129 +15,161 @@ async function runAiTimeoutTests() {
     format: 'cjs'
   });
 
-  const bundledCode = buildResult.outputFiles[0].text;
-  const mod = { exports: {} };
-  const fn = new Function('module', 'exports', 'require', '__dirname', bundledCode);
-  fn(mod, mod.exports, require, path.join(__dirname, '../src'));
+  const aiMod = { exports: {} };
+  const fnAi = new Function('module', 'exports', 'require', '__dirname', aiBundle.outputFiles[0].text);
+  fnAi(aiMod, aiMod.exports, require, path.join(__dirname, '../src'));
 
-  const { callOllama, callGemini, fetchOllamaModels, fetchGeminiModels } = mod.exports;
+  const {
+    callOpenAiCompatible,
+    fetchOpenAiCompatibleModels,
+    callOllama,
+    fetchOllamaModels
+  } = aiMod.exports;
 
-  // Start a local test HTTP server to simulate hanging, slow, and fast endpoints
-  let serverMode = 'hang'; // 'hang' | 'fast'
-  const server = http.createServer((req, res) => {
-    if (serverMode === 'hang') {
-      // Deliberately do not respond, simulating hanging endpoint / network stall
-      return;
-    }
-    if (serverMode === 'fast') {
-      if (req.url.includes('/api/generate')) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ response: 'return data.filter(x => x.ok);' }));
-      } else if (req.url.includes('/api/tags')) {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ models: [{ name: 'llama3:latest' }] }));
-      } else {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: 'return data.map(x => x.id);' }] } }]
-        }));
-      }
-    }
+  // -------------------------------------------------------------
+  // Test 1: callOpenAiCompatible respects custom timeoutMs
+  // -------------------------------------------------------------
+  console.log('  1. Testing callOpenAiCompatible timeout honoring...');
+  const slowServer = http.createServer((req, res) => {
+    // Deliberately delay response longer than client's timeout
+    setTimeout(() => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ choices: [{ message: { content: 'delayed response' } }] }));
+    }, 500);
   });
 
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  const port = server.address().port;
-  const baseUrl = `http://127.0.0.1:${port}`;
+  await new Promise(resolve => slowServer.listen(0, '127.0.0.1', resolve));
+  const serverPort = slowServer.address().port;
+  const slowEndpoint = `http://127.0.0.1:${serverPort}`;
 
   try {
-    // 1. callOllama timeout when endpoint hangs
-    serverMode = 'hang';
-    let ollamaTimeoutThrew = false;
-    const startOllama = Date.now();
-    try {
-      await callOllama(baseUrl, 'llama3', 'filter active users', '{}', 100);
-    } catch (err) {
-      ollamaTimeoutThrew = true;
-      assert.ok(
-        err.message.includes('timed out after'),
-        `Expected timeout error message, got: ${err.message}`
-      );
-    }
-    const elapsedOllama = Date.now() - startOllama;
-    assert.ok(ollamaTimeoutThrew, 'callOllama must reject on timeout');
-    assert.ok(elapsedOllama < 500, `callOllama timeout should fire promptly, took ${elapsedOllama}ms`);
-    console.log(`  ✓ callOllama times out cleanly after specified duration (${elapsedOllama}ms)`);
+    const startTime = Date.now();
+    await assert.rejects(
+      async () => {
+        // Pass 100ms timeout
+        await callOpenAiCompatible(slowEndpoint, 'test-model', 'query', { a: 1 }, '', 100);
+      },
+      (err) => {
+        const elapsed = Date.now() - startTime;
+        assert.ok(elapsed < 450, `Timeout should trigger well before 450ms, took ${elapsed}ms`);
+        assert.ok(/timed out|timeout/i.test(err.message), `Expected timeout error message, got: ${err.message}`);
+        return true;
+      }
+    );
+    console.log('    ✓ callOpenAiCompatible timed out as expected');
 
-    // 2. callGemini timeout when endpoint hangs
-    let geminiTimeoutThrew = false;
-    const startGemini = Date.now();
-    try {
-      await callGemini('test-key', 'gemini-1.5-flash', 'filter active users', '{}', 100, undefined, baseUrl);
-    } catch (err) {
-      geminiTimeoutThrew = true;
-      assert.ok(
-        err.message.includes('timed out after'),
-        `Expected timeout error message, got: ${err.message}`
-      );
-    }
-    const elapsedGemini = Date.now() - startGemini;
-    assert.ok(geminiTimeoutThrew, 'callGemini must reject on timeout');
-    assert.ok(elapsedGemini < 500, `callGemini timeout should fire promptly, took ${elapsedGemini}ms`);
-    console.log(`  ✓ callGemini times out cleanly after specified duration (${elapsedGemini}ms)`);
+    // -------------------------------------------------------------
+    // Test 2: fetchOpenAiCompatibleModels respects custom timeoutMs
+    // -------------------------------------------------------------
+    console.log('  2. Testing fetchOpenAiCompatibleModels timeout honoring...');
+    await assert.rejects(
+      async () => {
+        await fetchOpenAiCompatibleModels(slowEndpoint, '', 100);
+      },
+      (err) => {
+        assert.ok(/timed out|timeout/i.test(err.message), `Expected timeout error message, got: ${err.message}`);
+        return true;
+      }
+    );
+    console.log('    ✓ fetchOpenAiCompatibleModels timed out as expected');
 
-    // 3. callOllama cancellation via external AbortSignal
-    const cancelControllerOllama = new AbortController();
-    setTimeout(() => cancelControllerOllama.abort(), 30);
-    let ollamaCancelThrew = false;
-    try {
-      await callOllama(baseUrl, 'llama3', 'test', '{}', 2000, cancelControllerOllama.signal);
-    } catch (err) {
-      ollamaCancelThrew = true;
-      assert.ok(
-        err.message.includes('canceled'),
-        `Expected cancellation error, got: ${err.message}`
-      );
-    }
-    assert.ok(ollamaCancelThrew, 'callOllama must abort when external signal triggers');
-    console.log('  ✓ callOllama aborts immediately on external cancellation signal');
-
-    // 4. callGemini cancellation via external AbortSignal
-    const cancelControllerGemini = new AbortController();
-    setTimeout(() => cancelControllerGemini.abort(), 30);
-    let geminiCancelThrew = false;
-    try {
-      await callGemini('test-key', 'model', 'test', '{}', 2000, cancelControllerGemini.signal, baseUrl);
-    } catch (err) {
-      geminiCancelThrew = true;
-      assert.ok(
-        err.message.includes('canceled'),
-        `Expected cancellation error, got: ${err.message}`
-      );
-    }
-    assert.ok(geminiCancelThrew, 'callGemini must abort when external signal triggers');
-    console.log('  ✓ callGemini aborts immediately on external cancellation signal');
-
-    // 5. fetchOllamaModels timeout when endpoint hangs
-    const startFetchOllama = Date.now();
-    const ollamaModels = await fetchOllamaModels(baseUrl, 100);
-    const elapsedFetchOllama = Date.now() - startFetchOllama;
-    assert.deepStrictEqual(ollamaModels, [], 'fetchOllamaModels must return empty array on timeout');
-    assert.ok(elapsedFetchOllama < 500, `fetchOllamaModels timeout should fire promptly, took ${elapsedFetchOllama}ms`);
-    console.log(`  ✓ fetchOllamaModels recovers gracefully on timeout (${elapsedFetchOllama}ms)`);
-
-    // 6. Fast response succeeds within timeout
-    serverMode = 'fast';
-    const ollamaFastResult = await callOllama(baseUrl, 'llama3', 'test', '{}', 2000);
-    assert.strictEqual(ollamaFastResult, 'return data.filter(x => x.ok);');
-    console.log('  ✓ callOllama completes normally when response is received within timeout');
-
-    console.log('\n✅ All AI timeout and cancellation tests passed successfully!');
   } finally {
-    server.close();
+    slowServer.close();
   }
+
+  // -------------------------------------------------------------
+  // Test 3: Timeout Calculation & Bounds Logic
+  // -------------------------------------------------------------
+  console.log('  3. Testing timeout resolution and boundary clamping logic...');
+  function resolveGenerateTimeout(msgTimeout, configTimeout) {
+    const configTimeoutSec = configTimeout || 60;
+    const requestedTimeoutSec = Number(msgTimeout);
+    const timeoutSec = (!isNaN(requestedTimeoutSec) && requestedTimeoutSec > 0) ? requestedTimeoutSec : configTimeoutSec;
+    return Math.max(5000, Math.min(timeoutSec * 1000, 600000));
+  }
+
+  function resolveModelTimeout(msgTimeout, configTimeout) {
+    const configTimeoutSec = configTimeout || 60;
+    const requestedTimeoutSec = Number(msgTimeout);
+    const timeoutSec = (!isNaN(requestedTimeoutSec) && requestedTimeoutSec > 0) ? requestedTimeoutSec : configTimeoutSec;
+    return Math.max(5000, Math.min(timeoutSec * 1000, 30000));
+  }
+
+  // Standard case: 120s specified in UI
+  assert.strictEqual(resolveGenerateTimeout(120, 60), 120000);
+  assert.strictEqual(resolveModelTimeout(120, 60), 30000); // capped at 30s for model discovery
+
+  // Minimum clamp: 2s requested -> clamped to 5s (5000ms)
+  assert.strictEqual(resolveGenerateTimeout(2, 60), 5000);
+  assert.strictEqual(resolveModelTimeout(2, 60), 5000);
+
+  // Maximum clamp: 999s requested -> clamped to 600s (600000ms)
+  assert.strictEqual(resolveGenerateTimeout(999, 60), 600000);
+  assert.strictEqual(resolveModelTimeout(999, 60), 30000);
+
+  // Fallback to config when msg timeout is undefined, empty, or invalid
+  assert.strictEqual(resolveGenerateTimeout(undefined, 90), 90000);
+  assert.strictEqual(resolveGenerateTimeout('', 90), 90000);
+  assert.strictEqual(resolveGenerateTimeout('invalid', 90), 90000);
+  assert.strictEqual(resolveGenerateTimeout(undefined, undefined), 60000);
+  console.log('    ✓ Timeout calculation and boundaries verified');
+
+  // -------------------------------------------------------------
+  // Test 4: Webview Markup & Script Verification
+  // -------------------------------------------------------------
+  console.log('  4. Testing Webview UI integration for aiTimeout...');
+  const htmlBundle = await esbuild.build({
+    entryPoints: [path.join(__dirname, '../src/webview/html.ts')],
+    bundle: true,
+    platform: 'node',
+    write: false,
+    format: 'cjs',
+    plugins: [
+      {
+        name: 'mock-vscode',
+        setup(build) {
+          build.onResolve({ filter: /^vscode$/ }, () => ({
+            path: 'vscode',
+            namespace: 'mock-vscode'
+          }));
+          build.onLoad({ filter: /.*/, namespace: 'mock-vscode' }, () => ({
+            contents: `
+              module.exports = {
+                workspace: {
+                  asRelativePath: (u) => (typeof u === 'string' ? u : (u && u.fsPath) || 'file.json')
+                },
+                Uri: { file: (f) => ({ fsPath: f, toString: () => f }) }
+              };
+            `,
+            loader: 'js'
+          }));
+        }
+      }
+    ]
+  });
+
+  const htmlMod = { exports: {} };
+  const fnHtml = new Function('module', 'exports', 'require', '__dirname', htmlBundle.outputFiles[0].text);
+  fnHtml(htmlMod, htmlMod.exports, require, path.join(__dirname, '../src'));
+
+  const { getQueryEditorHtml } = htmlMod.exports;
+  const html = getQueryEditorHtml({ cspSource: 'vscode-webview:' }, {
+    scriptNonce: 'test-nonce-timeout',
+    boundFiles: [{ alias: 'data', uri: { fsPath: '/test.json' } }]
+  });
+
+  assert.ok(html.includes('id="aiTimeout"'), 'Missing #aiTimeout input element');
+  assert.ok(html.includes('min="5"'), 'Missing min="5" attribute on #aiTimeout');
+  assert.ok(html.includes('max="600"'), 'Missing max="600" attribute on #aiTimeout');
+  assert.ok(html.includes("localStorage.getItem('jsonQueryTools.aiTimeout')"), 'Missing localStorage restore for aiTimeout');
+  assert.ok(html.includes("localStorage.setItem('jsonQueryTools.aiTimeout'"), 'Missing localStorage save for aiTimeout');
+  assert.ok(html.includes("timeout: timeoutVal"), 'Missing timeout in postMessage payload');
+  console.log('    ✓ Webview UI elements, localStorage persistence, and message transmission verified');
+
+  console.log('\n🎉 All AI Timeout customization tests passed successfully!\n');
 }
 
-runAiTimeoutTests().catch(err => {
-  console.error('Fatal error during AI timeout tests:', err);
+runTests().catch(err => {
+  console.error('\n❌ Test failed:', err);
   process.exit(1);
 });

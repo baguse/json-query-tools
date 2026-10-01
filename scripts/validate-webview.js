@@ -223,6 +223,9 @@ async function validate() {
       'id="anonymizePreview"',
       'id="applyAnonymizedBtn"',
       'id="copyAnonymizedBtn"',
+      'id="llamaCppConfig"',
+      'id="llamaCppEndpoint"',
+      'id="aiTimeout"',
       'class="search-icon">&#128269;</span>'
     ];
 

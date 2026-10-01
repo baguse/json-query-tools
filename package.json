@@ -81,14 +81,26 @@
         },
         "jsonQueryTools.aiProvider": {
           "type": "string",
-          "enum": ["ollama", "gemini"],
+          "enum": ["ollama", "gemini", "llama-cpp", "openai-compatible"],
           "default": "ollama",
-          "description": "AI Provider to use for query generation"
+          "description": "AI Provider to use for query generation (ollama, gemini, llama-cpp, or openai-compatible)"
+        },
+        "jsonQueryTools.llamaCppEndpoint": {
+          "type": "string",
+          "default": "http://localhost:8080",
+          "description": "URL of the llama-cpp or OpenAI-compatible server (e.g. http://192.168.1.23:8081 or http://localhost:8080/v1)"
         },
         "jsonQueryTools.aiApiKey": {
           "type": "string",
           "default": "",
           "description": "API Key for cloud AI providers (e.g. Gemini). Securely stored via VS Code SecretStorage when entered in the Query Editor."
+        },
+        "jsonQueryTools.aiTimeout": {
+          "type": "number",
+          "default": 60,
+          "minimum": 5,
+          "maximum": 600,
+          "description": "Timeout in seconds for AI queries and model generation (5 to 600 seconds, default: 60)."
         },
         "jsonQueryTools.templateVariables": {
           "type": "object",

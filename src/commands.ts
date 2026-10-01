@@ -21,7 +21,7 @@ export function getConsoleOutputChannel(): vscode.OutputChannel {
 }
 import { inferSchemaFromData } from './schema';
 import { getQueryEditorHtml, nonce } from './webview/html';
-import { callGemini, callOllama, fetchGeminiModels, fetchOllamaModels } from './ai';
+import { callGemini, callOllama, fetchGeminiModels, fetchOllamaModels, callOpenAiCompatible, fetchOpenAiCompatibleModels } from './ai';
 import { fetchUrlWithDetails, parseHeaders } from './fetcher';
 import { getTemplateVariables } from './config';
 import { formatData, getFileExtension, getFormatFilters, getLanguageId } from './export';
@@ -1825,21 +1825,29 @@ export async function commandOpenQueryEditor(
         }
       } else if (msg.type === 'getModels') {
         const provider = msg.provider;
+        const config = vscode.workspace.getConfiguration('jsonQueryTools');
+        const configTimeoutSec = config.get<number>('aiTimeout') || 60;
+        const requestedTimeoutSec = Number(msg.timeout);
+        const timeoutSec = (!isNaN(requestedTimeoutSec) && requestedTimeoutSec > 0) ? requestedTimeoutSec : configTimeoutSec;
+        const modelTimeoutMs = Math.max(5000, Math.min(timeoutSec * 1000, 30000));
         try {
             let models: string[] = [];
             if (provider === 'ollama') {
-                 const config = vscode.workspace.getConfiguration('jsonQueryTools');
                  const endpoint = msg.endpoint || config.get<string>('ollamaEndpoint') || 'http://localhost:11434';
-                 models = await fetchOllamaModels(endpoint);
+                 models = await fetchOllamaModels(endpoint, modelTimeoutMs);
+            } else if (provider === 'llama-cpp' || provider === 'openai-compatible') {
+                 const endpoint = msg.endpoint || config.get<string>('llamaCppEndpoint') || 'http://localhost:8080';
+                 const storedKey = await context.secrets.get(AI_API_KEY_SECRET);
+                 const apiKey = msg.apiKey || storedKey || config.get<string>('aiApiKey');
+                 models = await fetchOpenAiCompatibleModels(endpoint, apiKey, modelTimeoutMs);
             } else if (provider === 'gemini') {
-                 const config = vscode.workspace.getConfiguration('jsonQueryTools');
                  const storedKey = await context.secrets.get(AI_API_KEY_SECRET);
                  const apiKey = msg.apiKey || storedKey || config.get<string>('aiApiKey');
                  if (!apiKey) throw new Error('API Key required for Gemini');
                  if (msg.apiKey) {
                    await context.secrets.store(AI_API_KEY_SECRET, msg.apiKey.trim());
                  }
-                 models = await fetchGeminiModels(apiKey);
+                 models = await fetchGeminiModels(apiKey, modelTimeoutMs);
             }
             panel.webview.postMessage({ type: 'updateModels', models });
         } catch (err: any) {
@@ -1850,13 +1858,24 @@ export async function commandOpenQueryEditor(
         const config = vscode.workspace.getConfiguration('jsonQueryTools');
         const provider = msg.provider || config.get<string>('aiProvider') || 'ollama';
         
-        const endpoint = msg.endpoint || config.get<string>('ollamaEndpoint') || 'http://localhost:11434';
+        const configTimeoutSec = config.get<number>('aiTimeout') || 60;
+        const requestedTimeoutSec = Number(msg.timeout);
+        const timeoutSec = (!isNaN(requestedTimeoutSec) && requestedTimeoutSec > 0) ? requestedTimeoutSec : configTimeoutSec;
+        const timeoutMs = Math.max(5000, Math.min(timeoutSec * 1000, 600000));
+        
+        const defaultEndpoint = (provider === 'llama-cpp' || provider === 'openai-compatible')
+          ? (config.get<string>('llamaCppEndpoint') || 'http://localhost:8080')
+          : (config.get<string>('ollamaEndpoint') || 'http://localhost:11434');
+        const endpoint = msg.endpoint || defaultEndpoint;
         const storedKey = await context.secrets.get(AI_API_KEY_SECRET);
         const apiKey = msg.apiKey || storedKey || config.get<string>('aiApiKey');
         if (msg.apiKey && provider === 'gemini') {
           await context.secrets.store(AI_API_KEY_SECRET, msg.apiKey.trim());
         }
-        const model = msg.model || (provider === 'ollama' ? 'llama3' : 'gemini-1.5-flash');
+        const defaultModel = provider === 'gemini'
+          ? 'gemini-1.5-flash'
+          : (provider === 'ollama' ? 'llama3' : 'default');
+        const model = msg.model || defaultModel;
         
         let dataSample = 'unknown';
         try {
@@ -1883,9 +1902,11 @@ export async function commandOpenQueryEditor(
             let code = '';
             if (provider === 'gemini') {
                 if (!apiKey) throw new Error('API Key required for Gemini');
-                code = await callGemini(apiKey, model, msg.prompt, dataSample, 30000, currentController.signal);
+                code = await callGemini(apiKey, model, msg.prompt, dataSample, timeoutMs, currentController.signal);
+            } else if (provider === 'llama-cpp' || provider === 'openai-compatible') {
+                code = await callOpenAiCompatible(endpoint, model, msg.prompt, dataSample, apiKey, timeoutMs, currentController.signal);
             } else {
-                code = await callOllama(endpoint, model, msg.prompt, dataSample, 30000, currentController.signal);
+                code = await callOllama(endpoint, model, msg.prompt, dataSample, timeoutMs, currentController.signal);
             }
             panel.webview.postMessage({ type: 'insert', expr: code });
         } catch (err: any) {

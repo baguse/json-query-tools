@@ -1372,6 +1372,7 @@ export function getQueryEditorHtml(
       <select id="aiProvider" style="padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;">
         <option value="ollama">Ollama</option>
         <option value="gemini">Gemini</option>
+        <option value="llama-cpp">llama.cpp / OpenAI</option>
       </select>
       <div id="ollamaConfig" style="display: flex; gap: 8px; flex: 1; align-items: center;">
         <input id="ollamaEndpoint" type="text" placeholder="http://localhost:11434" style="flex: 1; min-width: 140px; padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;">
@@ -1379,10 +1380,15 @@ export function getQueryEditorHtml(
       <div id="geminiConfig" style="display: none; gap: 8px; flex: 1; align-items: center;">
         <input id="aiApiKey" type="password" placeholder="API Key" style="flex: 1; min-width: 140px; padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;">
       </div>
+      <div id="llamaCppConfig" style="display: none; gap: 8px; flex: 1; align-items: center;">
+        <input id="llamaCppEndpoint" type="text" placeholder="http://localhost:8080" style="flex: 1; min-width: 140px; padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;" title="llama.cpp or OpenAI-compatible server URL (e.g. http://192.168.1.23:8081 or http://localhost:8080)">
+        <input id="llamaCppApiKey" type="password" placeholder="API Key (optional)" style="width: 110px; padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;" title="Optional Bearer token for authenticated servers or proxies">
+      </div>
       <select id="aiModel" style="padding: 6px 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;">
         <option value="" disabled selected>Select Model...</option>
       </select>
       <button id="refreshModels" class="secondary" title="Refresh Models" style="padding: 6px 10px;">🔄</button>
+      <input id="aiTimeout" type="number" min="5" max="600" placeholder="60s" title="AI Timeout in seconds (5-600s, default: 60s)" style="width: 58px; padding: 6px 8px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); border-radius: 3px; font-size: 11px;">
     </div>
     <div id="aiAlert" class="modal-alert" style="display: none; padding: 6px 10px; font-size: 11px; align-items: center; justify-content: space-between; gap: 8px;">
       <span id="aiAlertMessage" style="flex: 1;"></span>
@@ -3273,10 +3279,14 @@ export function getQueryEditorHtml(
     const aiProvider = document.getElementById('aiProvider');
     const ollamaConfig = document.getElementById('ollamaConfig');
     const geminiConfig = document.getElementById('geminiConfig');
+    const llamaCppConfig = document.getElementById('llamaCppConfig');
+    const llamaCppEndpoint = document.getElementById('llamaCppEndpoint');
+    const llamaCppApiKey = document.getElementById('llamaCppApiKey');
     const ollamaEndpoint = document.getElementById('ollamaEndpoint');
     const aiApiKey = document.getElementById('aiApiKey');
     const aiModel = document.getElementById('aiModel');
     const refreshModelsBtn = document.getElementById('refreshModels');
+    const aiTimeout = document.getElementById('aiTimeout');
     const aiPrompt = document.getElementById('aiPrompt');
     const aiGenerateBtn = document.getElementById('aiGenerate');
     const aiAlert = document.getElementById('aiAlert');
@@ -3432,7 +3442,22 @@ export function getQueryEditorHtml(
     updateProviderUI();
 
     const savedEndpoint = localStorage.getItem('jsonQueryTools.ollamaEndpoint');
-    if (savedEndpoint) ollamaEndpoint.value = savedEndpoint;
+    if (savedEndpoint && ollamaEndpoint) ollamaEndpoint.value = savedEndpoint;
+
+    const savedLlamaCppEndpoint = localStorage.getItem('jsonQueryTools.llamaCppEndpoint');
+    if (savedLlamaCppEndpoint && llamaCppEndpoint) llamaCppEndpoint.value = savedLlamaCppEndpoint;
+
+    const savedAiTimeout = localStorage.getItem('jsonQueryTools.aiTimeout');
+    if (savedAiTimeout && aiTimeout) aiTimeout.value = savedAiTimeout;
+    if (aiTimeout) {
+      aiTimeout.onchange = () => {
+        if (aiTimeout.value) {
+          localStorage.setItem('jsonQueryTools.aiTimeout', aiTimeout.value);
+        } else {
+          localStorage.removeItem('jsonQueryTools.aiTimeout');
+        }
+      };
+    }
     
     // Migrate legacy plaintext API key from localStorage to SecretStorage and purge from localStorage
     try {
@@ -3454,11 +3479,17 @@ export function getQueryEditorHtml(
     function updateProviderUI() {
         const provider = aiProvider.value;
         if (provider === 'gemini') {
-            ollamaConfig.style.display = 'none';
-            geminiConfig.style.display = 'flex';
+            if (ollamaConfig) ollamaConfig.style.display = 'none';
+            if (geminiConfig) geminiConfig.style.display = 'flex';
+            if (llamaCppConfig) llamaCppConfig.style.display = 'none';
+        } else if (provider === 'llama-cpp' || provider === 'openai-compatible') {
+            if (ollamaConfig) ollamaConfig.style.display = 'none';
+            if (geminiConfig) geminiConfig.style.display = 'none';
+            if (llamaCppConfig) llamaCppConfig.style.display = 'flex';
         } else {
-            ollamaConfig.style.display = 'flex';
-            geminiConfig.style.display = 'none';
+            if (ollamaConfig) ollamaConfig.style.display = 'flex';
+            if (geminiConfig) geminiConfig.style.display = 'none';
+            if (llamaCppConfig) llamaCppConfig.style.display = 'none';
         }
     }
 
@@ -3466,14 +3497,22 @@ export function getQueryEditorHtml(
         hideAiAlert();
         localStorage.setItem('jsonQueryTools.aiProvider', aiProvider.value);
         updateProviderUI();
-        // Clear models when switching?
         aiModel.innerHTML = '<option value="" disabled selected>Select Model...</option>';
+        const toVal = aiTimeout && aiTimeout.value ? aiTimeout.value : '';
+        if (aiProvider.value === 'ollama' && ollamaEndpoint && ollamaEndpoint.value) {
+            vscode.postMessage({ type: 'getModels', provider: 'ollama', endpoint: ollamaEndpoint.value, timeout: toVal });
+        } else if ((aiProvider.value === 'llama-cpp' || aiProvider.value === 'openai-compatible') && llamaCppEndpoint && llamaCppEndpoint.value) {
+            vscode.postMessage({ type: 'getModels', provider: 'llama-cpp', endpoint: llamaCppEndpoint.value, apiKey: llamaCppApiKey ? llamaCppApiKey.value : '', timeout: toVal });
+        }
     };
 
     // Auto-fetch if possible
     setTimeout(() => {
-        if (aiProvider.value === 'ollama' && ollamaEndpoint.value) {
-           vscode.postMessage({ type: 'getModels', provider: 'ollama', endpoint: ollamaEndpoint.value });
+        const toVal = aiTimeout && aiTimeout.value ? aiTimeout.value : '';
+        if (aiProvider.value === 'ollama' && ollamaEndpoint && ollamaEndpoint.value) {
+           vscode.postMessage({ type: 'getModels', provider: 'ollama', endpoint: ollamaEndpoint.value, timeout: toVal });
+        } else if ((aiProvider.value === 'llama-cpp' || aiProvider.value === 'openai-compatible') && llamaCppEndpoint && llamaCppEndpoint.value) {
+           vscode.postMessage({ type: 'getModels', provider: 'llama-cpp', endpoint: llamaCppEndpoint.value, apiKey: llamaCppApiKey ? llamaCppApiKey.value : '', timeout: toVal });
         }
     }, 500);
 
@@ -11059,15 +11098,26 @@ export function getQueryEditorHtml(
     refreshModelsBtn.onclick = () => {
         hideAiAlert();
         const provider = aiProvider.value;
-        const ep = ollamaEndpoint.value || 'http://localhost:11434';
-        const key = aiApiKey.value;
+        let ep = '';
+        let key = '';
+        if (provider === 'llama-cpp' || provider === 'openai-compatible') {
+            ep = (llamaCppEndpoint && llamaCppEndpoint.value) || 'http://localhost:8080';
+            key = (llamaCppApiKey && llamaCppApiKey.value) || '';
+            localStorage.setItem('jsonQueryTools.llamaCppEndpoint', ep);
+        } else if (provider === 'gemini') {
+            key = (aiApiKey && aiApiKey.value) || '';
+        } else {
+            ep = (ollamaEndpoint && ollamaEndpoint.value) || 'http://localhost:11434';
+            key = (aiApiKey && aiApiKey.value) || '';
+            localStorage.setItem('jsonQueryTools.ollamaEndpoint', ep);
+        }
         
-        localStorage.setItem('jsonQueryTools.ollamaEndpoint', ep);
-        if (key) {
+        if (key && provider === 'gemini') {
           vscode.postMessage({ type: 'setAiApiKey', apiKey: key.trim() });
         }
 
-        vscode.postMessage({ type: 'getModels', provider, endpoint: ep, apiKey: key });
+        const timeoutVal = aiTimeout && aiTimeout.value ? aiTimeout.value : '';
+        vscode.postMessage({ type: 'getModels', provider, endpoint: ep, apiKey: key, timeout: timeoutVal });
     };
 
     aiModel.onchange = () => {
@@ -11077,19 +11127,34 @@ export function getQueryEditorHtml(
 
     aiGenerateBtn.onclick = () => {
         const provider = aiProvider.value;
-        const ep = ollamaEndpoint.value;
         const model = aiModel.value;
         const prompt = aiPrompt.value;
-        const key = aiApiKey.value;
+        let ep = '';
+        let key = '';
         
-        if (provider === 'ollama' && !ep) {
-            showAiAlert('Please check the Ollama Endpoint.');
-            return;
+        if (provider === 'llama-cpp' || provider === 'openai-compatible') {
+            ep = (llamaCppEndpoint && llamaCppEndpoint.value) ? llamaCppEndpoint.value.trim() : '';
+            key = (llamaCppApiKey && llamaCppApiKey.value) ? llamaCppApiKey.value.trim() : '';
+            if (!ep) {
+                showAiAlert('Please check the llama.cpp / OpenAI Server Endpoint.');
+                return;
+            }
+            localStorage.setItem('jsonQueryTools.llamaCppEndpoint', ep);
+        } else if (provider === 'gemini') {
+            key = (aiApiKey && aiApiKey.value) ? aiApiKey.value.trim() : '';
+            if (!key) {
+                showAiAlert('Please enter a Gemini API Key.');
+                return;
+            }
+        } else {
+            ep = (ollamaEndpoint && ollamaEndpoint.value) ? ollamaEndpoint.value.trim() : '';
+            if (!ep) {
+                showAiAlert('Please check the Ollama Endpoint.');
+                return;
+            }
+            localStorage.setItem('jsonQueryTools.ollamaEndpoint', ep);
         }
-        if (provider === 'gemini' && !key) {
-            showAiAlert('Please enter a Gemini API Key.');
-            return;
-        }
+
         if (!model) {
             showAiAlert('Please select a model.');
             return;
@@ -11100,14 +11165,15 @@ export function getQueryEditorHtml(
         }
         hideAiAlert();
 
-        if (key) {
+        if (key && provider === 'gemini') {
           vscode.postMessage({ type: 'setAiApiKey', apiKey: key.trim() });
         }
 
         aiGenerateBtn.disabled = true;
         aiGenerateBtn.textContent = 'Generating...';
         
-        vscode.postMessage({ type: 'generateQuery', provider, endpoint: ep, apiKey: key, model, prompt });
+        const timeoutVal = aiTimeout && aiTimeout.value ? aiTimeout.value : '';
+        vscode.postMessage({ type: 'generateQuery', provider, endpoint: ep, apiKey: key, model, prompt, timeout: timeoutVal });
     };
     // cURL Command Utilities (Parser & Generator)
     function toBase64(str) {
