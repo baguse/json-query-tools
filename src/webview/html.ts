@@ -671,6 +671,64 @@ export function getQueryEditorHtml(
       color: var(--vscode-badge-foreground, #ffffff);
       line-height: 1.2;
     }
+    .pipeline-stage-ribbon {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      overflow-x: auto;
+      padding: 6px 10px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 4px;
+      margin-bottom: 8px;
+    }
+    .pipeline-step-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      background: var(--vscode-input-background, #3c3c3c);
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .pipeline-step-pill:hover {
+      border-color: var(--vscode-focusBorder, #007acc);
+      background: rgba(255, 255, 255, 0.06);
+    }
+    .pipeline-step-pill.active {
+      border-color: var(--vscode-textLink-foreground, #3794ff);
+      box-shadow: 0 0 0 1px var(--vscode-textLink-foreground, #3794ff);
+      background: rgba(55, 148, 255, 0.12);
+      font-weight: 600;
+    }
+    .pipeline-step-pill.previewing {
+      border-left: 3px solid #4ec9b0;
+    }
+    .pipeline-step-pill.disabled-step {
+      opacity: 0.55;
+      text-decoration: line-through;
+    }
+    .pipeline-step-pill.error-step {
+      border-color: var(--vscode-errorForeground, #f48771);
+      color: var(--vscode-errorForeground, #f48771);
+    }
+    .pipeline-step-arrow {
+      color: var(--vscode-descriptionForeground, #858585);
+      font-size: 11px;
+      user-select: none;
+    }
+    .pipeline-step-badge {
+      font-size: 9px;
+      padding: 1px 4px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.1);
+      font-weight: normal;
+    }
     .editor-container {
       position: relative;
       margin-bottom: 2px;
@@ -1253,11 +1311,41 @@ export function getQueryEditorHtml(
       <button id="modeQueryBtn" class="editor-mode-tab active" type="button" title="Query Transformation Editor (JavaScript expression)">
         <span>⚡</span> Query
       </button>
+      <button id="modePipelineBtn" class="editor-mode-tab" type="button" title="Interactive Data Pipeline (Chain multi-step transformations)">
+        <span>⛓️</span> Pipeline <span id="pipelineStepCountBadge" class="tests-count-badge" style="display: none;">0</span>
+      </button>
       <button id="modeTestsBtn" class="editor-mode-tab" type="button" title="Test Suite Editor (Write unit assertions &amp; contract tests)">
         <span>🧪</span> Test Suite <span id="testsCountBadge" class="tests-count-badge" style="display: none;">0</span>
       </button>
       <div class="editor-mode-bar-right" style="margin-left: auto; display: inline-flex; align-items: center; gap: 8px; font-size: 11px; color: var(--vscode-descriptionForeground, #858585);">
         <span>Toggle: <kbd style="background: rgba(255,255,255,0.08); padding: 1px 4px; border-radius: 3px; border: 1px solid rgba(255,255,255,0.15); font-size: 10px;">Ctrl+Shift+E</kbd></span>
+      </div>
+    </div>
+    <!-- Visual Stage Ribbon for Pipeline Mode -->
+    <div id="pipelineStageRibbon" class="pipeline-stage-ribbon" style="display: none;">
+      <div id="pipelineStepsList" style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;"></div>
+      <button id="addPipelineStepBtn" class="secondary" style="padding: 3px 8px; font-size: 11px; white-space: nowrap;" title="Append a new transformation step to the pipeline">+ Add Step</button>
+    </div>
+    <!-- Step Configuration Bar for Active Step in Pipeline Mode -->
+    <div id="pipelineStepConfigBar" class="pipeline-step-config-bar" style="display: none; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; font-size: 11px; padding: 4px 8px; background: var(--vscode-input-background, #3c3c3c); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px;">
+      <div style="display: inline-flex; align-items: center; gap: 6px;">
+        <label for="stepNameInput" style="color: var(--vscode-descriptionForeground, #858585); font-weight: 500;">Step:</label>
+        <input id="stepNameInput" type="text" placeholder="e.g. Filter Active" style="padding: 2px 6px; font-size: 11px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-editor-background, #1e1e1e); color: var(--vscode-input-foreground, #cccccc); width: 130px;" />
+      </div>
+      <div style="display: inline-flex; align-items: center; gap: 6px;">
+        <label for="stepAliasInput" style="color: var(--vscode-descriptionForeground, #858585); font-weight: 500;">Alias:</label>
+        <input id="stepAliasInput" type="text" placeholder="e.g. step1" style="padding: 2px 6px; font-size: 11px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-editor-background, #1e1e1e); color: var(--vscode-input-foreground, #cccccc); width: 75px; font-family: monospace;" />
+      </div>
+      <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;">
+        <input id="stepEnabledCheckbox" type="checkbox" checked style="cursor: pointer;" />
+        <span>Enabled</span>
+      </label>
+      <span style="color: var(--vscode-descriptionForeground, #858585); font-size: 10px;">Scope: <code>input</code>, <code>prev</code>, <code>data</code>, step aliases</span>
+      <div style="margin-left: auto; display: inline-flex; align-items: center; gap: 6px;">
+        <button id="moveStepUpBtn" class="secondary" style="padding: 2px 6px; font-size: 11px;" title="Move this step earlier">⬆</button>
+        <button id="moveStepDownBtn" class="secondary" style="padding: 2px 6px; font-size: 11px;" title="Move this step later">⬇</button>
+        <button id="duplicateStepBtn" class="secondary" style="padding: 2px 6px; font-size: 11px;" title="Duplicate this step">📋</button>
+        <button id="removeStepBtn" class="secondary" style="padding: 2px 6px; font-size: 11px; color: var(--vscode-errorForeground, #f48771);" title="Delete this step">🗑</button>
       </div>
     </div>
     <textarea id="expr" placeholder=".filter(x=>x.active).map(x=>({name:x.name})) — Template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}"></textarea>
@@ -1336,6 +1424,22 @@ export function getQueryEditorHtml(
     <button id="exportQuery" class="secondary" title="Export current query to a file" style="margin-left: 8px;">📥 Export File</button>
   </div>
 
+  <!-- Dedicated Pipeline Toolbar -->
+  <div id="pipelineToolbar" class="row" style="gap: 10px; flex-wrap: wrap; align-items: center; display: none;">
+    <button id="runPipelineBtn" class="primary" style="display: inline-flex; align-items: center; gap: 5px;" title="Run All Pipeline Stages (Ctrl+Enter)">▶ Run Pipeline</button>
+    <div id="pipelinePreviewSelectContainer" style="display: inline-flex; align-items: center; gap: 6px; font-size: 11px; background: var(--vscode-input-background, #3c3c3c); padding: 4px 8px; border-radius: 3px; border: 1px solid var(--vscode-input-border, #3e3e42);">
+      <label for="pipelinePreviewSelect" style="color: var(--vscode-descriptionForeground, #858585); font-weight: 500;">👁️ Preview:</label>
+      <select id="pipelinePreviewSelect" style="background: transparent; border: none; color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; outline: none; font-family: inherit;" title="Select which pipeline stage output to display in the result area">
+        <option value="final">Final Output</option>
+      </select>
+    </div>
+    <button id="savePipelineBtn" class="secondary" title="Save pipeline to local storage">★ Save Pipeline</button>
+    <button id="beautifyPipelineBtn" class="secondary" title="Format current step expression">✨ Beautify</button>
+    <button id="exportPipelineToQueryBtn" class="secondary" title="Convert pipeline into a single consolidated JavaScript query">⚡ Convert to Single Query</button>
+    <button id="importPipelineJsonBtn" class="secondary" title="Import pipeline definition (.pipeline.json)" style="margin-left: auto;">📤 Import Pipeline</button>
+    <button id="exportPipelineJsonBtn" class="secondary" title="Export pipeline definition (.pipeline.json)" style="margin-left: 8px;">📥 Export Pipeline</button>
+  </div>
+
   <!-- Dedicated Test Suite Toolbar -->
   <div id="testsToolbar" class="row" style="gap: 10px; flex-wrap: wrap; align-items: center; display: none;">
     <button id="runTestsModeBtn" class="primary" style="display: inline-flex; align-items: center; gap: 5px;" title="Run Test Suite (Ctrl+Enter or Ctrl+Shift+T)">▶ Run Tests</button>
@@ -1396,6 +1500,7 @@ export function getQueryEditorHtml(
         </div>
         <span id="resultInfo" style="font-size: 10px; color: var(--vscode-descriptionForeground, #858585);"></span>
         <span id="livePollStatusText" style="display: none; font-size: 10px; color: #4ec9b0; font-weight: 500;"></span>
+        <span id="pipelineResultBadge" style="display: none; font-size: 10px; color: #3794ff; font-weight: 500; background: rgba(55, 148, 255, 0.1); border: 1px solid rgba(55, 148, 255, 0.3); padding: 1px 6px; border-radius: 3px;"></span>
       </div>
       <div style="display: flex; gap: 6px; flex-wrap: wrap;">
         <select id="resultFormat" style="padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;">
@@ -2031,7 +2136,278 @@ export function getQueryEditorHtml(
     const testSnippetSelect = document.getElementById('testSnippetSelect');
     const importTestFileBtn = document.getElementById('importTestFileBtn');
     const exportTestFileBtn = document.getElementById('exportTestFileBtn');
-    const editorKeyboardHint = document.getElementById('editorKeyboardHint');
+    const modePipelineBtn = document.getElementById('modePipelineBtn');
+    const pipelineStepCountBadge = document.getElementById('pipelineStepCountBadge');
+    const pipelineStageRibbon = document.getElementById('pipelineStageRibbon');
+    const pipelineStepsList = document.getElementById('pipelineStepsList');
+    const addPipelineStepBtn = document.getElementById('addPipelineStepBtn');
+    const pipelineStepConfigBar = document.getElementById('pipelineStepConfigBar');
+    const stepNameInput = document.getElementById('stepNameInput');
+    const stepAliasInput = document.getElementById('stepAliasInput');
+    const stepEnabledCheckbox = document.getElementById('stepEnabledCheckbox');
+    const moveStepUpBtn = document.getElementById('moveStepUpBtn');
+    const moveStepDownBtn = document.getElementById('moveStepDownBtn');
+    const duplicateStepBtn = document.getElementById('duplicateStepBtn');
+    const removeStepBtn = document.getElementById('removeStepBtn');
+    const pipelineToolbar = document.getElementById('pipelineToolbar');
+    const runPipelineBtn = document.getElementById('runPipelineBtn');
+    const pipelinePreviewSelectContainer = document.getElementById('pipelinePreviewSelectContainer');
+    const pipelinePreviewSelect = document.getElementById('pipelinePreviewSelect');
+    const savePipelineBtn = document.getElementById('savePipelineBtn');
+    const beautifyPipelineBtn = document.getElementById('beautifyPipelineBtn');
+    const exportPipelineToQueryBtn = document.getElementById('exportPipelineToQueryBtn');
+    const importPipelineJsonBtn = document.getElementById('importPipelineJsonBtn');
+    const exportPipelineJsonBtn = document.getElementById('exportPipelineJsonBtn');
+    const pipelineResultBadge = document.getElementById('pipelineResultBadge');
+
+    let pipelineSteps = [
+      { id: 'step_1', name: 'Filter / Clean', alias: 'step1', expr: '// Step 1: Filter / Clean data\\nreturn Array.isArray(data) ? data.filter(item => item != null) : data;', enabled: true },
+      { id: 'step_2', name: 'Transform / Enrich', alias: 'step2', expr: '// Step 2: Transform / Enrich\\nreturn Array.isArray(prev) ? prev.map(item => ({ ...item })) : prev;', enabled: true },
+      { id: 'step_3', name: 'Format / Sort', alias: 'step3', expr: '// Step 3: Format / Sort\\nreturn prev;', enabled: true }
+    ];
+    let activeStepIndex = 0;
+    let previewStepId = 'final';
+    let lastPipelineResult = null;
+
+    try {
+      const savedStepsJson = localStorage.getItem('jsonQueryTools.pipelineSteps');
+      if (savedStepsJson) {
+        const parsed = JSON.parse(savedStepsJson);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          pipelineSteps = parsed;
+        }
+      }
+    } catch (e) {}
+
+    function savePipelineToStorage() {
+      try {
+        localStorage.setItem('jsonQueryTools.pipelineSteps', JSON.stringify(pipelineSteps));
+      } catch (e) {}
+      if (pipelineStepCountBadge) {
+        pipelineStepCountBadge.textContent = String(pipelineSteps.length);
+        pipelineStepCountBadge.style.display = pipelineSteps.length > 0 ? 'inline-block' : 'none';
+      }
+    }
+
+    function updateActiveStepConfigUI() {
+      const step = pipelineSteps[activeStepIndex];
+      if (!step) return;
+      if (stepNameInput) stepNameInput.value = step.name || '';
+      if (stepAliasInput) stepAliasInput.value = step.alias || '';
+      if (stepEnabledCheckbox) stepEnabledCheckbox.checked = Boolean(step.enabled);
+    }
+
+    function updatePipelinePreviewOptions() {
+      if (!pipelinePreviewSelect) return;
+      const currentVal = previewStepId || 'final';
+      pipelinePreviewSelect.innerHTML = '<option value="final">Final Output</option>';
+      pipelineSteps.forEach((s, idx) => {
+        const opt = document.createElement('option');
+        opt.value = s.id;
+        opt.textContent = 'Step ' + (idx + 1) + ': ' + (s.name || s.alias || ('Step ' + (idx + 1)));
+        pipelinePreviewSelect.appendChild(opt);
+      });
+      pipelinePreviewSelect.value = currentVal;
+    }
+
+    function showStepPreview(targetStepId) {
+      if (!lastPipelineResult) return;
+      if (targetStepId === 'final' || !targetStepId) {
+        if (pipelineResultBadge) {
+          pipelineResultBadge.style.display = 'inline-block';
+          pipelineResultBadge.textContent = '⛓️ Pipeline Result (' + formatDuration(lastPipelineResult.durationMs) + ')';
+        }
+        updateResultDisplay('', lastPipelineResult.finalResult);
+        return;
+      }
+      const stepRes = lastPipelineResult.steps ? lastPipelineResult.steps.find(s => s.id === targetStepId) : null;
+      if (stepRes) {
+        if (pipelineResultBadge) {
+          pipelineResultBadge.style.display = 'inline-block';
+          const countInfo = stepRes.itemCount !== undefined ? stepRes.itemCount + ' items • ' : '';
+          pipelineResultBadge.textContent = '👁️ Preview: ' + (stepRes.name || stepRes.alias) + ' (' + countInfo + formatDuration(stepRes.durationMs) + ')';
+        }
+        updateResultDisplay(stepRes.text || '', stepRes.output);
+      }
+    }
+
+    function selectPipelineStep(index, andPreview) {
+      if (index < 0 || index >= pipelineSteps.length) return;
+      if (activeEditorMode === 'pipeline' && pipelineSteps[activeStepIndex]) {
+        pipelineSteps[activeStepIndex].expr = getRawEditorValue();
+      }
+      activeStepIndex = index;
+      const step = pipelineSteps[index];
+      if (andPreview || previewStepId === step.id) {
+        previewStepId = step.id;
+        if (pipelinePreviewSelect) pipelinePreviewSelect.value = step.id;
+        showStepPreview(step.id);
+      }
+      if (step) {
+        setEditorValue(step.expr || '');
+        if (editor && editor.clearHistory) editor.clearHistory();
+      }
+      renderPipelineRibbon();
+    }
+
+    function renderPipelineRibbon() {
+      if (!pipelineStepsList) return;
+      pipelineStepsList.innerHTML = '';
+      if (pipelineStepCountBadge) {
+        pipelineStepCountBadge.textContent = String(pipelineSteps.length);
+        pipelineStepCountBadge.style.display = pipelineSteps.length > 0 ? 'inline-block' : 'none';
+      }
+
+      pipelineSteps.forEach((step, idx) => {
+        const pill = document.createElement('div');
+        const isActive = idx === activeStepIndex;
+        const isPreviewing = previewStepId === step.id;
+        const stepResult = lastPipelineResult && lastPipelineResult.steps ? lastPipelineResult.steps.find(s => s.id === step.id) : null;
+
+        let classes = 'pipeline-step-pill';
+        if (isActive) classes += ' active';
+        if (isPreviewing) classes += ' previewing';
+        if (!step.enabled) classes += ' disabled-step';
+        if (stepResult && stepResult.error) classes += ' error-step';
+        pill.className = classes;
+        pill.setAttribute('data-index', String(idx));
+        pill.setAttribute('data-id', step.id);
+        pill.title = 'Step ' + (idx + 1) + ': ' + (step.name || step.alias || '') + (step.enabled ? '' : ' (Bypassed)');
+
+        let statusBadge = '';
+        if (stepResult) {
+          if (stepResult.error) {
+            statusBadge = '<span class="pipeline-step-badge" style="background: rgba(244,135,113,0.2); color: #f48771;">❌ Error</span>';
+          } else if (stepResult.enabled === false) {
+            statusBadge = '<span class="pipeline-step-badge" style="opacity: 0.6;">Bypassed</span>';
+          } else {
+            const countStr = stepResult.itemCount !== undefined ? stepResult.itemCount + ' items • ' : '';
+            statusBadge = '<span class="pipeline-step-badge" style="color: #4ec9b0;">' + countStr + formatDuration(stepResult.durationMs) + '</span>';
+          }
+        }
+
+        const eyeIndicator = isPreviewing ? '<span title="Currently previewing output in result viewer" style="color: #4ec9b0;">👁️</span> ' : '';
+
+        pill.innerHTML = eyeIndicator +
+          '<strong>' + (idx + 1) + '.</strong> ' +
+          '<span style="max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">' + escapeHtml(step.name || step.alias || ('Step ' + (idx + 1))) + '</span>' +
+          statusBadge;
+
+        pill.addEventListener('click', (e) => {
+          selectPipelineStep(idx, true);
+        });
+
+        pipelineStepsList.appendChild(pill);
+
+        if (idx < pipelineSteps.length - 1) {
+          const arrow = document.createElement('span');
+          arrow.className = 'pipeline-step-arrow';
+          arrow.textContent = '→';
+          pipelineStepsList.appendChild(arrow);
+        }
+      });
+
+      updatePipelinePreviewOptions();
+      updateActiveStepConfigUI();
+    }
+
+    function addPipelineStep() {
+      if (pipelineSteps[activeStepIndex]) {
+        pipelineSteps[activeStepIndex].expr = getRawEditorValue();
+      }
+      const newNum = pipelineSteps.length + 1;
+      const newStep = {
+        id: 'step_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        name: 'Step ' + newNum,
+        alias: 'step' + newNum,
+        expr: '// Step ' + newNum + '\\nreturn prev;',
+        enabled: true
+      };
+      pipelineSteps.push(newStep);
+      savePipelineToStorage();
+      selectPipelineStep(pipelineSteps.length - 1, true);
+    }
+
+    function removeCurrentPipelineStep() {
+      if (pipelineSteps.length <= 1) {
+        pipelineSteps[0] = {
+          id: 'step_1',
+          name: 'Step 1',
+          alias: 'step1',
+          expr: '// Step 1\\nreturn data;',
+          enabled: true
+        };
+        selectPipelineStep(0);
+        savePipelineToStorage();
+        return;
+      }
+      pipelineSteps.splice(activeStepIndex, 1);
+      if (activeStepIndex >= pipelineSteps.length) {
+        activeStepIndex = pipelineSteps.length - 1;
+      }
+      savePipelineToStorage();
+      selectPipelineStep(activeStepIndex);
+    }
+
+    function moveCurrentStep(dir) {
+      const newIdx = activeStepIndex + dir;
+      if (newIdx < 0 || newIdx >= pipelineSteps.length) return;
+      if (pipelineSteps[activeStepIndex]) {
+        pipelineSteps[activeStepIndex].expr = getRawEditorValue();
+      }
+      const temp = pipelineSteps[activeStepIndex];
+      pipelineSteps[activeStepIndex] = pipelineSteps[newIdx];
+      pipelineSteps[newIdx] = temp;
+      activeStepIndex = newIdx;
+      savePipelineToStorage();
+      selectPipelineStep(newIdx);
+    }
+
+    function duplicateCurrentStep() {
+      if (!pipelineSteps[activeStepIndex]) return;
+      pipelineSteps[activeStepIndex].expr = getRawEditorValue();
+      const source = pipelineSteps[activeStepIndex];
+      const copy = {
+        id: 'step_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+        name: (source.name || 'Step') + ' (Copy)',
+        alias: (source.alias || 'step') + '_copy',
+        expr: source.expr,
+        enabled: source.enabled
+      };
+      pipelineSteps.splice(activeStepIndex + 1, 0, copy);
+      savePipelineToStorage();
+      selectPipelineStep(activeStepIndex + 1);
+    }
+
+    function runPipeline() {
+      if (pipelineSteps[activeStepIndex]) {
+        pipelineSteps[activeStepIndex].expr = getRawEditorValue();
+      }
+      savePipelineToStorage();
+      setLoading(true);
+      clearConsoleOutput();
+      vscode.postMessage({
+        type: 'runPipeline',
+        steps: pipelineSteps,
+        previewStepId: previewStepId
+      });
+    }
+
+    function savePipeline() {
+      if (pipelineSteps[activeStepIndex]) {
+        pipelineSteps[activeStepIndex].expr = getRawEditorValue();
+      }
+      savePipelineToStorage();
+      if (savePipelineBtn) {
+        const orig = savePipelineBtn.textContent;
+        savePipelineBtn.textContent = '✓ Saved';
+        setTimeout(() => { savePipelineBtn.textContent = orig; }, 1500);
+      }
+    }
+
+    try {
+      renderPipelineRibbon();
+    } catch (e) {}
 
     const runTestsBtn = document.getElementById('runTestsBtn');
     const testSuiteBadge = document.getElementById('testSuiteBadge');
@@ -2071,13 +2447,27 @@ export function getQueryEditorHtml(
       if (!isLivePollingActive) return;
       if (livePollUpdateTimeout) clearTimeout(livePollUpdateTimeout);
       livePollUpdateTimeout = setTimeout(() => {
-        vscode.postMessage({
-          type: 'updateLivePollExpr',
-          expr: getRawEditorValue(),
-          isTestMode: activeEditorMode === 'tests',
-          target: testTargetSelect ? testTargetSelect.value : 'source',
-          queryExpr: (activeEditorMode === 'tests' && testTargetSelect && testTargetSelect.value === 'query') ? (localStorage.getItem('jsonQueryTools.queryExpr') || '') : undefined
-        });
+        if (activeEditorMode === 'pipeline') {
+          if (pipelineSteps[activeStepIndex]) {
+            pipelineSteps[activeStepIndex].expr = getRawEditorValue();
+          }
+          savePipelineToStorage();
+          vscode.postMessage({
+            type: 'updateLivePollExpr',
+            expr: getRawEditorValue(),
+            isPipeline: true,
+            steps: pipelineSteps,
+            previewStepId: previewStepId
+          });
+        } else {
+          vscode.postMessage({
+            type: 'updateLivePollExpr',
+            expr: getRawEditorValue(),
+            isTestMode: activeEditorMode === 'tests',
+            target: testTargetSelect ? testTargetSelect.value : 'source',
+            queryExpr: (activeEditorMode === 'tests' && testTargetSelect && testTargetSelect.value === 'query') ? (localStorage.getItem('jsonQueryTools.queryExpr') || '') : undefined
+          });
+        }
       }, 250);
     }
 
@@ -4476,6 +4866,7 @@ export function getQueryEditorHtml(
       if (!prop) return TYPE_ANY;
       if (prop.items) return TYPE_ARRAY;
       if (prop.properties) return TYPE_OBJECT;
+      if (prop.valueType) return normalizeType(prop.valueType);
       return normalizeType(prop.type);
     }
 
@@ -4494,7 +4885,207 @@ export function getQueryEditorHtml(
       if (prop.type === 'object' || prop.properties) {
         return { type: 'object', properties: prop.properties || {} };
       }
-      return { type: 'primitive', valueType: normalizeType(prop.type) };
+      return { type: 'primitive', valueType: normalizeType(prop.valueType || prop.type) };
+    }
+
+    function isValidStepAlias(alias) {
+      if (!alias || typeof alias !== 'string') return false;
+      const trimmed = alias.trim();
+      return /^[a-zA-Z_\\$][a-zA-Z0-9_\\$]*$/.test(trimmed);
+    }
+
+    function extractSchemaFromValue(val, depth) {
+      if (depth === undefined) depth = 0;
+      if (val === null || val === undefined) return { type: 'primitive', valueType: 'null' };
+      if (typeof val !== 'object') return { type: 'primitive', valueType: typeof val };
+      if (depth >= 3) {
+        if (Array.isArray(val)) return { type: 'array', items: { type: 'primitive', valueType: 'any' } };
+        return { type: 'object', properties: {} };
+      }
+      if (Array.isArray(val)) {
+        if (val.length === 0) return { type: 'array', items: { type: 'primitive', valueType: 'any' } };
+        const sample = val.slice(0, 10);
+        let itemsSchema = null;
+        for (let i = 0; i < sample.length; i++) {
+          const item = sample[i];
+          if (item !== null && item !== undefined) {
+            const s = extractSchemaFromValue(item, depth + 1);
+            if (!itemsSchema) {
+              itemsSchema = s;
+            } else if (itemsSchema.type === 'object' && s.type === 'object') {
+              itemsSchema.properties = Object.assign({}, itemsSchema.properties, s.properties);
+            }
+          }
+        }
+        return { type: 'array', items: itemsSchema || { type: 'primitive', valueType: 'any' } };
+      }
+      const props = {};
+      const keys = Object.keys(val).slice(0, 50);
+      for (let i = 0; i < keys.length; i++) {
+        const k = keys[i];
+        props[k] = extractSchemaFromValue(val[k], depth + 1);
+      }
+      return { type: 'object', properties: props };
+    }
+
+    function getInitialDataSchema() {
+      if (typeof currentSchema !== 'object' || !currentSchema) return null;
+      if (currentSchema.type === 'object' && currentSchema.properties) {
+        if (currentSchema.properties['data']) {
+          return schemaForProp(currentSchema.properties['data']);
+        }
+        if (typeof currentSources === 'object' && Array.isArray(currentSources) && currentSources.length > 0) {
+          const firstAlias = currentSources[0] && currentSources[0].alias;
+          if (firstAlias && currentSchema.properties[firstAlias]) {
+            return schemaForProp(currentSchema.properties[firstAlias]);
+          }
+        }
+      }
+      return currentSchema;
+    }
+
+    function getPipelineVariablesMap() {
+      const vars = {};
+      const steps = (typeof pipelineSteps !== 'undefined' && Array.isArray(pipelineSteps)) ? pipelineSteps : null;
+      if (!steps || steps.length === 0) return vars;
+      if (typeof activeEditorMode !== 'undefined' && activeEditorMode !== 'pipeline') return vars;
+
+      const curIdx = (typeof activeStepIndex === 'number' && activeStepIndex >= 0) ? activeStepIndex : 0;
+      const initialSchema = getInitialDataSchema();
+      const pipelineRes = (typeof lastPipelineResult !== 'undefined' && lastPipelineResult) ? lastPipelineResult : null;
+
+      // Find schema for previous step output
+      let prevSchema = null;
+      if (curIdx === 0) {
+        prevSchema = initialSchema;
+      } else {
+        // Look backwards for the most recent enabled step before curIdx
+        let prevStep = null;
+        let prevStepIdx = -1;
+        for (let i = curIdx - 1; i >= 0; i--) {
+          if (steps[i] && steps[i].enabled !== false) {
+            prevStep = steps[i];
+            prevStepIdx = i;
+            break;
+          }
+        }
+        if (!prevStep && curIdx - 1 >= 0) {
+          prevStep = steps[curIdx - 1];
+          prevStepIdx = curIdx - 1;
+        }
+
+        if (prevStep && pipelineRes && Array.isArray(pipelineRes.steps)) {
+          const stepRes = pipelineRes.steps.find(function(s) { return s.id === prevStep.id; }) || pipelineRes.steps[prevStepIdx];
+          if (stepRes && stepRes.output !== undefined && stepRes.output !== null) {
+            prevSchema = extractSchemaFromValue(stepRes.output);
+          }
+        }
+        if (!prevSchema) {
+          prevSchema = initialSchema;
+        }
+      }
+
+      vars['prev'] = {
+        schemaPart: prevSchema,
+        displayText: curIdx === 0 ? 'prev : input data (step 1)' : 'prev : previous step output'
+      };
+      vars['input'] = {
+        schemaPart: prevSchema,
+        displayText: 'input : alias for prev'
+      };
+      vars['raw'] = {
+        schemaPart: initialSchema,
+        displayText: 'raw : initial input data'
+      };
+
+      // Add step variables from step 1 up to current step
+      for (let i = 0; i <= curIdx && i < steps.length; i++) {
+        const s = steps[i];
+        if (!s) continue;
+        const stepNum = i + 1;
+        const defaultAlias = 'step' + stepNum;
+        const customAlias = (isValidStepAlias(s.alias) && s.alias.trim() !== defaultAlias) ? s.alias.trim() : null;
+        const validName = (isValidStepAlias(s.name) && s.name.trim() !== defaultAlias && (!customAlias || s.name.trim() !== customAlias)) ? s.name.trim() : null;
+
+        let sSchema = null;
+        if (i === curIdx) {
+          sSchema = prevSchema;
+        } else {
+          if (pipelineRes && Array.isArray(pipelineRes.steps)) {
+            const stepRes = pipelineRes.steps.find(function(r) { return r.id === s.id; }) || pipelineRes.steps[i];
+            if (stepRes && stepRes.output !== undefined && stepRes.output !== null) {
+              sSchema = extractSchemaFromValue(stepRes.output);
+            }
+          }
+          if (!sSchema) {
+            sSchema = initialSchema;
+          }
+        }
+
+        vars[defaultAlias] = {
+          schemaPart: sSchema,
+          displayText: defaultAlias + ' : Step ' + stepNum + (i === curIdx ? ' (current input)' : ' output')
+        };
+        if (customAlias) {
+          vars[customAlias] = {
+            schemaPart: sSchema,
+            displayText: customAlias + ' : Step ' + stepNum + ' output (alias)'
+          };
+        }
+        if (validName) {
+          vars[validName] = {
+            schemaPart: sSchema,
+            displayText: validName + ' : Step ' + stepNum + ' output (name)'
+          };
+        }
+      }
+
+      return vars;
+    }
+
+    function buildTopLevelCompletions(callbackBindings) {
+      const completions = [
+        { kind: 'keyword', text: 'data', displayText: 'data : input JSON data' },
+        { kind: 'keyword', text: 'env', displayText: 'env : active environment' },
+        { kind: 'keyword', text: 'require', displayText: 'require(module)' },
+        { kind: 'keyword', text: 'Math', displayText: 'Math : built-in' },
+        { kind: 'keyword', text: 'JSON', displayText: 'JSON : built-in' },
+        { kind: 'keyword', text: 'Object', displayText: 'Object : built-in' },
+        { kind: 'keyword', text: 'Array', displayText: 'Array : built-in' },
+        { kind: 'keyword', text: 'console', displayText: 'console : built-in' },
+        { kind: 'keyword', text: 'test', displayText: 'test(name, fn) : declare test case' },
+        { kind: 'keyword', text: 'it', displayText: 'it(name, fn) : declare test case' },
+        { kind: 'keyword', text: 'expect', displayText: 'expect(actual) : test assertion matcher' },
+        { kind: 'keyword', text: 'assert', displayText: 'assert(condition, msg) : assertion' }
+      ];
+
+      // Pipeline scoped variables (prev, input, raw, step1, aliases, names)
+      const pVars = getPipelineVariablesMap();
+      for (const varName of Object.keys(pVars)) {
+        if (varName === 'data') continue;
+        completions.push({
+          kind: 'keyword',
+          text: varName,
+          displayText: pVars[varName].displayText
+        });
+      }
+
+      if (typeof currentSources === 'object' && Array.isArray(currentSources)) {
+        for (let sIdx = 0; sIdx < currentSources.length; sIdx++) {
+          const s = currentSources[sIdx];
+          if (s && s.alias && s.alias !== 'data' && !pVars[s.alias]) {
+            completions.push({ kind: 'keyword', text: s.alias, displayText: s.alias + ' : bound source' });
+          }
+        }
+      }
+
+      if (callbackBindings) {
+        for (const p of Object.keys(callbackBindings)) {
+          completions.unshift({ kind: 'variable', text: p, displayText: p + ' : callback param' });
+        }
+      }
+
+      return completions;
     }
 
     // Very small method knowledge base (instance methods)
@@ -4979,22 +5570,39 @@ export function getQueryEditorHtml(
         }
       }
 
-      // 4. Bound sources (data or secondary sources e.g. users, orders)
+      // 4. Pipeline scoped variables (prev, input, raw, step1, aliases, names) or bound sources
       let matchedSource = null;
-      if (chain === 'data' || chain.startsWith('data.') || chain.startsWith('data[')) {
-        matchedSource = 'data';
-      } else if (typeof currentSources === 'object' && Array.isArray(currentSources)) {
-        for (let sIdx = 0; sIdx < currentSources.length; sIdx++) {
-          const s = currentSources[sIdx];
-          if (s && s.alias && (chain === s.alias || chain.startsWith(s.alias + '.') || chain.startsWith(s.alias + '['))) {
-            matchedSource = s.alias;
-            break;
+      let matchedSourceSchema = undefined;
+
+      const pVars = getPipelineVariablesMap();
+      const pVarKeys = Object.keys(pVars).sort(function(a, b) { return b.length - a.length; });
+      for (let i = 0; i < pVarKeys.length; i++) {
+        const vk = pVarKeys[i];
+        if (chain === vk || chain.startsWith(vk + '.') || chain.startsWith(vk + '[')) {
+          matchedSource = vk;
+          matchedSourceSchema = pVars[vk].schemaPart;
+          break;
+        }
+      }
+
+      if (!matchedSource) {
+        if (chain === 'data' || chain.startsWith('data.') || chain.startsWith('data[')) {
+          matchedSource = 'data';
+        } else if (typeof currentSources === 'object' && Array.isArray(currentSources)) {
+          for (let sIdx = 0; sIdx < currentSources.length; sIdx++) {
+            const s = currentSources[sIdx];
+            if (s && s.alias && (chain === s.alias || chain.startsWith(s.alias + '.') || chain.startsWith(s.alias + '['))) {
+              matchedSource = s.alias;
+              break;
+            }
           }
         }
       }
 
       if (matchedSource) {
-        if (currentSchema && currentSchema.type === 'object' && currentSchema.properties && currentSchema.properties[matchedSource]) {
+        if (matchedSourceSchema !== undefined) {
+          schemaPart = matchedSourceSchema;
+        } else if (currentSchema && currentSchema.type === 'object' && currentSchema.properties && currentSchema.properties[matchedSource]) {
           schemaPart = schemaForProp(currentSchema.properties[matchedSource]);
         } else {
           schemaPart = currentSchema;
@@ -5544,33 +6152,7 @@ export function getQueryEditorHtml(
             }
           } else {
             // Top-level identifiers
-            completions = [
-              { kind: 'keyword', text: 'data', displayText: 'data : input JSON data' },
-              { kind: 'keyword', text: 'env', displayText: 'env : active environment' },
-              { kind: 'keyword', text: 'require', displayText: 'require(module)' },
-              { kind: 'keyword', text: 'Math', displayText: 'Math : built-in' },
-              { kind: 'keyword', text: 'JSON', displayText: 'JSON : built-in' },
-              { kind: 'keyword', text: 'Object', displayText: 'Object : built-in' },
-              { kind: 'keyword', text: 'Array', displayText: 'Array : built-in' },
-              { kind: 'keyword', text: 'console', displayText: 'console : built-in' },
-              { kind: 'keyword', text: 'test', displayText: 'test(name, fn) : declare test case' },
-              { kind: 'keyword', text: 'it', displayText: 'it(name, fn) : declare test case' },
-              { kind: 'keyword', text: 'expect', displayText: 'expect(actual) : test assertion matcher' },
-              { kind: 'keyword', text: 'assert', displayText: 'assert(condition, msg) : assertion' }
-            ];
-            if (typeof currentSources === 'object' && Array.isArray(currentSources)) {
-              for (let sIdx = 0; sIdx < currentSources.length; sIdx++) {
-                const s = currentSources[sIdx];
-                if (s && s.alias && s.alias !== 'data') {
-                  completions.push({ kind: 'keyword', text: s.alias, displayText: s.alias + ' : bound source' });
-                }
-              }
-            }
-            if (callbackBindings) {
-              for (const p of Object.keys(callbackBindings)) {
-                completions.unshift({ kind: 'variable', text: p, displayText: p + ' : callback param' });
-              }
-            }
+            completions = buildTopLevelCompletions(callbackBindings);
           }
 
           // Deduplicate completions
@@ -5734,60 +6316,83 @@ export function getQueryEditorHtml(
     function switchEditorMode(newMode) {
       if (newMode === activeEditorMode) return;
       clearSyntaxError();
-      if (newMode === 'tests') {
-        // Save current query code
+
+      // 1. Save state of the mode we are leaving
+      if (activeEditorMode === 'query') {
         queryCode = getRawEditorValue();
-        activeEditorMode = 'tests';
-
-        if (modeQueryBtn) modeQueryBtn.classList.remove('active');
-        if (modeTestsBtn) modeTestsBtn.classList.add('active');
-
-        if (queryToolbar) queryToolbar.style.display = 'none';
-        if (testsToolbar) testsToolbar.style.display = 'flex';
-
-        const lpTests = document.getElementById('livePollContainer');
-        const importTestBtn = document.getElementById('importTestFileBtn');
-        if (lpTests && testsToolbar && importTestBtn) {
-          testsToolbar.insertBefore(lpTests, importTestBtn);
-        }
-        scheduleLivePollUpdate();
-
-        setEditorValue(testCode);
-        if (editor && editor.clearHistory) editor.clearHistory();
-
-        if (exprTextarea) exprTextarea.placeholder = "test('validates data', () => { expect(data).toBeDefined(); });";
-        if (editorKeyboardHint) {
-          editorKeyboardHint.innerHTML = 'Press <kbd>Ctrl+Enter</kbd> to run tests | <kbd>Ctrl+Shift+E</kbd> to switch to query | <kbd>Ctrl+S</kbd> to save tests';
-        }
-        updateTestCountBadge(testCode);
-      } else {
-        // Save test code to state and localStorage
+      } else if (activeEditorMode === 'tests') {
         testCode = getRawEditorValue();
         localStorage.setItem('jsonQueryTools.testSuiteCode', testCode);
         updateTestCountBadge(testCode);
-        activeEditorMode = 'query';
-
-        if (modeQueryBtn) modeQueryBtn.classList.add('active');
-        if (modeTestsBtn) modeTestsBtn.classList.remove('active');
-
-        if (queryToolbar) queryToolbar.style.display = 'flex';
-        if (testsToolbar) testsToolbar.style.display = 'none';
-
-        const lpQuery = document.getElementById('livePollContainer');
-        const importQBtn = document.getElementById('importQuery');
-        if (lpQuery && queryToolbar && importQBtn) {
-          queryToolbar.insertBefore(lpQuery, importQBtn);
+      } else if (activeEditorMode === 'pipeline') {
+        if (pipelineSteps[activeStepIndex]) {
+          pipelineSteps[activeStepIndex].expr = getRawEditorValue();
         }
-        scheduleLivePollUpdate();
+        savePipelineToStorage();
+      }
 
-        setEditorValue(queryCode);
-        if (editor && editor.clearHistory) editor.clearHistory();
+      // 2. Set new mode
+      activeEditorMode = newMode;
 
-        if (exprTextarea) exprTextarea.placeholder = ".filter(x=>x.active).map(x=>({name:x.name})) — Template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}";
-        if (editorKeyboardHint) {
-          editorKeyboardHint.innerHTML = 'Press <kbd>Ctrl+Enter</kbd> to run | <kbd>Ctrl+Shift+T</kbd> to run tests | <kbd>Ctrl+S</kbd> to save';
+      // 3. Update Mode Buttons
+      if (modeQueryBtn) modeQueryBtn.classList.toggle('active', newMode === 'query');
+      if (modePipelineBtn) modePipelineBtn.classList.toggle('active', newMode === 'pipeline');
+      if (modeTestsBtn) modeTestsBtn.classList.toggle('active', newMode === 'tests');
+
+      // 4. Update Toolbars & Pipeline Ribbons
+      if (queryToolbar) queryToolbar.style.display = newMode === 'query' ? 'flex' : 'none';
+      if (pipelineToolbar) pipelineToolbar.style.display = newMode === 'pipeline' ? 'flex' : 'none';
+      if (testsToolbar) testsToolbar.style.display = newMode === 'tests' ? 'flex' : 'none';
+
+      if (pipelineStageRibbon) pipelineStageRibbon.style.display = newMode === 'pipeline' ? 'flex' : 'none';
+      if (pipelineStepConfigBar) pipelineStepConfigBar.style.display = newMode === 'pipeline' ? 'flex' : 'none';
+
+      // 5. Reposition Live Poll Container
+      const lp = document.getElementById('livePollContainer');
+      if (lp) {
+        if (newMode === 'query' && queryToolbar) {
+          const importQBtn = document.getElementById('importQuery');
+          if (importQBtn) queryToolbar.insertBefore(lp, importQBtn);
+        } else if (newMode === 'pipeline' && pipelineToolbar) {
+          const exportPQBtn = document.getElementById('exportPipelineToQueryBtn');
+          if (exportPQBtn) pipelineToolbar.insertBefore(lp, exportPQBtn);
+        } else if (newMode === 'tests' && testsToolbar) {
+          const importTestBtn = document.getElementById('importTestFileBtn');
+          if (importTestBtn) testsToolbar.insertBefore(lp, importTestBtn);
         }
       }
+      scheduleLivePollUpdate();
+
+      // 6. Set editor content and hints for the new mode
+      if (newMode === 'pipeline') {
+        renderPipelineRibbon();
+        updateActiveStepConfigUI();
+        updatePipelinePreviewOptions();
+        const curStep = pipelineSteps[activeStepIndex] || { expr: '' };
+        setEditorValue(curStep.expr || '');
+        if (editor && editor.clearHistory) editor.clearHistory();
+        if (exprTextarea) exprTextarea.placeholder = 'input.map(x => ... ) // or prev / data';
+        if (editorKeyboardHint) {
+          editorKeyboardHint.innerHTML = 'Press <kbd>Ctrl+Enter</kbd> to run pipeline | <kbd>Ctrl+S</kbd> to save | Click stage pills above to inspect/edit';
+        }
+      } else if (newMode === 'tests') {
+        setEditorValue(testCode);
+        if (editor && editor.clearHistory) editor.clearHistory();
+        if (exprTextarea) exprTextarea.placeholder = "test('validates data', () => { expect(data).toBeDefined(); });";
+        if (editorKeyboardHint) {
+          editorKeyboardHint.innerHTML = 'Press <kbd>Ctrl+Enter</kbd> to run tests | <kbd>Ctrl+Shift+E</kbd> to switch mode | <kbd>Ctrl+S</kbd> to save tests';
+        }
+        updateTestCountBadge(testCode);
+      } else {
+        // 'query'
+        setEditorValue(queryCode);
+        if (editor && editor.clearHistory) editor.clearHistory();
+        if (exprTextarea) exprTextarea.placeholder = ".filter(x=>x.active).map(x=>({name:x.name})) — Template vars: {{fileName}}, {{filePath}}, {{fileDir}}, {{workspaceFolder}}";
+        if (editorKeyboardHint) {
+          editorKeyboardHint.innerHTML = 'Press <kbd>Ctrl+Enter</kbd> to run | <kbd>Ctrl+Shift+E</kbd> to switch mode | <kbd>Ctrl+S</kbd> to save';
+        }
+      }
+
       if (editor) {
         editor.refresh();
         editor.focus();
@@ -5795,7 +6400,13 @@ export function getQueryEditorHtml(
     }
 
     function toggleEditorMode() {
-      switchEditorMode(activeEditorMode === 'query' ? 'tests' : 'query');
+      if (activeEditorMode === 'query') {
+        switchEditorMode('pipeline');
+      } else if (activeEditorMode === 'pipeline') {
+        switchEditorMode('tests');
+      } else {
+        switchEditorMode('query');
+      }
     }
 
     function saveTestSuite() {
@@ -5982,6 +6593,10 @@ export function getQueryEditorHtml(
     function saveExpression() {
       if (activeEditorMode === 'tests') {
         saveTestSuite();
+        return;
+      }
+      if (activeEditorMode === 'pipeline') {
+        savePipeline();
         return;
       }
       const expr = getEditorValue();
@@ -6239,8 +6854,104 @@ export function getQueryEditorHtml(
     if (modeQueryBtn) {
       modeQueryBtn.onclick = () => switchEditorMode('query');
     }
+    if (modePipelineBtn) {
+      modePipelineBtn.onclick = () => switchEditorMode('pipeline');
+    }
     if (modeTestsBtn) {
       modeTestsBtn.onclick = () => switchEditorMode('tests');
+    }
+    if (addPipelineStepBtn) {
+      addPipelineStepBtn.onclick = () => addPipelineStep();
+    }
+    if (removeStepBtn) {
+      removeStepBtn.onclick = () => removeCurrentPipelineStep();
+    }
+    if (moveStepUpBtn) {
+      moveStepUpBtn.onclick = () => moveCurrentStep(-1);
+    }
+    if (moveStepDownBtn) {
+      moveStepDownBtn.onclick = () => moveCurrentStep(1);
+    }
+    if (duplicateStepBtn) {
+      duplicateStepBtn.onclick = () => duplicateCurrentStep();
+    }
+    if (runPipelineBtn) {
+      runPipelineBtn.onclick = () => runPipeline();
+    }
+    if (savePipelineBtn) {
+      savePipelineBtn.onclick = () => savePipeline();
+    }
+    if (beautifyPipelineBtn) {
+      beautifyPipelineBtn.onclick = () => beautifyExpression();
+    }
+    if (exportPipelineToQueryBtn) {
+      exportPipelineToQueryBtn.onclick = () => {
+        if (pipelineSteps[activeStepIndex]) {
+          pipelineSteps[activeStepIndex].expr = getRawEditorValue();
+        }
+        savePipelineToStorage();
+        vscode.postMessage({ type: 'exportPipelineQuery', steps: pipelineSteps });
+      };
+    }
+    if (exportPipelineJsonBtn) {
+      exportPipelineJsonBtn.onclick = () => {
+        if (pipelineSteps[activeStepIndex]) {
+          pipelineSteps[activeStepIndex].expr = getRawEditorValue();
+        }
+        savePipelineToStorage();
+        vscode.postMessage({ type: 'exportPipelineJson', steps: pipelineSteps });
+      };
+    }
+    if (importPipelineJsonBtn) {
+      importPipelineJsonBtn.onclick = () => {
+        vscode.postMessage({ type: 'importPipelineJson' });
+      };
+    }
+    if (pipelinePreviewSelect) {
+      pipelinePreviewSelect.onchange = () => {
+        const val = pipelinePreviewSelect.value;
+        showStepPreview(val === 'final' ? null : val);
+        if (isLivePollingActive) {
+          scheduleLivePollUpdate();
+        }
+      };
+    }
+    if (stepNameInput) {
+      stepNameInput.oninput = () => {
+        const step = pipelineSteps[activeStepIndex];
+        if (step) {
+          step.name = stepNameInput.value.trim() || ('Step ' + (activeStepIndex + 1));
+          savePipelineToStorage();
+          renderPipelineRibbon();
+          updatePipelinePreviewOptions();
+        }
+      };
+    }
+    if (stepAliasInput) {
+      stepAliasInput.oninput = () => {
+        const step = pipelineSteps[activeStepIndex];
+        if (step) {
+          const clean = stepAliasInput.value.trim().replace(/[^a-zA-Z0-9_$]/g, '');
+          step.alias = clean || undefined;
+          savePipelineToStorage();
+          renderPipelineRibbon();
+          updatePipelinePreviewOptions();
+        }
+      };
+    }
+    if (stepEnabledCheckbox) {
+      stepEnabledCheckbox.onchange = () => {
+        const step = pipelineSteps[activeStepIndex];
+        if (step) {
+          step.enabled = stepEnabledCheckbox.checked;
+          savePipelineToStorage();
+          renderPipelineRibbon();
+          updatePipelinePreviewOptions();
+          if (isLivePollingActive) {
+            scheduleLivePollUpdate();
+          }
+        }
+      };
     }
     if (runTestsModeBtn) {
       runTestsModeBtn.onclick = runTests;
@@ -6282,20 +6993,37 @@ export function getQueryEditorHtml(
       }
     }
 
+    function getLivePollPayload(intervalMs) {
+      if (activeEditorMode === 'pipeline') {
+        if (pipelineSteps[activeStepIndex]) {
+          pipelineSteps[activeStepIndex].expr = getRawEditorValue();
+        }
+        savePipelineToStorage();
+        return {
+          type: 'startLivePoll',
+          intervalMs: intervalMs,
+          isPipeline: true,
+          steps: pipelineSteps,
+          previewStepId: previewStepId
+        };
+      }
+      return {
+        type: 'startLivePoll',
+        intervalMs: intervalMs,
+        expr: getRawEditorValue(),
+        isTestMode: activeEditorMode === 'tests',
+        target: testTargetSelect ? testTargetSelect.value : 'source',
+        queryExpr: (activeEditorMode === 'tests' && testTargetSelect && testTargetSelect.value === 'query') ? (localStorage.getItem('jsonQueryTools.queryExpr') || '') : undefined
+      };
+    }
+
     if (livePollToggleBtn && typeof livePollToggleBtn.addEventListener === 'function') {
       livePollToggleBtn.addEventListener('click', () => {
         if (isLivePollingActive) {
           vscode.postMessage({ type: 'stopLivePoll' });
         } else {
           const intervalMs = parseInt(livePollIntervalSelect ? livePollIntervalSelect.value : '5000', 10) || 5000;
-          vscode.postMessage({
-            type: 'startLivePoll',
-            intervalMs: intervalMs,
-            expr: getRawEditorValue(),
-            isTestMode: activeEditorMode === 'tests',
-            target: testTargetSelect ? testTargetSelect.value : 'source',
-            queryExpr: (activeEditorMode === 'tests' && testTargetSelect && testTargetSelect.value === 'query') ? (localStorage.getItem('jsonQueryTools.queryExpr') || '') : undefined
-          });
+          vscode.postMessage(getLivePollPayload(intervalMs));
         }
       });
     }
@@ -6314,14 +7042,7 @@ export function getQueryEditorHtml(
         } catch (e) {}
         if (isLivePollingActive) {
           const intervalMs = parseInt(livePollIntervalSelect.value, 10) || 5000;
-          vscode.postMessage({
-            type: 'startLivePoll',
-            intervalMs: intervalMs,
-            expr: getRawEditorValue(),
-            isTestMode: activeEditorMode === 'tests',
-            target: testTargetSelect ? testTargetSelect.value : 'source',
-            queryExpr: (activeEditorMode === 'tests' && testTargetSelect && testTargetSelect.value === 'query') ? (localStorage.getItem('jsonQueryTools.queryExpr') || '') : undefined
-          });
+          vscode.postMessage(getLivePollPayload(intervalMs));
         }
       });
     }
@@ -7753,6 +8474,8 @@ export function getQueryEditorHtml(
           'Ctrl-Enter': () => {
             if (activeEditorMode === 'tests') {
               runTests();
+            } else if (activeEditorMode === 'pipeline') {
+              runPipeline();
             } else {
               runExpression();
             }
@@ -7761,6 +8484,8 @@ export function getQueryEditorHtml(
           'Cmd-Enter': () => {
             if (activeEditorMode === 'tests') {
               runTests();
+            } else if (activeEditorMode === 'pipeline') {
+              runPipeline();
             } else {
               runExpression();
             }
@@ -7798,6 +8523,8 @@ export function getQueryEditorHtml(
             e.preventDefault();
             if (activeEditorMode === 'tests') {
               runTests();
+            } else if (activeEditorMode === 'pipeline') {
+              runPipeline();
             } else {
               runExpression();
             }
@@ -7936,11 +8663,13 @@ export function getQueryEditorHtml(
           currentResultText = '';
           if (benchmarkMeter) benchmarkMeter.style.display = 'none';
           lastBenchmark = null;
+          if (pipelineResultBadge && activeEditorMode !== 'pipeline') pipelineResultBadge.style.display = 'none';
         } else {
           currentResultData = msg.data !== undefined ? msg.data : null;
           currentResultText = msg.text ?? '';
           updateBenchmarkMeter(msg.durationMs, msg.byteSize, msg.text);
           updateResultDisplay(msg.text ?? '', currentResultData);
+          if (pipelineResultBadge && activeEditorMode !== 'pipeline') pipelineResultBadge.style.display = 'none';
         }
         if (msg.testSuite) {
           currentTestSuite = msg.testSuite;
@@ -8069,6 +8798,31 @@ export function getQueryEditorHtml(
         if (diffResultBtn) diffResultBtn.click();
       } else if (msg.type === 'triggerRunTests') {
         runTests();
+      } else if (msg.type === 'triggerRunPipeline') {
+        runPipeline();
+      } else if (msg.type === 'pipelineResult') {
+        lastPipelineResult = msg.pipeline || msg.result;
+        renderPipelineRibbon();
+        if (msg.previewStepId) {
+          showStepPreview(msg.previewStepId);
+        } else {
+          showStepPreview('final');
+        }
+      } else if (msg.type === 'loadPipeline') {
+        if (Array.isArray(msg.steps) && msg.steps.length > 0) {
+          pipelineSteps = msg.steps;
+          activeStepIndex = 0;
+          previewStepId = null;
+          savePipelineToStorage();
+          if (activeEditorMode !== 'pipeline') {
+            switchEditorMode('pipeline');
+          } else {
+            renderPipelineRibbon();
+            updateActiveStepConfigUI();
+            updatePipelinePreviewOptions();
+            setEditorValue(pipelineSteps[0].expr || '');
+          }
+        }
       } else if (msg.type === 'pollTick') {
         livePollCount = msg.pollCount || (livePollCount + 1);
         updateLivePollUI(true, livePollCount, msg.durationMs);

@@ -101,3 +101,34 @@ export interface ResolvedEnvironment {
   variables: Record<string, string>;
   defaultHeaders: Record<string, string>;
 }
+
+// Pipeline & Multi-Step Staging types
+export interface PipelineStep {
+  id: string;
+  name: string;
+  alias: string;
+  expr: string;
+  enabled: boolean;
+}
+
+export interface PipelineStepResult {
+  id: string;
+  name: string;
+  alias: string;
+  enabled: boolean;
+  durationMs: number;
+  byteSize: number;
+  itemCount?: number;
+  output: unknown;
+  text?: string;
+  error?: string;
+}
+
+export interface PipelineExecutionResult {
+  success: boolean;
+  steps: PipelineStepResult[];
+  finalResult: unknown;
+  durationMs: number;
+  failedStepId?: string;
+  error?: string;
+}

@@ -401,6 +401,119 @@ async function runAutocompleteTests() {
 
   console.log('  ✓ Autocomplete successfully suppressed inside single-quoted, double-quoted, template strings and comments');
 
+  // 14. Test Pipeline Scoped Variables Autocomplete and Type Inference
+  sandbox.activeEditorMode = 'pipeline';
+  sandbox.pipelineSteps = [
+    { id: 's1', name: 'cleanData', alias: 'cleaned', expr: 'data.filter(x => x.name)', enabled: true },
+    { id: 's2', name: 'Aggregate', alias: 'aggregated', expr: 'prev.map(x => ({ ...x, role: "user" }))', enabled: true },
+    { id: 's3', name: 'Finalize', alias: 'finalStep', expr: 'prev', enabled: true }
+  ];
+  sandbox.activeStepIndex = 1; // editing Step 2
+  sandbox.lastPipelineResult = {
+    steps: [
+      {
+        id: 's1',
+        output: [
+          { id: 101, name: 'Alice', active: true }
+        ]
+      }
+    ]
+  };
+
+  // Top-level completions in Step 2:
+  const pTopCompletions = sandbox.buildTopLevelCompletions({});
+  const pTopTexts = pTopCompletions.map(c => c.text);
+  assert.ok(pTopTexts.includes('prev'), 'Should include "prev" in pipeline completions');
+  assert.ok(pTopTexts.includes('input'), 'Should include "input" in pipeline completions');
+  assert.ok(pTopTexts.includes('raw'), 'Should include "raw" in pipeline completions');
+  assert.ok(pTopTexts.includes('step1'), 'Should include "step1" in pipeline completions');
+  assert.ok(pTopTexts.includes('cleaned'), 'Should include custom alias "cleaned" from Step 1');
+  assert.ok(pTopTexts.includes('cleanData'), 'Should include valid step name "cleanData" from Step 1');
+  assert.ok(pTopTexts.includes('step2'), 'Should include current step default alias "step2"');
+  assert.ok(pTopTexts.includes('aggregated'), 'Should include current step custom alias "aggregated"');
+  assert.ok(!pTopTexts.includes('step3'), 'Should NOT include future step "step3"');
+  assert.ok(!pTopTexts.includes('finalStep'), 'Should NOT include future step alias "finalStep"');
+
+  // Verify non-pipeline mode does not leak pipeline variables
+  sandbox.activeEditorMode = 'query';
+  const queryTopCompletions = sandbox.buildTopLevelCompletions({});
+  const queryTopTexts = queryTopCompletions.map(c => c.text);
+  assert.ok(!queryTopTexts.includes('prev'), 'Non-pipeline mode must not include "prev"');
+  assert.ok(!queryTopTexts.includes('step1'), 'Non-pipeline mode must not include "step1"');
+  assert.ok(!queryTopTexts.includes('cleaned'), 'Non-pipeline mode must not include step alias "cleaned"');
+
+  // Switch back to pipeline mode
+  sandbox.activeEditorMode = 'pipeline';
+
+  // Type inference for prev
+  const prevInferred = sandbox.inferTypeFromChain('prev');
+  assert.strictEqual(prevInferred.typeName, 'array', '"prev" should infer as array');
+  assert.ok(prevInferred.schemaPart && prevInferred.schemaPart.items, '"prev" should have item schema from Step 1 output');
+  assert.ok(prevInferred.schemaPart.items.properties.name, '"prev" items should have property "name"');
+  assert.ok(prevInferred.schemaPart.items.properties.active, '"prev" items should have property "active"');
+
+  // Type inference for input
+  const inputInferred = sandbox.inferTypeFromChain('input');
+  assert.strictEqual(inputInferred.typeName, 'array', '"input" should infer as array');
+
+  // Type inference for step1
+  const step1Inferred = sandbox.inferTypeFromChain('step1');
+  assert.strictEqual(step1Inferred.typeName, 'array', '"step1" should infer as array');
+  assert.ok(step1Inferred.schemaPart.items.properties.active, '"step1" items should have property "active"');
+
+  // Type inference for custom alias "cleaned"
+  const cleanedInferred = sandbox.inferTypeFromChain('cleaned');
+  assert.strictEqual(cleanedInferred.typeName, 'array', '"cleaned" should infer as array');
+
+  // Type inference for valid step name "cleanData"
+  const cleanDataInferred = sandbox.inferTypeFromChain('cleanData');
+  assert.strictEqual(cleanDataInferred.typeName, 'array', '"cleanData" should infer as array');
+
+  // Member access and array indexing: prev[0].
+  const prev0Inferred = sandbox.inferTypeFromChain('prev[0]');
+  assert.strictEqual(prev0Inferred.typeName, 'object', '"prev[0]" should infer as object');
+  assert.ok(prev0Inferred.schemaPart.properties.name, '"prev[0]" should have property "name"');
+  assert.ok(prev0Inferred.schemaPart.properties.active, '"prev[0]" should have property "active"');
+
+  // Property access: prev[0].name.
+  const prev0NameInferred = sandbox.inferTypeFromChain('prev[0].name');
+  assert.strictEqual(prev0NameInferred.typeName, 'string', '"prev[0].name" should infer as string');
+
+  // Callback bindings: prev.map(item => item.
+  const pipelineCm = {
+    getLine: (lineNum) => {
+      const lines = [
+        'prev.map(item => {',
+        '  return item.'
+      ];
+      return lines[lineNum] || '';
+    }
+  };
+  const pipelineBindings = sandbox.findCallbackBindings(pipelineCm.getLine(1), pipelineCm.getLine(1).length, pipelineCm, 1);
+  assert.ok(pipelineBindings.item, 'Should detect item binding on prev.map');
+  assert.strictEqual(pipelineBindings.item.inferredType, 'object', 'item in prev.map should infer as object');
+  assert.ok(pipelineBindings.item.schemaPart && pipelineBindings.item.schemaPart.properties.name, 'item in prev.map should have property "name"');
+  assert.ok(pipelineBindings.item.schemaPart.properties.active, 'item in prev.map should have property "active"');
+
+  // Callback bindings: step1.filter(user => user.
+  const step1Cm = {
+    getLine: () => 'step1.filter(user => user.'
+  };
+  const step1Bindings = sandbox.findCallbackBindings(step1Cm.getLine(0), step1Cm.getLine(0).length, step1Cm, 0);
+  assert.ok(step1Bindings.user, 'Should detect user binding on step1.filter');
+  assert.strictEqual(step1Bindings.user.inferredType, 'object');
+  assert.ok(step1Bindings.user.schemaPart && step1Bindings.user.schemaPart.properties.active);
+
+  // Callback bindings: cleanData.map(c => c.
+  const nameAliasCm = {
+    getLine: () => 'cleanData.map(c => c.'
+  };
+  const nameAliasBindings = sandbox.findCallbackBindings(nameAliasCm.getLine(0), nameAliasCm.getLine(0).length, nameAliasCm, 0);
+  assert.ok(nameAliasBindings.c, 'Should detect c binding on cleanData.map');
+  assert.strictEqual(nameAliasBindings.c.inferredType, 'object');
+
+  console.log('  ✓ Pipeline scoped variables (prev, input, raw, step1, aliases, names) fully resolve in autocomplete and callback type inference');
+
   console.log('\nAll autocomplete tests passed successfully!');
 }
 

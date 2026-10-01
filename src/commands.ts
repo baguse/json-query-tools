@@ -3,8 +3,9 @@ import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { HISTORY_KEY, URL_SOURCES_KEY, URL_CACHE_MAX_SIZE, URL_CACHE_DEFAULT_TTL_MS, AI_API_KEY_SECRET } from './constants';
 import { LruCache } from './cache';
-import { BoundFile, BoundUrl, SerializedBoundSource, StreamEvent, StreamMode } from './types';
+import { BoundFile, BoundUrl, SerializedBoundSource, StreamEvent, StreamMode, PipelineStep, PipelineStepResult, PipelineExecutionResult } from './types';
 import { StreamManager } from './streamer';
+import { executePipeline, exportPipelineToSingleQuery } from './pipeline';
 import { getHistory, pushHistory, serializeHistoryJson, parseHistoryJson, saveImportedHistory } from './history';
 import { evaluateExpression, evaluateTestSuiteAgainstSources, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression, StdoutEntry, TestSuiteResult } from './evaluator';
 export { evaluateExpression };
@@ -708,6 +709,9 @@ export async function commandOpenQueryEditor(
   let currentPollIsTestMode = false;
   let currentPollTestTarget = 'source';
   let currentPollQueryExpr: string | undefined;
+  let currentPipelineSteps: PipelineStep[] = [];
+  let currentPollIsPipeline = false;
+  let currentPipelinePreviewStepId: string | undefined;
 
   async function runQueryOrTests(
     expr: string,
@@ -795,6 +799,79 @@ export async function commandOpenQueryEditor(
         timestamp: Date.now(),
         durationMs,
         byteSize
+      });
+    }
+  }
+
+  async function runPipelineExecution(
+    steps: PipelineStep[],
+    previewStepId?: string,
+    isPollTick = false,
+    pollCount?: number
+  ) {
+    currentPipelineSteps = steps;
+    currentPipelinePreviewStepId = previewStepId;
+    const rawDataMap = await buildDataMap();
+    const onStdout = (entry: StdoutEntry) => {
+      panel.webview.postMessage({ type: 'stdout', entry });
+      getConsoleOutputChannel().appendLine(`[${entry.level.toUpperCase()}] ${entry.message}`);
+    };
+
+    const pipelineResult = await executePipeline({
+      steps,
+      boundFiles,
+      dataMap: rawDataMap,
+      environmentVariables: activeEnvResolved,
+      onStdout
+    });
+
+    lastResultData = pipelineResult.finalResult;
+    hasEvaluatedResult = true;
+
+    let targetStep = pipelineResult.steps.find(s => s.id === previewStepId);
+    if (!targetStep && pipelineResult.steps.length > 0) {
+      targetStep = [...pipelineResult.steps].reverse().find(s => s.enabled) || pipelineResult.steps[pipelineResult.steps.length - 1];
+    }
+
+    panel.webview.postMessage({
+      type: 'pipelineResult',
+      pipeline: pipelineResult,
+      result: pipelineResult,
+      previewStepId: targetStep?.id,
+      previewData: targetStep?.output,
+      previewText: targetStep?.text,
+      durationMs: pipelineResult.durationMs,
+      byteSize: targetStep?.byteSize || 0,
+      error: pipelineResult.error
+    });
+
+    if (pipelineResult.error && !targetStep) {
+      panel.webview.postMessage({
+        type: 'result',
+        error: pipelineResult.error,
+        durationMs: pipelineResult.durationMs,
+        byteSize: 0
+      });
+    } else {
+      const out = targetStep ? targetStep.output : pipelineResult.finalResult;
+      const text = targetStep?.text !== undefined ? targetStep.text : stringify(out);
+      const byteSize = targetStep?.byteSize !== undefined ? targetStep.byteSize : Buffer.byteLength(text, 'utf-8');
+      panel.webview.postMessage({
+        type: 'result',
+        text,
+        data: out,
+        durationMs: targetStep?.durationMs !== undefined ? targetStep.durationMs : pipelineResult.durationMs,
+        byteSize
+      });
+    }
+
+    if (isPollTick) {
+      panel.webview.postMessage({
+        type: 'pollTick',
+        pollCount,
+        timestamp: Date.now(),
+        durationMs: pipelineResult.durationMs,
+        byteSize: targetStep?.byteSize || 0
       });
     }
   }
@@ -1272,21 +1349,28 @@ export async function commandOpenQueryEditor(
         const intervalMs = Math.max(1000, Number(msg.intervalMs) || 5000);
         currentPollExpr = String(msg.expr || '');
         currentPollIsTestMode = Boolean(msg.isTestMode);
+        currentPollIsPipeline = Boolean(msg.isPipeline);
+        if (Array.isArray(msg.steps)) currentPipelineSteps = msg.steps;
+        currentPipelinePreviewStepId = msg.previewStepId;
         currentPollTestTarget = String(msg.target || 'source');
         currentPollQueryExpr = msg.queryExpr ? String(msg.queryExpr) : undefined;
 
         streamManager.startPolling(intervalMs, async (count) => {
           try {
             urlDataCache.clear();
-            await runQueryOrTests(
-              currentPollExpr,
-              currentPollIsTestMode,
-              currentPollTestTarget,
-              currentPollQueryExpr,
-              false,
-              true,
-              count
-            );
+            if (currentPollIsPipeline && currentPipelineSteps.length > 0) {
+              await runPipelineExecution(currentPipelineSteps, currentPipelinePreviewStepId, true, count);
+            } else {
+              await runQueryOrTests(
+                currentPollExpr,
+                currentPollIsTestMode,
+                currentPollTestTarget,
+                currentPollQueryExpr,
+                false,
+                true,
+                count
+              );
+            }
           } catch (pollErr: any) {
             panel.webview.postMessage({
               type: 'streamError',
@@ -1313,6 +1397,9 @@ export async function commandOpenQueryEditor(
       } else if (msg.type === 'updateLivePollExpr') {
         currentPollExpr = String(msg.expr || '');
         currentPollIsTestMode = Boolean(msg.isTestMode);
+        currentPollIsPipeline = Boolean(msg.isPipeline);
+        if (Array.isArray(msg.steps)) currentPipelineSteps = msg.steps;
+        currentPipelinePreviewStepId = msg.previewStepId;
         currentPollTestTarget = String(msg.target || 'source');
         currentPollQueryExpr = msg.queryExpr ? String(msg.queryExpr) : undefined;
       } else if (msg.type === 'startSseStream') {
@@ -1526,6 +1613,62 @@ export async function commandOpenQueryEditor(
           const content = Buffer.from(String(msg.expr || ''), 'utf-8');
           await vscode.workspace.fs.writeFile(uri, content);
           vscode.window.showInformationMessage('Test suite exported to: ' + uri.fsPath);
+        }
+      } else if (msg.type === 'runPipeline') {
+        const steps: PipelineStep[] = Array.isArray(msg.steps) ? msg.steps : [];
+        await runPipelineExecution(steps, msg.previewStepId);
+      } else if (msg.type === 'exportPipelineQuery') {
+        const steps: PipelineStep[] = Array.isArray(msg.steps) ? msg.steps : currentPipelineSteps;
+        const compiledQuery = exportPipelineToSingleQuery(steps);
+        if (msg.saveToFile) {
+          const defaultName = generateTimestampFileName('pipeline.query.js');
+          const defaultUri = getDefaultSaveUri({ defaultName, primaryUri: getPrimaryUri(boundFiles) });
+          const uri = await vscode.window.showSaveDialog({
+            defaultUri,
+            saveLabel: 'Export Pipeline Query',
+            filters: { 'JavaScript / TypeScript': ['js', 'ts'], 'All Files': ['*'] }
+          });
+          if (uri) {
+            const content = Buffer.from(compiledQuery, 'utf-8');
+            await vscode.workspace.fs.writeFile(uri, content);
+            vscode.window.showInformationMessage('Pipeline query exported to: ' + uri.fsPath);
+          }
+        } else {
+          panel.webview.postMessage({ type: 'insert', expr: compiledQuery });
+          vscode.window.showInformationMessage('Converted pipeline to single JavaScript query.');
+        }
+      } else if (msg.type === 'exportPipelineJson') {
+        const steps: PipelineStep[] = Array.isArray(msg.steps) ? msg.steps : currentPipelineSteps;
+        const defaultName = generateTimestampFileName('pipeline.json');
+        const defaultUri = getDefaultSaveUri({ defaultName, primaryUri: getPrimaryUri(boundFiles) });
+        const uri = await vscode.window.showSaveDialog({
+          defaultUri,
+          saveLabel: 'Export Pipeline Definition',
+          filters: { 'JSON Files': ['json'], 'All Files': ['*'] }
+        });
+        if (uri) {
+          const jsonText = JSON.stringify({ version: '1.0', steps }, null, 2);
+          await vscode.workspace.fs.writeFile(uri, Buffer.from(jsonText, 'utf-8'));
+          vscode.window.showInformationMessage('Pipeline definition exported to: ' + uri.fsPath);
+        }
+      } else if (msg.type === 'importPipelineJson') {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          openLabel: 'Import Pipeline Definition',
+          filters: { 'JSON Files': ['json'], 'All Files': ['*'] }
+        });
+        if (uris && uris[0]) {
+          const fileBytes = await vscode.workspace.fs.readFile(uris[0]);
+          const fileContent = Buffer.from(fileBytes).toString('utf-8');
+          try {
+            const parsed = JSON.parse(fileContent);
+            const steps = Array.isArray(parsed) ? parsed : (Array.isArray(parsed.steps) ? parsed.steps : null);
+            if (!steps) throw new Error('Invalid pipeline JSON format. Expected an array of steps or an object with a "steps" property.');
+            panel.webview.postMessage({ type: 'loadPipeline', steps });
+            vscode.window.showInformationMessage(`Loaded pipeline with ${steps.length} steps from: ${path.basename(uris[0].fsPath)}`);
+          } catch (parseErr: any) {
+            vscode.window.showErrorMessage('Failed to parse pipeline file: ' + parseErr.message);
+          }
         }
       } else if (msg.type === 'switchEnvironment') {
         activeEnvironmentName = String(msg.environment || '');
