@@ -9,6 +9,15 @@ export interface BoundFile {
   label?: string;
 }
 
+export type StreamMode = 'none' | 'poll' | 'sse' | 'ws';
+
+export interface StreamEvent {
+  event?: string;
+  data: unknown;
+  id?: string;
+  timestamp: number;
+}
+
 export interface BoundUrl {
   type: 'url';
   id: string;
@@ -21,6 +30,9 @@ export interface BoundUrl {
   lastResponseHeaders?: Record<string, string>;
   lastStatus?: number;
   lastStatusText?: string;
+  streamMode?: StreamMode;
+  pollIntervalMs?: number;
+  isStreaming?: boolean;
 }
 
 export type BoundSource = BoundFile | BoundUrl;
@@ -38,6 +50,9 @@ export interface SerializedBoundSource {
   lastResponseHeaders?: Record<string, string>;
   lastStatus?: number;
   lastStatusText?: string;
+  streamMode?: StreamMode;
+  pollIntervalMs?: number;
+  isStreaming?: boolean;
 }
 
 

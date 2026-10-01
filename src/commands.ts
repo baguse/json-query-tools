@@ -3,7 +3,8 @@ import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { HISTORY_KEY, URL_SOURCES_KEY, URL_CACHE_MAX_SIZE, URL_CACHE_DEFAULT_TTL_MS, AI_API_KEY_SECRET } from './constants';
 import { LruCache } from './cache';
-import { BoundFile, BoundUrl, SerializedBoundSource } from './types';
+import { BoundFile, BoundUrl, SerializedBoundSource, StreamEvent, StreamMode } from './types';
+import { StreamManager } from './streamer';
 import { getHistory, pushHistory, serializeHistoryJson, parseHistoryJson, saveImportedHistory } from './history';
 import { evaluateExpression, evaluateTestSuiteAgainstSources, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression, StdoutEntry, TestSuiteResult } from './evaluator';
 export { evaluateExpression };
@@ -396,6 +397,7 @@ export async function commandOpenQueryEditor(
     }
   });
 
+  const streamManager = new StreamManager();
   let activeAiController: AbortController | null = null;
   let lastResultData: unknown = undefined;
   let hasEvaluatedResult = false;
@@ -404,6 +406,7 @@ export async function commandOpenQueryEditor(
   let dotEnvWatcher: vscode.FileSystemWatcher | undefined;
 
   panel.onDidDispose(() => {
+    streamManager.dispose();
     benchmarkStatusBar?.dispose();
     activeAiController?.abort();
     activeAiController = null;
@@ -470,7 +473,10 @@ export async function commandOpenQueryEditor(
         lastFetched: u.lastFetched,
         lastResponseHeaders: u.lastResponseHeaders,
         lastStatus: u.lastStatus,
-        lastStatusText: u.lastStatusText
+        lastStatusText: u.lastStatusText,
+        streamMode: u.streamMode,
+        pollIntervalMs: u.pollIntervalMs,
+        isStreaming: streamManager.isSseConnected(u.id) || streamManager.isWsConnected(u.id)
       });
     }
     return list;
@@ -609,7 +615,12 @@ export async function commandOpenQueryEditor(
       dataMap[file.alias] = await readJsonFromUri(file.uri);
     }
     for (const u of boundUrls) {
-      dataMap[u.alias] = await getOrFetchUrlData(u, false);
+      if (streamManager.isSseConnected(u.id) || streamManager.isWsConnected(u.id)) {
+        const buffer = streamManager.getBuffer(u.id);
+        dataMap[u.alias] = buffer.map(evt => evt.data);
+      } else {
+        dataMap[u.alias] = await getOrFetchUrlData(u, false);
+      }
     }
     return dataMap;
   }
@@ -690,6 +701,101 @@ export async function commandOpenQueryEditor(
       const finalByteSize = byteSize !== undefined ? byteSize : (text ? Buffer.byteLength(text, 'utf-8') : 0);
       // Small results - send normally
       sendResult(text, data, durationMs !== undefined ? { durationMs, byteSize: finalByteSize } : undefined, testSuite, isTestMode);
+    }
+  }
+
+  let currentPollExpr = '';
+  let currentPollIsTestMode = false;
+  let currentPollTestTarget = 'source';
+  let currentPollQueryExpr: string | undefined;
+
+  async function runQueryOrTests(
+    expr: string,
+    isTestMode: boolean,
+    testTarget: string,
+    queryExpr?: string,
+    saveToHistory = false,
+    isPollTick = false,
+    pollCount?: number
+  ) {
+    const rawDataMap = await buildDataMap();
+
+    // If running tests targeted against query result, ensure query result is available
+    let effectiveTargetData: unknown = rawDataMap['data'];
+    if (isTestMode && testTarget === 'result') {
+      if (lastResultData !== undefined) {
+        effectiveTargetData = lastResultData;
+      } else if (queryExpr) {
+        try {
+          lastResultData = await evaluateExpression(boundFiles, rawDataMap, String(queryExpr), activeEnvResolved);
+          hasEvaluatedResult = true;
+          effectiveTargetData = lastResultData;
+        } catch (qErr: any) {
+          panel.webview.postMessage({ type: 'result', error: `Failed to evaluate query before running tests: ${qErr?.message || qErr}` });
+          return;
+        }
+      }
+    } else if (isTestMode && testTarget === 'all') {
+      // Combined mode: data and raw provide the dictionary of all sources, while each alias is also in scope
+      effectiveTargetData = rawDataMap;
+    } else if (isTestMode) {
+      let targetAlias = testTarget;
+      if (targetAlias.startsWith('source:')) {
+        targetAlias = targetAlias.slice(7);
+      }
+      if (targetAlias !== 'source' && rawDataMap[targetAlias] !== undefined) {
+        effectiveTargetData = rawDataMap[targetAlias];
+      } else if (rawDataMap['data'] !== undefined) {
+        effectiveTargetData = rawDataMap['data'];
+      } else if (boundFiles.length > 0 && rawDataMap[boundFiles[0].alias] !== undefined) {
+        effectiveTargetData = rawDataMap[boundFiles[0].alias];
+      } else if (boundUrls.length > 0 && rawDataMap[boundUrls[0].alias] !== undefined) {
+        effectiveTargetData = rawDataMap[boundUrls[0].alias];
+      } else {
+        effectiveTargetData = rawDataMap;
+      }
+    }
+
+    const dataMap: Record<string, unknown> = {
+      ...rawDataMap,
+      data: isTestMode ? effectiveTargetData : rawDataMap['data'],
+      result: lastResultData,
+      raw: effectiveTargetData !== undefined ? effectiveTargetData : (rawDataMap['data'] !== undefined ? rawDataMap['data'] : rawDataMap)
+    };
+
+    const startTime = performance.now();
+    const onStdout = (entry: StdoutEntry) => {
+      panel.webview.postMessage({ type: 'stdout', entry });
+      getConsoleOutputChannel().appendLine(`[${entry.level.toUpperCase()}] ${entry.message}`);
+    };
+    let capturedTestSuite: TestSuiteResult | undefined;
+    const onTestSuite = (suite: TestSuiteResult) => {
+      capturedTestSuite = suite;
+    };
+    const result = await evaluateExpression(boundFiles, dataMap, expr, activeEnvResolved, onStdout, onTestSuite);
+    const durationMs = Math.round((performance.now() - startTime) * 10) / 10;
+    if (!isTestMode) {
+      lastResultData = result;
+      hasEvaluatedResult = true;
+    }
+    if (saveToHistory && !isTestMode) {
+      await pushHistory(context, expr);
+      sendHistory();
+    }
+    // Use streaming for large results (skip expensive full stringify in host)
+    const isStreaming = Array.isArray(result) && result.length >= STREAMING_THRESHOLD;
+    const text = isStreaming ? '' : stringify(result);
+    const byteSize = isStreaming ? 0 : Buffer.byteLength(text, 'utf-8');
+    await sendResultStreaming(text, result, durationMs, byteSize, capturedTestSuite, isTestMode);
+
+    if (isPollTick) {
+      panel.webview.postMessage({
+        type: 'pollTick',
+        pollCount,
+        timestamp: Date.now(),
+        durationMs,
+        byteSize
+      });
     }
   }
 
@@ -788,6 +894,8 @@ export async function commandOpenQueryEditor(
             if (boundUrls.length !== prevLen) {
               removedUrl = true;
               urlDataCache.delete(msg.id);
+              streamManager.disconnectSse(msg.id);
+              streamManager.disconnectWebSocket(msg.id);
               await savePersistedUrls(boundUrls);
             }
           }
@@ -797,6 +905,8 @@ export async function commandOpenQueryEditor(
             if (urlIdx !== -1) {
               const u = boundUrls[urlIdx];
               urlDataCache.delete(u.id);
+              streamManager.disconnectSse(u.id);
+              streamManager.disconnectWebSocket(u.id);
               boundUrls.splice(urlIdx, 1);
               await savePersistedUrls(boundUrls);
             }
@@ -825,6 +935,37 @@ export async function commandOpenQueryEditor(
             return;
           }
 
+          const isWs = src.url.trim().startsWith('ws://') || src.url.trim().startsWith('wss://');
+          if (isWs) {
+            const boundUrl: BoundUrl = {
+              type: 'url',
+              id: sourceId,
+              alias,
+              url: src.url.trim(),
+              method: 'GET',
+              headers: parseHeaders(src.headers),
+              body: src.body,
+              lastFetched: Date.now(),
+              lastResponseHeaders: {},
+              lastStatus: 101,
+              lastStatusText: 'WebSocket Stream',
+              streamMode: 'ws'
+            };
+            urlDataCache.set(sourceId, []);
+            const existingIdx = boundUrls.findIndex(u => u.id === sourceId);
+            if (existingIdx !== -1) {
+              boundUrls[existingIdx] = boundUrl;
+            } else {
+              boundUrls.push(boundUrl);
+            }
+            await savePersistedUrls(boundUrls);
+            panel.webview.postMessage({ type: 'urlSourceSuccess', source: boundUrl });
+            sendSources();
+            await sendSchema();
+            vscode.window.showInformationMessage(`WebSocket source '${boundUrl.alias}' added.`);
+            return;
+          }
+
           try {
             const parsedHeaders = parseHeaders(src.headers);
             const templateVariables = getTemplateVariables(undefined, {
@@ -849,6 +990,7 @@ export async function commandOpenQueryEditor(
               throw new Error(`HTTP ${result.status} ${result.statusText}${errSnippet}`);
             }
 
+            const streamMode: StreamMode = src.streamMode || (src.headers && /text\/event-stream/i.test(JSON.stringify(src.headers)) ? 'sse' : 'none');
             const boundUrl: BoundUrl = {
               type: 'url',
               id: sourceId,
@@ -860,7 +1002,8 @@ export async function commandOpenQueryEditor(
               lastFetched: Date.now(),
               lastResponseHeaders: result.headers,
               lastStatus: result.status,
-              lastStatusText: result.statusText
+              lastStatusText: result.statusText,
+              streamMode
             };
 
             urlDataCache.set(sourceId, result.data);
@@ -1107,10 +1250,9 @@ export async function commandOpenQueryEditor(
 
         panel.webview.postMessage({ type: 'insert', expr: String(msg.expr || '') });
       } else if (msg.type === 'run' || msg.type === 'runConfirmed' || msg.type === 'runTests') {
-        const rawDataMap = await buildDataMap();
         const expr = String(msg.expr || '');
         const isTestMode = msg.type === 'runTests' || Boolean(msg.isTestMode);
-        const testTarget = String(msg.target || 'source'); // 'source' or 'result'
+        const testTarget = String(msg.target || 'source'); // 'source', 'all', or 'result'
 
         if (msg.type === 'run' || msg.type === 'runTests') {
           const warning = checkForMaliciousExpression(expr);
@@ -1120,70 +1262,215 @@ export async function commandOpenQueryEditor(
           }
         }
 
-        // If running tests targeted against query result, ensure query result is available
-        let effectiveTargetData: unknown = rawDataMap['data'];
-        if (isTestMode && testTarget === 'result') {
-          if (lastResultData !== undefined) {
-            effectiveTargetData = lastResultData;
-          } else if (msg.queryExpr) {
-            try {
-              lastResultData = await evaluateExpression(boundFiles, rawDataMap, String(msg.queryExpr), activeEnvResolved);
-              hasEvaluatedResult = true;
-              effectiveTargetData = lastResultData;
-            } catch (qErr: any) {
-              panel.webview.postMessage({ type: 'result', error: `Failed to evaluate query before running tests: ${qErr?.message || qErr}` });
-              return;
+        currentPollExpr = expr;
+        currentPollIsTestMode = isTestMode;
+        currentPollTestTarget = testTarget;
+        currentPollQueryExpr = msg.queryExpr ? String(msg.queryExpr) : undefined;
+
+        await runQueryOrTests(expr, isTestMode, testTarget, msg.queryExpr, Boolean(msg.save));
+      } else if (msg.type === 'startLivePoll') {
+        const intervalMs = Math.max(1000, Number(msg.intervalMs) || 5000);
+        currentPollExpr = String(msg.expr || '');
+        currentPollIsTestMode = Boolean(msg.isTestMode);
+        currentPollTestTarget = String(msg.target || 'source');
+        currentPollQueryExpr = msg.queryExpr ? String(msg.queryExpr) : undefined;
+
+        streamManager.startPolling(intervalMs, async (count) => {
+          try {
+            urlDataCache.clear();
+            await runQueryOrTests(
+              currentPollExpr,
+              currentPollIsTestMode,
+              currentPollTestTarget,
+              currentPollQueryExpr,
+              false,
+              true,
+              count
+            );
+          } catch (pollErr: any) {
+            panel.webview.postMessage({
+              type: 'streamError',
+              streamType: 'poll',
+              error: pollErr?.message || String(pollErr)
+            });
+          }
+        }, false);
+
+        panel.webview.postMessage({
+          type: 'streamStatus',
+          streamType: 'poll',
+          active: true,
+          intervalMs,
+          pollCount: 0
+        });
+      } else if (msg.type === 'stopLivePoll') {
+        streamManager.stopPolling();
+        panel.webview.postMessage({
+          type: 'streamStatus',
+          streamType: 'poll',
+          active: false
+        });
+      } else if (msg.type === 'updateLivePollExpr') {
+        currentPollExpr = String(msg.expr || '');
+        currentPollIsTestMode = Boolean(msg.isTestMode);
+        currentPollTestTarget = String(msg.target || 'source');
+        currentPollQueryExpr = msg.queryExpr ? String(msg.queryExpr) : undefined;
+      } else if (msg.type === 'startSseStream') {
+        const sourceId = String(msg.sourceId);
+        const bound = boundUrls.find(u => u.id === sourceId);
+        const url = bound ? bound.url : String(msg.url);
+        const headers = bound ? bound.headers : parseHeaders(msg.headers);
+
+        panel.webview.postMessage({
+          type: 'streamStatus',
+          streamType: 'sse',
+          sourceId,
+          active: true,
+          status: 'connecting'
+        });
+
+        streamManager.connectSse({
+          id: sourceId,
+          url,
+          headers,
+          onEvent: (event, buffer) => {
+            urlDataCache.set(sourceId, buffer.map(e => e.data));
+            panel.webview.postMessage({
+              type: 'streamEvent',
+              streamType: 'sse',
+              sourceId,
+              event,
+              bufferCount: buffer.length
+            });
+            getConsoleOutputChannel().appendLine(`[SSE] ${event.event}: ${typeof event.data === 'object' ? JSON.stringify(event.data) : event.data}`);
+            if (msg.autoRun && currentPollExpr) {
+              runQueryOrTests(currentPollExpr, currentPollIsTestMode, currentPollTestTarget, undefined, false, true);
             }
+          },
+          onError: (err) => {
+            panel.webview.postMessage({
+              type: 'streamError',
+              streamType: 'sse',
+              sourceId,
+              error: err.message
+            });
+          },
+          onEnd: () => {
+            panel.webview.postMessage({
+              type: 'streamStatus',
+              streamType: 'sse',
+              sourceId,
+              active: false,
+              status: 'closed'
+            });
           }
-        } else if (isTestMode && testTarget === 'all') {
-          // Combined mode: data and raw provide the dictionary of all sources, while each alias is also in scope
-          effectiveTargetData = rawDataMap;
-        } else if (isTestMode) {
-          let targetAlias = testTarget;
-          if (targetAlias.startsWith('source:')) {
-            targetAlias = targetAlias.slice(7);
-          }
-          if (targetAlias !== 'source' && rawDataMap[targetAlias] !== undefined) {
-            effectiveTargetData = rawDataMap[targetAlias];
-          } else if (rawDataMap['data'] !== undefined) {
-            effectiveTargetData = rawDataMap['data'];
-          } else if (boundFiles.length > 0 && rawDataMap[boundFiles[0].alias] !== undefined) {
-            effectiveTargetData = rawDataMap[boundFiles[0].alias];
-          } else if (boundUrls.length > 0 && rawDataMap[boundUrls[0].alias] !== undefined) {
-            effectiveTargetData = rawDataMap[boundUrls[0].alias];
-          } else {
-            effectiveTargetData = rawDataMap;
-          }
-        }
+        });
+        sendSources();
+      } else if (msg.type === 'stopSseStream') {
+        const sourceId = String(msg.sourceId);
+        streamManager.disconnectSse(sourceId);
+        panel.webview.postMessage({
+          type: 'streamStatus',
+          streamType: 'sse',
+          sourceId,
+          active: false,
+          status: 'disconnected'
+        });
+        sendSources();
+      } else if (msg.type === 'startWsStream') {
+        const sourceId = String(msg.sourceId);
+        const bound = boundUrls.find(u => u.id === sourceId);
+        const url = bound ? bound.url : String(msg.url);
 
-        const dataMap: Record<string, unknown> = {
-          ...rawDataMap,
-          data: isTestMode ? effectiveTargetData : rawDataMap['data'],
-          result: lastResultData,
-          raw: effectiveTargetData !== undefined ? effectiveTargetData : (rawDataMap['data'] !== undefined ? rawDataMap['data'] : rawDataMap)
-        };
+        panel.webview.postMessage({
+          type: 'streamStatus',
+          streamType: 'ws',
+          sourceId,
+          active: true,
+          status: 'connecting'
+        });
 
-        const startTime = performance.now();
-        const onStdout = (entry: StdoutEntry) => {
-          panel.webview.postMessage({ type: 'stdout', entry });
-          getConsoleOutputChannel().appendLine(`[${entry.level.toUpperCase()}] ${entry.message}`);
-        };
-        let capturedTestSuite: TestSuiteResult | undefined;
-        const onTestSuite = (suite: TestSuiteResult) => {
-          capturedTestSuite = suite;
-        };
-        const result = await evaluateExpression(boundFiles, dataMap, expr, activeEnvResolved, onStdout, onTestSuite);
-        const durationMs = Math.round((performance.now() - startTime) * 10) / 10;
-        if (!isTestMode) {
-          lastResultData = result;
-          hasEvaluatedResult = true;
+        streamManager.connectWebSocket({
+          id: sourceId,
+          url,
+          onOpen: () => {
+            panel.webview.postMessage({
+              type: 'streamStatus',
+              streamType: 'ws',
+              sourceId,
+              active: true,
+              status: 'connected'
+            });
+            getConsoleOutputChannel().appendLine(`[WS] Connected to ${url}`);
+            sendSources();
+          },
+          onMessage: (event, buffer) => {
+            urlDataCache.set(sourceId, buffer.map(e => e.data));
+            panel.webview.postMessage({
+              type: 'streamEvent',
+              streamType: 'ws',
+              sourceId,
+              event,
+              bufferCount: buffer.length
+            });
+            getConsoleOutputChannel().appendLine(`[WS] Message received: ${typeof event.data === 'object' ? JSON.stringify(event.data) : event.data}`);
+            if (msg.autoRun && currentPollExpr) {
+              runQueryOrTests(currentPollExpr, currentPollIsTestMode, currentPollTestTarget, undefined, false, true);
+            }
+          },
+          onError: (err) => {
+            panel.webview.postMessage({
+              type: 'streamError',
+              streamType: 'ws',
+              sourceId,
+              error: err.message
+            });
+          },
+          onClose: (code, reason) => {
+            panel.webview.postMessage({
+              type: 'streamStatus',
+              streamType: 'ws',
+              sourceId,
+              active: false,
+              status: 'closed',
+              code,
+              reason
+            });
+            sendSources();
+          }
+        });
+        sendSources();
+      } else if (msg.type === 'stopWsStream') {
+        const sourceId = String(msg.sourceId);
+        streamManager.disconnectWebSocket(sourceId);
+        panel.webview.postMessage({
+          type: 'streamStatus',
+          streamType: 'ws',
+          sourceId,
+          active: false,
+          status: 'disconnected'
+        });
+        sendSources();
+      } else if (msg.type === 'sendWsMessage') {
+        try {
+          streamManager.sendWebSocket(String(msg.sourceId), String(msg.message || ''));
+        } catch (wsErr: any) {
+          panel.webview.postMessage({
+            type: 'streamError',
+            streamType: 'ws',
+            sourceId: msg.sourceId,
+            error: wsErr.message
+          });
         }
-        if (msg.save && !isTestMode) { await pushHistory(context, expr); sendHistory(); }
-        // Use streaming for large results (skip expensive full stringify in host)
-        const isStreaming = Array.isArray(result) && result.length >= STREAMING_THRESHOLD;
-        const text = isStreaming ? '' : stringify(result);
-        const byteSize = isStreaming ? 0 : Buffer.byteLength(text, 'utf-8');
-        await sendResultStreaming(text, result, durationMs, byteSize, capturedTestSuite, isTestMode);
+      } else if (msg.type === 'clearStreamBuffer') {
+        const sourceId = String(msg.sourceId);
+        streamManager.clearBuffer(sourceId);
+        urlDataCache.set(sourceId, []);
+        panel.webview.postMessage({
+          type: 'streamBufferCleared',
+          sourceId
+        });
+        vscode.window.showInformationMessage(`Stream buffer cleared for source '${sourceId}'.`);
       } else if (msg.type === 'save') {
         await pushHistory(context, String(msg.expr || ''));
         sendHistory();

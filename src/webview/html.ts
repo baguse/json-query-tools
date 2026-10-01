@@ -499,6 +499,34 @@ export function getQueryEditorHtml(
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
+    @keyframes livePulse {
+      0% { transform: scale(0.9); opacity: 0.7; }
+      50% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(0.9); opacity: 0.7; }
+    }
+    .live-dot {
+      animation: livePulse 1.4s infinite ease-in-out;
+    }
+    .toggle-stream-btn {
+      background: none;
+      border: 1px solid var(--vscode-input-border, #3e3e42);
+      border-radius: 3px;
+      color: var(--vscode-foreground, #cccccc);
+      font-size: 10px;
+      cursor: pointer;
+      padding: 1px 5px;
+      margin-left: 3px;
+      line-height: 1.2;
+    }
+    .toggle-stream-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .toggle-stream-btn.active-stream {
+      background: rgba(78, 201, 176, 0.15);
+      border-color: #4ec9b0;
+      color: #4ec9b0;
+      font-weight: 600;
+    }
 
     /* Request Configuration Tabs & Query Params Table */
     .request-tabs-bar {
@@ -1290,6 +1318,20 @@ export function getQueryEditorHtml(
       <option value="open_cheatsheet">📖 Open Cheatsheet...</option>
     </select>
     <button id="openCheatsheetBtn" class="secondary" title="Open JS transformation snippet library &amp; cheatsheet">📖 Cheatsheet</button>
+    <div id="livePollContainer" class="live-poll-container" style="display: inline-flex; align-items: center; gap: 6px; background: var(--vscode-input-background, #3c3c3c); padding: 3px 8px; border-radius: 3px; border: 1px solid var(--vscode-input-border, #3e3e42);">
+      <span id="livePollBadge" class="live-poll-badge" style="display: none; color: #4ec9b0; font-size: 10px; font-weight: bold; align-items: center; gap: 4px;"><span class="live-dot" style="display: inline-block; width: 6px; height: 6px; background: #4ec9b0; border-radius: 50%; box-shadow: 0 0 6px #4ec9b0;"></span> LIVE</span>
+      <label for="livePollIntervalSelect" style="color: var(--vscode-descriptionForeground, #858585); font-size: 11px; font-weight: 500;">⏱ Live Poll:</label>
+      <select id="livePollIntervalSelect" style="background: transparent; border: none; color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; outline: none; font-family: inherit;" title="Auto-refresh query execution on interval">
+        <option value="0">Off</option>
+        <option value="1000">1s</option>
+        <option value="2000">2s</option>
+        <option value="5000" selected>5s</option>
+        <option value="10000">10s</option>
+        <option value="30000">30s</option>
+        <option value="60000">60s</option>
+      </select>
+      <button id="livePollToggleBtn" class="secondary" style="padding: 2px 6px; font-size: 10px; min-width: 44px;" title="Start/Stop live auto-refresh polling">Start</button>
+    </div>
     <button id="importQuery" class="secondary" title="Import a .js, .ts, or .txt file as the query expression" style="margin-left: auto;">📤 Import File</button>
     <button id="exportQuery" class="secondary" title="Export current query to a file" style="margin-left: 8px;">📥 Export File</button>
   </div>
@@ -1353,6 +1395,7 @@ export function getQueryEditorHtml(
           <span id="testSuiteSummary">0 Passed</span>
         </div>
         <span id="resultInfo" style="font-size: 10px; color: var(--vscode-descriptionForeground, #858585);"></span>
+        <span id="livePollStatusText" style="display: none; font-size: 10px; color: #4ec9b0; font-weight: 500;"></span>
       </div>
       <div style="display: flex; gap: 6px; flex-wrap: wrap;">
         <select id="resultFormat" style="padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;">
@@ -2015,6 +2058,59 @@ export function getQueryEditorHtml(
     let activeTestFilter = 'all';
     let testSearchQuery = '';
 
+    const livePollContainer = document.getElementById('livePollContainer');
+    const livePollBadge = document.getElementById('livePollBadge');
+    const livePollIntervalSelect = document.getElementById('livePollIntervalSelect');
+    const livePollToggleBtn = document.getElementById('livePollToggleBtn');
+    const livePollStatusText = document.getElementById('livePollStatusText');
+    let isLivePollingActive = false;
+    let livePollCount = 0;
+    let livePollUpdateTimeout = null;
+
+    function scheduleLivePollUpdate() {
+      if (!isLivePollingActive) return;
+      if (livePollUpdateTimeout) clearTimeout(livePollUpdateTimeout);
+      livePollUpdateTimeout = setTimeout(() => {
+        vscode.postMessage({
+          type: 'updateLivePollExpr',
+          expr: getRawEditorValue(),
+          isTestMode: activeEditorMode === 'tests',
+          target: testTargetSelect ? testTargetSelect.value : 'source',
+          queryExpr: (activeEditorMode === 'tests' && testTargetSelect && testTargetSelect.value === 'query') ? (localStorage.getItem('jsonQueryTools.queryExpr') || '') : undefined
+        });
+      }, 250);
+    }
+
+    function updateLivePollUI(active, count, durationMs) {
+      isLivePollingActive = Boolean(active);
+      if (livePollToggleBtn) {
+        livePollToggleBtn.textContent = isLivePollingActive ? 'Stop' : 'Start';
+        if (isLivePollingActive) {
+          if (livePollToggleBtn.classList) livePollToggleBtn.classList.add('active-poll');
+          livePollToggleBtn.style.background = '#e51400';
+          livePollToggleBtn.style.color = '#ffffff';
+        } else {
+          if (livePollToggleBtn.classList) livePollToggleBtn.classList.remove('active-poll');
+          livePollToggleBtn.style.background = '';
+          livePollToggleBtn.style.color = '';
+        }
+      }
+      if (livePollBadge) {
+        livePollBadge.style.display = isLivePollingActive ? 'inline-flex' : 'none';
+      }
+      if (livePollStatusText) {
+        if (isLivePollingActive) {
+          livePollStatusText.style.display = 'inline';
+          const countText = count !== undefined ? '#' + count : '';
+          const durText = durationMs !== undefined ? ' (' + formatDuration(durationMs) + ')' : '';
+          livePollStatusText.textContent = '● Poll ' + countText + durText;
+        } else {
+          livePollStatusText.style.display = 'none';
+          livePollStatusText.textContent = '';
+        }
+      }
+    }
+
     function hideTests() {
       if (resultTestsContainer) resultTestsContainer.style.display = 'none';
     }
@@ -2327,9 +2423,18 @@ export function getQueryEditorHtml(
         if (s.type === 'url') {
           const method = s.method || 'GET';
           const methodClass = 'method-' + method.toLowerCase();
+          let streamBtn = '';
+          if (s.streamMode === 'sse') {
+            const isStreaming = Boolean(s.isStreaming);
+            streamBtn = '<button class="toggle-stream-btn sse-btn' + (isStreaming ? ' active-stream' : '') + '" data-id="' + escapeHtml(s.id || '') + '" data-mode="sse" title="' + (isStreaming ? 'Disconnect SSE stream' : 'Connect SSE stream') + '">' + (isStreaming ? '📡 Live' : '📡 SSE') + '</button>';
+          } else if (s.streamMode === 'ws' || (s.url && (s.url.startsWith('ws://') || s.url.startsWith('wss://')))) {
+            const isStreaming = Boolean(s.isStreaming);
+            streamBtn = '<button class="toggle-stream-btn ws-btn' + (isStreaming ? ' active-stream' : '') + '" data-id="' + escapeHtml(s.id || '') + '" data-mode="ws" title="' + (isStreaming ? 'Disconnect WebSocket' : 'Connect WebSocket') + '">' + (isStreaming ? '⚡ Connected' : '⚡ WS') + '</button>';
+          }
           return '<span class="bound-file bound-url" data-alias="' + escapeHtml(s.alias) + '" data-id="' + escapeHtml(s.id || '') + '" title="' + escapeHtml(method) + ' ' + escapeHtml(s.url || '') + '">' +
             '<span class="url-badge-method ' + methodClass + '">' + escapeHtml(method) + '</span>' +
             '<span class="file-alias">' + escapeHtml(s.alias) + '</span>: ' + escapeHtml(s.label || s.url || '') +
+            streamBtn +
             '<button class="inspect-source-btn" data-id="' + escapeHtml(s.id || '') + '" title="View cached API response">👁️</button>' +
             '<button class="copy-url-curl-btn" data-id="' + escapeHtml(s.id || '') + '" title="Copy as cURL command">📋</button>' +
             '<button class="refresh-url-btn" data-id="' + escapeHtml(s.id || '') + '" title="Re-fetch data from URL">🔄</button>' +
@@ -2818,6 +2923,7 @@ export function getQueryEditorHtml(
               // Attach syntax validation on changes (debounced)
               editor.on('change', () => {
                 scheduleSyntaxValidation(200);
+                scheduleLivePollUpdate();
                 if (typeof activeEditorMode !== 'undefined' && activeEditorMode === 'tests') {
                   updateTestCountBadge();
                 }
@@ -5639,6 +5745,13 @@ export function getQueryEditorHtml(
         if (queryToolbar) queryToolbar.style.display = 'none';
         if (testsToolbar) testsToolbar.style.display = 'flex';
 
+        const lpTests = document.getElementById('livePollContainer');
+        const importTestBtn = document.getElementById('importTestFileBtn');
+        if (lpTests && testsToolbar && importTestBtn) {
+          testsToolbar.insertBefore(lpTests, importTestBtn);
+        }
+        scheduleLivePollUpdate();
+
         setEditorValue(testCode);
         if (editor && editor.clearHistory) editor.clearHistory();
 
@@ -5659,6 +5772,13 @@ export function getQueryEditorHtml(
 
         if (queryToolbar) queryToolbar.style.display = 'flex';
         if (testsToolbar) testsToolbar.style.display = 'none';
+
+        const lpQuery = document.getElementById('livePollContainer');
+        const importQBtn = document.getElementById('importQuery');
+        if (lpQuery && queryToolbar && importQBtn) {
+          queryToolbar.insertBefore(lpQuery, importQBtn);
+        }
+        scheduleLivePollUpdate();
 
         setEditorValue(queryCode);
         if (editor && editor.clearHistory) editor.clearHistory();
@@ -6074,6 +6194,23 @@ export function getQueryEditorHtml(
         const id = target.getAttribute('data-id');
         const alias = target.getAttribute('data-alias') || target.closest('.bound-file')?.getAttribute('data-alias');
         vscode.postMessage({ type: 'inspectSource', id, alias });
+      } else if (target.classList && target.classList.contains('toggle-stream-btn')) {
+        const id = target.getAttribute('data-id');
+        const mode = target.getAttribute('data-mode');
+        const isStreaming = target.classList.contains('active-stream');
+        if (mode === 'sse') {
+          if (isStreaming) {
+            vscode.postMessage({ type: 'stopSseStream', sourceId: id });
+          } else {
+            vscode.postMessage({ type: 'startSseStream', sourceId: id, autoRun: true });
+          }
+        } else if (mode === 'ws') {
+          if (isStreaming) {
+            vscode.postMessage({ type: 'stopWsStream', sourceId: id });
+          } else {
+            vscode.postMessage({ type: 'startWsStream', sourceId: id, autoRun: true });
+          }
+        }
       }
     });
 
@@ -6140,8 +6277,53 @@ export function getQueryEditorHtml(
           if (window.localStorage && localStorage.setItem) {
             localStorage.setItem('jsonQueryTools.testTarget', testTargetSelect.value);
           }
+          scheduleLivePollUpdate();
         });
       }
+    }
+
+    if (livePollToggleBtn && typeof livePollToggleBtn.addEventListener === 'function') {
+      livePollToggleBtn.addEventListener('click', () => {
+        if (isLivePollingActive) {
+          vscode.postMessage({ type: 'stopLivePoll' });
+        } else {
+          const intervalMs = parseInt(livePollIntervalSelect ? livePollIntervalSelect.value : '5000', 10) || 5000;
+          vscode.postMessage({
+            type: 'startLivePoll',
+            intervalMs: intervalMs,
+            expr: getRawEditorValue(),
+            isTestMode: activeEditorMode === 'tests',
+            target: testTargetSelect ? testTargetSelect.value : 'source',
+            queryExpr: (activeEditorMode === 'tests' && testTargetSelect && testTargetSelect.value === 'query') ? (localStorage.getItem('jsonQueryTools.queryExpr') || '') : undefined
+          });
+        }
+      });
+    }
+
+    if (livePollIntervalSelect && typeof livePollIntervalSelect.addEventListener === 'function') {
+      try {
+        const savedInterval = localStorage.getItem('jsonQueryTools.pollInterval');
+        if (savedInterval) {
+          livePollIntervalSelect.value = savedInterval;
+        }
+      } catch (e) {}
+
+      livePollIntervalSelect.addEventListener('change', () => {
+        try {
+          localStorage.setItem('jsonQueryTools.pollInterval', livePollIntervalSelect.value);
+        } catch (e) {}
+        if (isLivePollingActive) {
+          const intervalMs = parseInt(livePollIntervalSelect.value, 10) || 5000;
+          vscode.postMessage({
+            type: 'startLivePoll',
+            intervalMs: intervalMs,
+            expr: getRawEditorValue(),
+            isTestMode: activeEditorMode === 'tests',
+            target: testTargetSelect ? testTargetSelect.value : 'source',
+            queryExpr: (activeEditorMode === 'tests' && testTargetSelect && testTargetSelect.value === 'query') ? (localStorage.getItem('jsonQueryTools.queryExpr') || '') : undefined
+          });
+        }
+      });
     }
 
     const TEST_SNIPPETS = {
@@ -7624,6 +7806,11 @@ export function getQueryEditorHtml(
             saveExpression();
           }
         });
+        exprTextarea.addEventListener('input', () => {
+          if (isLivePollingActive) {
+            scheduleLivePollUpdate();
+          }
+        });
       }
     }
     
@@ -7766,6 +7953,9 @@ export function getQueryEditorHtml(
           currentTestSuite = null;
           updateTestSuiteBadge(null);
         }
+        if (msg.pollCount !== undefined && isLivePollingActive) {
+          updateLivePollUI(true, msg.pollCount, msg.durationMs);
+        }
       } else if (msg.type === 'resultStart') {
         // Initialize streaming
         if (streamingRafId) {
@@ -7879,6 +8069,49 @@ export function getQueryEditorHtml(
         if (diffResultBtn) diffResultBtn.click();
       } else if (msg.type === 'triggerRunTests') {
         runTests();
+      } else if (msg.type === 'pollTick') {
+        livePollCount = msg.pollCount || (livePollCount + 1);
+        updateLivePollUI(true, livePollCount, msg.durationMs);
+      } else if (msg.type === 'streamStatus') {
+        if (msg.streamType === 'poll') {
+          updateLivePollUI(msg.active, msg.pollCount);
+        } else if (msg.streamType === 'sse' || msg.streamType === 'ws') {
+          const src = (currentSources || []).find(s => s.id === msg.sourceId);
+          if (src) {
+            src.isStreaming = Boolean(msg.active);
+            renderSources(currentSources);
+          }
+          appendConsoleEntry({
+            level: 'info',
+            message: '[' + msg.streamType.toUpperCase() + '] ' + (src?.alias || msg.sourceId || '') + ' ' + (msg.status || (msg.active ? 'connected' : 'disconnected'))
+          });
+        }
+      } else if (msg.type === 'streamEvent') {
+        let preview = '';
+        try {
+          preview = typeof msg.event?.data === 'object' ? JSON.stringify(msg.event.data) : String(msg.event?.data ?? '');
+        } catch (e) {
+          preview = String(msg.event?.data ?? '');
+        }
+        if (preview.length > 120) preview = preview.slice(0, 120) + '...';
+        appendConsoleEntry({
+          level: 'info',
+          message: '[' + (msg.streamType || 'STREAM').toUpperCase() + (msg.event?.event ? ' ' + msg.event.event : '') + '] (Buffer: ' + (msg.bufferCount || 1) + ') ' + preview
+        });
+      } else if (msg.type === 'streamError') {
+        appendConsoleEntry({
+          level: 'error',
+          message: '[' + (msg.streamType || 'Stream').toUpperCase() + ' ERROR] ' + (msg.error || 'Unknown error')
+        });
+        if (msg.streamType === 'poll' && livePollStatusText) {
+          livePollStatusText.style.display = 'inline';
+          livePollStatusText.textContent = '⚠️ Poll Error: ' + (msg.error || '');
+        }
+      } else if (msg.type === 'streamBufferCleared') {
+        appendConsoleEntry({
+          level: 'info',
+          message: '[Stream] Buffer cleared for ' + (msg.sourceId || 'all')
+        });
       }
     });
 
