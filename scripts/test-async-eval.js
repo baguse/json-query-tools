@@ -181,6 +181,26 @@ return { userCount: u.length, grandTotal: total };`;
   assert.deepStrictEqual(syncRes, [5, 10]);
   console.log('  ✓ Synchronous expressions retain non-Promise synchronous return value');
 
+  // 13. Built-in req and res binding in evaluateExpression
+  const reqResTest = evaluateExpression([], { data: [1, 2, 3] }, `
+    res.status(201);
+    res.setHeader('X-Total', String(data.length));
+    return {
+      method: req.method,
+      query: req.query,
+      body: req.body,
+      resStatus: res.statusCode,
+      resHeaders: res.headers,
+      data
+    };
+  `);
+  assert.strictEqual(reqResTest.method, 'GET');
+  assert.deepStrictEqual(reqResTest.query, {});
+  assert.deepStrictEqual(reqResTest.body, {});
+  assert.strictEqual(reqResTest.resStatus, 201);
+  assert.strictEqual(reqResTest.resHeaders['X-Total'], '3');
+  console.log('  ✓ Built-in req and res binding works in evaluateExpression without ReferenceError');
+
   console.log('\n✅ All Asynchronous Query evaluator tests passed successfully!');
 }
 

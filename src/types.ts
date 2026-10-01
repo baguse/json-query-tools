@@ -179,3 +179,13 @@ export interface MockRequestContext {
   headers: Record<string, string | string[] | undefined>;
   body: unknown;
 }
+
+export interface MockResponseContext {
+  statusCode: number;
+  headers: Record<string, string>;
+  status(code: number): MockResponseContext;
+  setHeader(name: string, value: string): MockResponseContext;
+  header(name: string, value: string): MockResponseContext;
+  json(payload: unknown): unknown;
+  send(payload: unknown): unknown;
+}

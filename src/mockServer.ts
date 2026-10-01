@@ -1,7 +1,7 @@
 import * as http from 'http';
 import * as url from 'url';
 import { Socket } from 'net';
-import { MockServerConfig, MockServerRequestLog, MockServerState, MockRequestContext } from './types';
+import { MockServerConfig, MockServerRequestLog, MockServerState, MockRequestContext, MockResponseContext } from './types';
 import { stringify } from './evaluator';
 
 export const DEFAULT_MOCK_PORT = 3000;
@@ -117,7 +117,7 @@ export function matchesEndpoint(reqPath: string, endpoint: string): boolean {
   return normReq === normEndpoint || normReq.startsWith(normEndpoint + '/');
 }
 
-export type DynamicEvaluator = (context: MockRequestContext) => Promise<unknown> | unknown;
+export type DynamicEvaluator = (reqContext: MockRequestContext, resContext: MockResponseContext) => Promise<unknown> | unknown;
 
 export interface MockServerManagerEvents {
   onStateChange?: (state: MockServerState) => void;
@@ -209,6 +209,9 @@ export class MockServerManager {
         ...this.config,
         ...customConfig
       };
+      if (customConfig.method === undefined) {
+        this.config.method = 'ALL';
+      }
     }
 
     // Normalize endpoint
@@ -417,6 +420,7 @@ export class MockServerManager {
     // 7. Resolve payload (Static vs Dynamic)
     let statusCode = this.config.statusCode || 200;
     let responseData: unknown = null;
+    let customHeaders: Record<string, string> | undefined = undefined;
 
     if (this.config.mode === 'dynamic' && this.dynamicEvaluator) {
       try {
@@ -428,7 +432,33 @@ export class MockServerManager {
           headers: req.headers,
           body: parsedBody
         };
-        const dynamicResult = await this.dynamicEvaluator(reqContext);
+
+        const resHeaders: Record<string, string> = {};
+        const resContext: MockResponseContext = {
+          statusCode,
+          headers: resHeaders,
+          status(code: number) {
+            this.statusCode = code;
+            return this;
+          },
+          setHeader(name: string, value: string) {
+            this.headers[name] = String(value);
+            return this;
+          },
+          header(name: string, value: string) {
+            return this.setHeader(name, value);
+          },
+          json(payload: unknown) {
+            return payload;
+          },
+          send(payload: unknown) {
+            return payload;
+          }
+        };
+
+        const dynamicResult = await this.dynamicEvaluator(reqContext, resContext);
+        statusCode = resContext.statusCode;
+        customHeaders = resContext.headers;
         responseData = dynamicResult !== undefined ? dynamicResult : null;
       } catch (err: any) {
         statusCode = 500;
@@ -446,7 +476,7 @@ export class MockServerManager {
       responseData = filterArrayByQuery(responseData, query);
     }
 
-    this.sendJsonResponse(res, statusCode, responseData);
+    this.sendJsonResponse(res, statusCode, responseData, customHeaders);
     this.recordLog(req, reqMethod, reqPath, query, statusCode, startTime);
   }
 
@@ -474,15 +504,23 @@ export class MockServerManager {
   /**
    * Sends JSON response with standard metadata headers.
    */
-  private sendJsonResponse(res: http.ServerResponse, status: number, data: unknown): void {
+  private sendJsonResponse(
+    res: http.ServerResponse,
+    status: number,
+    data: unknown,
+    customHeaders?: Record<string, string>
+  ): void {
     const jsonStr = data === null ? 'null' : (typeof data === 'string' ? data : stringify(data));
     const byteLength = Buffer.byteLength(jsonStr, 'utf-8');
 
-    res.writeHead(status, {
+    const headers: Record<string, string | number> = {
       'Content-Type': 'application/json; charset=utf-8',
       'Content-Length': byteLength,
-      'X-Powered-By': 'JSON-Tools-Mock-Server'
-    });
+      'X-Powered-By': 'JSON-Tools-Mock-Server',
+      ...(customHeaders || {})
+    };
+
+    res.writeHead(status, headers);
     res.end(jsonStr);
   }
 

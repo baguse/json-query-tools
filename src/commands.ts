@@ -3,7 +3,7 @@ import * as path from 'path';
 import { performance } from 'perf_hooks';
 import { HISTORY_KEY, URL_SOURCES_KEY, URL_CACHE_MAX_SIZE, URL_CACHE_DEFAULT_TTL_MS, AI_API_KEY_SECRET } from './constants';
 import { LruCache } from './cache';
-import { BoundFile, BoundUrl, SerializedBoundSource, StreamEvent, StreamMode, PipelineStep, PipelineStepResult, PipelineExecutionResult, MockServerConfig, MockServerRequestLog, MockServerState, MockRequestContext } from './types';
+import { BoundFile, BoundUrl, SerializedBoundSource, StreamEvent, StreamMode, PipelineStep, PipelineStepResult, PipelineExecutionResult, MockServerConfig, MockServerRequestLog, MockServerState, MockRequestContext, MockResponseContext } from './types';
 import { StreamManager } from './streamer';
 import { MockServerManager } from './mockServer';
 import { executePipeline, exportPipelineToSingleQuery } from './pipeline';
@@ -1895,12 +1895,13 @@ export async function commandOpenQueryEditor(
       } else if (msg.type === 'startMockServer') {
         const config = msg.config || {};
         try {
-          const dynamicEvaluator = async (reqContext: MockRequestContext) => {
+          const dynamicEvaluator = async (reqContext: MockRequestContext, resContext: MockResponseContext) => {
             const rawDataMap = await buildDataMap();
             const exprToEval = msg.expr || currentPollExpr || 'data';
             const evalDataMap = {
               ...rawDataMap,
-              req: reqContext
+              req: reqContext,
+              res: resContext
             };
             return evaluateExpression(boundFiles, evalDataMap, exprToEval, activeEnvResolved);
           };

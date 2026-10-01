@@ -1615,7 +1615,7 @@ export function getQueryEditorHtml(
           </select>
           <input type="text" id="mockCustomMethodInput" placeholder="METHOD" style="display: none; width: 65px; padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px; text-transform: uppercase;">
         </label>
-        <label style="display: inline-flex; align-items: center; gap: 4px;">
+        <label style="display: inline-flex; align-items: center; gap: 4px;" title="Static Snapshot serves current data; Live Evaluation re-evaluates active expression with req and res on each request">
           <span>Mode:</span>
           <select id="mockModeSelect" style="padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px;">
             <option value="static">Static Snapshot</option>
@@ -5184,6 +5184,8 @@ export function getQueryEditorHtml(
         { kind: 'keyword', text: 'Object', displayText: 'Object : built-in' },
         { kind: 'keyword', text: 'Array', displayText: 'Array : built-in' },
         { kind: 'keyword', text: 'console', displayText: 'console : built-in' },
+        { kind: 'keyword', text: 'req', displayText: 'req : HTTP request (query, body, headers, method)' },
+        { kind: 'keyword', text: 'res', displayText: 'res : HTTP response controller (status, setHeader, json)' },
         { kind: 'keyword', text: 'test', displayText: 'test(name, fn) : declare test case' },
         { kind: 'keyword', text: 'it', displayText: 'it(name, fn) : declare test case' },
         { kind: 'keyword', text: 'expect', displayText: 'expect(actual) : test assertion matcher' },
@@ -5512,6 +5514,29 @@ export function getQueryEditorHtml(
       });
     }
 
+    function buildReqCompletions() {
+      return [
+        { kind: 'property', text: 'query', displayText: 'query : Record<string, string> (URL query params)' },
+        { kind: 'property', text: 'body', displayText: 'body : any (parsed JSON request body)' },
+        { kind: 'property', text: 'headers', displayText: 'headers : Record<string, string> (request headers)' },
+        { kind: 'property', text: 'method', displayText: 'method : string (HTTP verb: GET, POST, etc.)' },
+        { kind: 'property', text: 'url', displayText: 'url : string (full request URL path)' },
+        { kind: 'property', text: 'path', displayText: 'path : string (pathname without query params)' }
+      ];
+    }
+
+    function buildResCompletions() {
+      return [
+        { kind: 'method', text: 'status', displayText: 'status(code) : res (set HTTP status code)' },
+        { kind: 'property', text: 'statusCode', displayText: 'statusCode : number (current status code)' },
+        { kind: 'method', text: 'setHeader', displayText: 'setHeader(name, value) : res (set response header)' },
+        { kind: 'method', text: 'header', displayText: 'header(name, value) : res (alias for setHeader)' },
+        { kind: 'property', text: 'headers', displayText: 'headers : Record<string, string> (response headers)' },
+        { kind: 'method', text: 'json', displayText: 'json(payload) : any (send JSON payload)' },
+        { kind: 'method', text: 'send', displayText: 'send(payload) : any (send response payload)' }
+      ];
+    }
+
     function buildAnyFallbackCompletions(receiverName, fullDocText) {
       const list = [];
       const seen = new Set();
@@ -5587,7 +5612,20 @@ export function getQueryEditorHtml(
       if (chain === 'assert') return { typeName: 'assert', schemaPart: null };
       if (chain === 'expect' || chain.startsWith('expect(') || chain.endsWith('.not')) return { typeName: 'expect', schemaPart: null };
 
-      // 2. Environment object
+      // 2. HTTP Request and Response objects
+      if (chain === 'req') return { typeName: 'req', schemaPart: null };
+      if (chain === 'req.query' || chain.startsWith('req.query.')) return { typeName: TYPE_OBJECT, schemaPart: null };
+      if (chain === 'req.body' || chain.startsWith('req.body.')) return { typeName: TYPE_OBJECT, schemaPart: null };
+      if (chain === 'req.headers' || chain.startsWith('req.headers.')) return { typeName: TYPE_OBJECT, schemaPart: null };
+      if (chain === 'req.method' || chain === 'req.url' || chain === 'req.path') return { typeName: TYPE_STRING, schemaPart: null };
+
+      if (chain === 'res' || chain.startsWith('res.status(') || chain.startsWith('res.setHeader(') || chain.startsWith('res.header(')) {
+        return { typeName: 'res', schemaPart: null };
+      }
+      if (chain === 'res.headers' || chain.startsWith('res.headers.')) return { typeName: TYPE_OBJECT, schemaPart: null };
+      if (chain === 'res.statusCode') return { typeName: TYPE_NUMBER, schemaPart: null };
+
+      // 3. Environment object
       if (chain === 'env' || chain.startsWith('env.')) {
         return { typeName: 'environment', schemaPart: null };
       }
@@ -6252,6 +6290,10 @@ export function getQueryEditorHtml(
 
             if (receiverType === 'environment') {
               completions = buildEnvCompletions();
+            } else if (receiverType === 'req') {
+              completions = buildReqCompletions();
+            } else if (receiverType === 'res') {
+              completions = buildResCompletions();
             } else if (receiverType === 'Math') {
               completions = buildMathCompletions();
             } else if (receiverType === 'JSON') {

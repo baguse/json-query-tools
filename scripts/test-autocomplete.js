@@ -17,6 +17,8 @@ async function runAutocompleteTests() {
   assert.ok(htmlSource.includes('buildObjectConstructorCompletions'), 'html.ts should define buildObjectConstructorCompletions');
   assert.ok(htmlSource.includes('buildArrayConstructorCompletions'), 'html.ts should define buildArrayConstructorCompletions');
   assert.ok(htmlSource.includes('buildConsoleCompletions'), 'html.ts should define buildConsoleCompletions');
+  assert.ok(htmlSource.includes('buildReqCompletions'), 'html.ts should define buildReqCompletions');
+  assert.ok(htmlSource.includes('buildResCompletions'), 'html.ts should define buildResCompletions');
   assert.ok(htmlSource.includes('buildAnyFallbackCompletions'), 'html.ts should define buildAnyFallbackCompletions');
   assert.ok(htmlSource.includes('isPositionInStringOrComment'), 'html.ts should define isPositionInStringOrComment');
   assert.ok(htmlSource.includes("editor.on('inputRead'"), 'html.ts should listen for inputRead to trigger autocomplete');
@@ -513,6 +515,43 @@ async function runAutocompleteTests() {
   assert.strictEqual(nameAliasBindings.c.inferredType, 'object');
 
   console.log('  ✓ Pipeline scoped variables (prev, input, raw, step1, aliases, names) fully resolve in autocomplete and callback type inference');
+
+  // Verify req and res autocomplete
+  const topCompletionsAll = sandbox.buildTopLevelCompletions({});
+  const topTextsAll = topCompletionsAll.map(c => c.text);
+  assert.ok(topTextsAll.includes('req'), 'Top-level completions must include "req"');
+  assert.ok(topTextsAll.includes('res'), 'Top-level completions must include "res"');
+
+  const reqCompletions = sandbox.buildReqCompletions();
+  const reqTexts = reqCompletions.map(c => c.text);
+  assert.ok(reqTexts.includes('query'), 'req completions must include "query"');
+  assert.ok(reqTexts.includes('body'), 'req completions must include "body"');
+  assert.ok(reqTexts.includes('headers'), 'req completions must include "headers"');
+  assert.ok(reqTexts.includes('method'), 'req completions must include "method"');
+  assert.ok(reqTexts.includes('url'), 'req completions must include "url"');
+  assert.ok(reqTexts.includes('path'), 'req completions must include "path"');
+
+  const resCompletions = sandbox.buildResCompletions();
+  const resTexts = resCompletions.map(c => c.text);
+  assert.ok(resTexts.includes('status'), 'res completions must include "status"');
+  assert.ok(resTexts.includes('statusCode'), 'res completions must include "statusCode"');
+  assert.ok(resTexts.includes('setHeader'), 'res completions must include "setHeader"');
+  assert.ok(resTexts.includes('header'), 'res completions must include "header"');
+  assert.ok(resTexts.includes('headers'), 'res completions must include "headers"');
+  assert.ok(resTexts.includes('json'), 'res completions must include "json"');
+  assert.ok(resTexts.includes('send'), 'res completions must include "send"');
+
+  // Type inference for req and res
+  assert.strictEqual(sandbox.inferTypeFromChain('req').typeName, 'req', '"req" should infer as req');
+  assert.strictEqual(sandbox.inferTypeFromChain('req.query').typeName, 'object', '"req.query" should infer as object');
+  assert.strictEqual(sandbox.inferTypeFromChain('req.body').typeName, 'object', '"req.body" should infer as object');
+  assert.strictEqual(sandbox.inferTypeFromChain('req.headers').typeName, 'object', '"req.headers" should infer as object');
+  assert.strictEqual(sandbox.inferTypeFromChain('req.method').typeName, 'string', '"req.method" should infer as string');
+  assert.strictEqual(sandbox.inferTypeFromChain('res').typeName, 'res', '"res" should infer as res');
+  assert.strictEqual(sandbox.inferTypeFromChain('res.status(200)').typeName, 'res', '"res.status(200)" should infer as res');
+  assert.strictEqual(sandbox.inferTypeFromChain('res.setHeader("X-Custom", "val")').typeName, 'res', '"res.setHeader(...)" should infer as res');
+
+  console.log('  ✓ HTTP Request (req) and Response (res) autocomplete and type inference passed');
 
   console.log('\nAll autocomplete tests passed successfully!');
 }

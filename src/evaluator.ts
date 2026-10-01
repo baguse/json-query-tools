@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { createRequire } from 'module';
-import { BoundFile, ResolvedEnvironment } from './types';
+import { BoundFile, ResolvedEnvironment, MockRequestContext, MockResponseContext } from './types';
 import { resolveTemplateVariables } from './config';
 import { stripJsoncComments } from './jsonc';
 import { getPrimaryUri } from './helpers';
@@ -180,6 +180,43 @@ export function createExecutionConsole(onStdout?: StdoutCallback): Record<string
 
 const AsyncFunction: new (...args: string[]) => Function = Object.getPrototypeOf(async function () {}).constructor;
 
+export function createDefaultMockRequestContext(): MockRequestContext {
+  return {
+    method: 'GET',
+    url: '/',
+    path: '/',
+    query: {},
+    headers: {},
+    body: {}
+  };
+}
+
+export function createDefaultMockResponseContext(initialStatus = 200): MockResponseContext {
+  const headers: Record<string, string> = {};
+  const res: MockResponseContext = {
+    statusCode: initialStatus,
+    headers,
+    status(code: number) {
+      this.statusCode = code;
+      return this;
+    },
+    setHeader(name: string, value: string) {
+      this.headers[name] = String(value);
+      return this;
+    },
+    header(name: string, value: string) {
+      return this.setHeader(name, value);
+    },
+    json(payload: unknown) {
+      return payload;
+    },
+    send(payload: unknown) {
+      return payload;
+    }
+  };
+  return res;
+}
+
 export function evaluateExpression(
   boundFiles: BoundFile[],
   dataMap: Record<string, unknown>,
@@ -215,7 +252,7 @@ export function evaluateExpression(
   const resolvedExpr = resolveTemplateVariables(expr, primaryUri, undefined, envVars);
   const workspaceUri = vscode.workspace.workspaceFolders?.[0]?.uri;
   const baseUri = primaryUri ?? workspaceUri;
-  const req = baseUri ? createRequire(baseUri.fsPath) : require;
+  const requireFn = baseUri ? createRequire(baseUri.fsPath) : require;
 
   const envBaseUrl = envVars['baseUrl'] || envVars['baseURL'] || envVars['BASE_URL'] || '';
   const envTarget: Record<string, any> = {
@@ -262,13 +299,15 @@ export function evaluateExpression(
   const hasItAlias = aliases.includes('it');
   const hasExpectAlias = aliases.includes('expect');
   const hasAssertAlias = aliases.includes('assert');
+  const hasReqAlias = aliases.includes('req');
+  const hasResAlias = aliases.includes('res');
 
   const extraParamNames: string[] = [];
   const extraParamValues: any[] = [];
 
   if (!hasRequireAlias) {
     extraParamNames.push('require');
-    extraParamValues.push(req);
+    extraParamValues.push(requireFn);
   }
   if (!hasEnvAlias) {
     extraParamNames.push('env');
@@ -293,6 +332,14 @@ export function evaluateExpression(
   if (!hasAssertAlias) {
     extraParamNames.push('assert');
     extraParamValues.push(testEnv.assert);
+  }
+  if (!hasReqAlias) {
+    extraParamNames.push('req');
+    extraParamValues.push(createDefaultMockRequestContext());
+  }
+  if (!hasResAlias) {
+    extraParamNames.push('res');
+    extraParamValues.push(createDefaultMockResponseContext());
   }
 
   const isAwait = /\bawait\b/.test(resolvedExpr);
@@ -335,13 +382,13 @@ export function evaluateExpression(
     throw err;
   }
 
-  const resolveResult = (res: unknown): unknown | Promise<unknown> => {
+  const resolveResult = (rawVal: unknown): unknown | Promise<unknown> => {
     let finalResult: unknown;
     try {
       finalResult =
-        typeof res === 'function'
-          ? (res as (...args: unknown[]) => unknown)(...dataValues, ...extraParamValues)
-          : res;
+        typeof rawVal === 'function'
+          ? (rawVal as (...args: unknown[]) => unknown)(...dataValues, ...extraParamValues)
+          : rawVal;
     } catch (err: any) {
       if (err instanceof TestAssertionError && testEnv.hasTests()) {
         return (async () => {

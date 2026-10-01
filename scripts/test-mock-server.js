@@ -364,6 +364,91 @@ async function runMockServerTests() {
     await manager.stop();
   }
 
+  // Test Case 8: Response manipulation via res object (status, headers, json)
+  try {
+    console.log('  ✓ Test Case 8: Dynamic Response manipulation via res object (res.status, res.setHeader)');
+    const RES_PORT = 3993;
+
+    const dynamicEvaluatorWithRes = (req, res) => {
+      if (req.method === 'POST') {
+        if (!req.body || !req.body.title) {
+          res.status(400);
+          return { error: 'Validation failed: title required' };
+        }
+        res.status(201);
+        res.setHeader('X-Created-Id', 'mock-99');
+        return {
+          id: 99,
+          title: req.body.title,
+          createdAt: '2026-10-01'
+        };
+      }
+
+      if (req.query.id === '404') {
+        res.status(404);
+        res.setHeader('X-Error-Reason', 'NotFound');
+        return { error: 'Item not found' };
+      }
+
+      res.setHeader('X-Custom-Meta', 'test-pass');
+      return { ok: true, query: req.query };
+    };
+
+    await manager.start({
+      port: RES_PORT,
+      endpoint: '/api/v1/items',
+      mode: 'dynamic'
+    }, dynamicEvaluatorWithRes);
+
+    // 8a. GET with ?id=404 -> Should return 404 with X-Error-Reason header
+    const notFoundRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: RES_PORT,
+      path: '/api/v1/items?id=404',
+      method: 'GET'
+    });
+    assert.strictEqual(notFoundRes.statusCode, 404);
+    assert.strictEqual(notFoundRes.headers['x-error-reason'], 'NotFound');
+    assert.strictEqual(notFoundRes.body.error, 'Item not found');
+
+    // 8b. POST without body -> Should return 400
+    const badPostRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: RES_PORT,
+      path: '/api/v1/items',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, {});
+    assert.strictEqual(badPostRes.statusCode, 400);
+    assert.strictEqual(badPostRes.body.error, 'Validation failed: title required');
+
+    // 8c. POST with valid body -> Should return 201 with X-Created-Id header
+    const createdRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: RES_PORT,
+      path: '/api/v1/items',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    }, { title: 'New Mock Post' });
+    assert.strictEqual(createdRes.statusCode, 201);
+    assert.strictEqual(createdRes.headers['x-created-id'], 'mock-99');
+    assert.strictEqual(createdRes.body.id, 99);
+    assert.strictEqual(createdRes.body.title, 'New Mock Post');
+
+    // 8d. Normal GET -> Should return 200 with X-Custom-Meta header
+    const normalGetRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: RES_PORT,
+      path: '/api/v1/items?id=123',
+      method: 'GET'
+    });
+    assert.strictEqual(normalGetRes.statusCode, 200);
+    assert.strictEqual(normalGetRes.headers['x-custom-meta'], 'test-pass');
+    assert.strictEqual(normalGetRes.body.ok, true);
+  } finally {
+    await manager.stop();
+  }
+
   console.log('\n✅ All Instant Local Mock Server tests passed successfully!\n');
 }
 
