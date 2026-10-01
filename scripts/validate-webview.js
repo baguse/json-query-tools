@@ -217,6 +217,12 @@ async function validate() {
       'id="layoutToggleBtn"',
       'id="toggleAiDrawerBtn"',
       'id="aiDrawer"',
+      'id="anonymizeBtn"',
+      'id="anonymizerModal"',
+      'id="closeAnonymizerModal"',
+      'id="anonymizePreview"',
+      'id="applyAnonymizedBtn"',
+      'id="copyAnonymizedBtn"',
       'class="search-icon">&#128269;</span>'
     ];
 

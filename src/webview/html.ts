@@ -1507,6 +1507,9 @@ export function getQueryEditorHtml(
       <optgroup label="Environment &amp; Config">
         <option value="env_base_url">Use Environment ({{env.baseURL}} / env.baseURL)</option>
       </optgroup>
+      <optgroup label="Privacy &amp; Compliance">
+        <option value="anonymize_pii">🛡️ Anonymize &amp; Mask PII (anonymize / maskPII)</option>
+      </optgroup>
       <option value="open_cheatsheet">📖 Open Cheatsheet...</option>
     </select>
     <button id="openCheatsheetBtn" class="secondary" title="Open JS transformation snippet library &amp; cheatsheet">📖 Cheatsheet</button>
@@ -1645,6 +1648,7 @@ export function getQueryEditorHtml(
         <button id="copy-result-to-clipboard" class="secondary" style="padding: 6px 10px;">📋 Copy</button>
         <button id="openResultInEditorBtn" class="secondary" style="padding: 6px 10px;" title="Open result in a new VS Code editor tab">↗ In Editor</button>
         <button id="generateTypesBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Generate TypeScript, Zod, JSON Schema, Pydantic, or Dataclass types from result">{ } Types</button>
+        <button id="anonymizeBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Sanitize &amp; Anonymize Sensitive Data / PII (credentials, tokens, emails, phone numbers, credit cards)">🛡️ Anonymize</button>
         <button id="diffResultBtn" class="secondary" style="padding: 6px 10px;" title="Compare Original JSON with Transformed Result in Side-by-Side Diff (vscode.diff)">⚖️ Diff</button>
         <button id="toggleVisualLensBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Toggle Visual Lens (JSON Path &amp; Expression Picker)">🔍 Lens</button>
         <button id="toggleConsoleResultBtn" class="secondary" style="padding: 6px 10px; display: inline-flex; align-items: center; gap: 5px;" title="Toggle Console Output Drawer">📟 Console <span id="consoleBadgeResult" style="display: none; background: var(--vscode-badge-background, #4d4d4d); color: var(--vscode-badge-foreground, #ffffff); border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: bold;">0</span></button>
@@ -2205,6 +2209,80 @@ export function getQueryEditorHtml(
           <button id="openTypeGenInEditorBtn" class="secondary">↗ In Editor</button>
           <button id="saveTypeGenFileBtn" class="secondary">📥 Save File</button>
           <button id="dismissTypeGenBtn" class="primary">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PII Anonymizer & Sanitizer Modal -->
+  <div id="anonymizerModal" class="modal-backdrop" style="display: none;">
+    <div class="modal-dialog" style="max-width: 860px; width: 92%; max-height: 88vh; display: flex; flex-direction: column;">
+      <div class="modal-header">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <h3 style="margin: 0; font-size: 14px; font-weight: 600;">🛡️ Privacy &amp; Compliance — PII Anonymizer &amp; Sanitizer</h3>
+        </div>
+        <button id="closeAnonymizerModal" class="modal-close-btn" title="Close dialog">&times;</button>
+      </div>
+      <div class="modal-body" style="gap: 12px; padding: 16px; flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+        <!-- Strategy Selector Tabs -->
+        <div style="display: flex; gap: 6px; flex-wrap: wrap; align-items: center; justify-content: space-between;">
+          <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+            <span style="font-size: 11px; font-weight: 600; color: var(--vscode-foreground, #ccc);">Strategy:</span>
+            <div id="anonStrategyTabs" style="display: flex; gap: 4px; flex-wrap: wrap;">
+              <button type="button" class="request-tab-btn active" data-strategy="mask" style="padding: 4px 10px; font-size: 11px;" title="Preserve format shape: j***e@domain.com, **** 1234">Format Masking</button>
+              <button type="button" class="request-tab-btn" data-strategy="redact" style="padding: 4px 10px; font-size: 11px;" title="Semantic replacement tags: [REDACTED_EMAIL]">Semantic Redaction</button>
+              <button type="button" class="request-tab-btn" data-strategy="synthetic" style="padding: 4px 10px; font-size: 11px;" title="Deterministic pseudonyms: user_8f12@example.com (preserves relational joins)">Consistent Synthetic</button>
+              <button type="button" class="request-tab-btn" data-strategy="hash" style="padding: 4px 10px; font-size: 11px;" title="Hashed values: email_8f92a1">Hashed Values</button>
+            </div>
+          </div>
+          <span id="anonymizeBadge" style="font-size: 11px; font-weight: 600; color: #4ec9b0; background: rgba(78, 201, 176, 0.12); border: 1px solid rgba(78, 201, 176, 0.3); border-radius: 12px; padding: 2px 8px;">🛡️ 0 items sanitized</span>
+        </div>
+
+        <!-- Rule Categories Bar -->
+        <div id="anonRulesBar" style="display: flex; gap: 12px; align-items: center; font-size: 11px; padding: 6px 10px; background: rgba(128,128,128,0.1); border-radius: 4px; color: var(--vscode-descriptionForeground, #858585); flex-wrap: wrap;">
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="JWT, Bearer tokens, private keys, passwords">
+            <input type="checkbox" id="anonRuleCredentials" checked style="margin: 0; cursor: pointer;">
+            <span>Credentials &amp; Tokens</span>
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="RFC email addresses">
+            <input type="checkbox" id="anonRuleEmails" checked style="margin: 0; cursor: pointer;">
+            <span>Emails</span>
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="US &amp; International phone numbers">
+            <input type="checkbox" id="anonRulePhones" checked style="margin: 0; cursor: pointer;">
+            <span>Phone Numbers</span>
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="Credit card numbers with Luhn check">
+            <input type="checkbox" id="anonRuleCreditCards" checked style="margin: 0; cursor: pointer;">
+            <span>Credit Cards</span>
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="Social Security Numbers (###-##-####)">
+            <input type="checkbox" id="anonRuleNationalIds" checked style="margin: 0; cursor: pointer;">
+            <span>National IDs (SSN)</span>
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="IPv4 &amp; IPv6 addresses">
+            <input type="checkbox" id="anonRuleIpAddresses" checked style="margin: 0; cursor: pointer;">
+            <span>IP Addresses</span>
+          </label>
+          <label style="display: inline-flex; align-items: center; gap: 4px; cursor: pointer;" title="Sensitive field keys: password, secret, token, apiKey">
+            <input type="checkbox" id="anonRuleKeyNames" checked style="margin: 0; cursor: pointer;">
+            <span>Sensitive Keys</span>
+          </label>
+        </div>
+
+        <!-- Sanitized Code Preview Box -->
+        <div style="flex: 1; min-height: 240px; display: flex; flex-direction: column; position: relative;">
+          <textarea id="anonymizePreview" readonly style="width: 100%; flex: 1; min-height: 240px; font-family: var(--vscode-editor-font-family, monospace); font-size: 11.5px; line-height: 1.45; background: var(--vscode-editor-background, #1e1e1e); color: var(--vscode-editor-foreground, #d4d4d4); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 4px; padding: 10px; resize: none; white-space: pre; tab-size: 2; overflow: auto; box-sizing: border-box;"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content: space-between; align-items: center;">
+        <span id="anonymizeStats" style="font-size: 11px; color: var(--vscode-descriptionForeground, #858585);">Strategy: Format Masking</span>
+        <div style="display: flex; gap: 8px;">
+          <button id="applyAnonymizedBtn" class="primary" title="Apply sanitized data to current query result">Apply to Result</button>
+          <button id="copyAnonymizedBtn" class="secondary" title="Copy sanitized JSON to clipboard">📋 Copy Sanitized</button>
+          <button id="openAnonymizedInEditorBtn" class="secondary" title="Open sanitized JSON in a new VS Code editor tab">↗ In Editor</button>
+          <button id="sendToAiAnonymizedBtn" class="secondary" title="Safely populate AI Query Assistant with sanitized data sample">🤖 Send to AI</button>
+          <button id="dismissAnonymizerBtn" class="secondary">Close</button>
         </div>
       </div>
     </div>
@@ -4978,23 +5056,31 @@ export function getQueryEditorHtml(
       return generateClientTypescript(data, opts);
     }
 
-    function setupTypeGeneratorUI() {
-      let activeTarget = 'typescript';
-
-      function getEffectiveData() {
-        if (currentResultData !== null && currentResultData !== undefined) {
-          return currentResultData;
-        }
-        if (streamingData && streamingData.length > 0) {
-          return streamingData;
-        }
-        if (currentResultText && currentResultText.trim()) {
+    function getEffectiveData() {
+      if (currentResultData !== null && currentResultData !== undefined) {
+        return currentResultData;
+      }
+      if (streamingData && streamingData.length > 0) {
+        return streamingData;
+      }
+      if (currentResultText && currentResultText.trim()) {
+        try {
+          return JSON.parse(currentResultText);
+        } catch(e) {}
+      }
+      if (typeof resultJsonEditor !== 'undefined' && resultJsonEditor && typeof resultJsonEditor.getValue === 'function') {
+        const val = resultJsonEditor.getValue();
+        if (val && val.trim()) {
           try {
-            return JSON.parse(currentResultText);
+            return JSON.parse(val);
           } catch(e) {}
         }
-        return null;
       }
+      return null;
+    }
+
+    function setupTypeGeneratorUI() {
+      let activeTarget = 'typescript';
 
       function renderPreview() {
         if (!typeGenCodePreview) return;
@@ -5153,6 +5239,467 @@ export function getQueryEditorHtml(
     }
 
     const typeGenController = setupTypeGeneratorUI();
+
+    // ==========================================
+    // PII Anonymizer & Sanitizer Controller
+    // ==========================================
+    function setupAnonymizerUI() {
+      const anonymizeBtn = document.getElementById('anonymizeBtn');
+      const anonymizerModal = document.getElementById('anonymizerModal');
+      const closeAnonymizerModalBtn = document.getElementById('closeAnonymizerModal');
+      const dismissAnonymizerBtn = document.getElementById('dismissAnonymizerBtn');
+      const anonymizePreview = document.getElementById('anonymizePreview');
+      const anonymizeBadge = document.getElementById('anonymizeBadge');
+      const anonymizeStats = document.getElementById('anonymizeStats');
+      const applyAnonymizedBtn = document.getElementById('applyAnonymizedBtn');
+      const copyAnonymizedBtn = document.getElementById('copyAnonymizedBtn');
+      const openAnonymizedInEditorBtn = document.getElementById('openAnonymizedInEditorBtn');
+      const sendToAiAnonymizedBtn = document.getElementById('sendToAiAnonymizedBtn');
+      const anonStrategyTabs = document.getElementById('anonStrategyTabs');
+
+      const anonRuleCredentials = document.getElementById('anonRuleCredentials');
+      const anonRuleEmails = document.getElementById('anonRuleEmails');
+      const anonRulePhones = document.getElementById('anonRulePhones');
+      const anonRuleCreditCards = document.getElementById('anonRuleCreditCards');
+      const anonRuleNationalIds = document.getElementById('anonRuleNationalIds');
+      const anonRuleIpAddresses = document.getElementById('anonRuleIpAddresses');
+      const anonRuleKeyNames = document.getElementById('anonRuleKeyNames');
+
+      let activeStrategy = 'mask';
+      let currentAnonymizeResult = null;
+
+      // 32-bit FNV-1a hash algorithm for deterministic pseudonymization
+      function fnv1a(str) {
+        let hash = 0x811c9dc5;
+        for (let i = 0; i < str.length; i++) {
+          hash ^= str.charCodeAt(i);
+          hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+        }
+        return (hash >>> 0).toString(16).padStart(8, '0');
+      }
+
+      function isLuhnValid(numStr) {
+        const clean = numStr.replace(/\\D/g, '');
+        if (clean.length < 13 || clean.length > 19) return false;
+        let sum = 0;
+        let shouldDouble = false;
+        for (let i = clean.length - 1; i >= 0; i--) {
+          let digit = parseInt(clean.charAt(i), 10);
+          if (shouldDouble) {
+            digit *= 2;
+            if (digit > 9) digit -= 9;
+          }
+          sum += digit;
+          shouldDouble = !shouldDouble;
+        }
+        return sum % 10 === 0;
+      }
+
+      const CREDENTIAL_KEY_REGEX = /^(?:pass(?:word)?|passwd|secret|api_?key|auth(?:_?token)?|access_?token|refresh_?token|client_?secret|private_?key)$/i;
+      const SENSITIVE_KEY_REGEX = /^(?:pass(?:word)?|passwd|secret|api_?key|auth(?:_?token)?|access_?token|refresh_?token|client_?secret|private_?key|ssn|social_?security|credit_?card|cvv|cvc)$/i;
+      const EMAIL_REGEX = /\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b/g;
+      const SSN_REGEX = /\\b\\d{3}-\\d{2}-\\d{4}\\b/g;
+      const IPV4_REGEX = /\\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\\b/g;
+      const IPV6_REGEX = /\\b(?:[A-Fa-f0-9]{1,4}:){7}[A-Fa-f0-9]{1,4}\\b/g;
+      const PHONE_REGEX = /(?:\\b|\\+)(?:\\d{1,3}[-.\\s]?)?\\(?\\d{3}\\)?[-.\\s]?\\d{3}[-.\\s]?\\d{4}\\b/g;
+      const JWT_REGEX = /\\beyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}\\b/g;
+      const BEARER_REGEX = /\\bBearer\\s+[A-Za-z0-9_.\\-~+/]+=*\\b/gi;
+      const PRIVATE_KEY_REGEX = /-----BEGIN[ A-Z0-9_-]*PRIVATE KEY[^-]*-----[\\s\\S]*?-----END[ A-Z0-9_-]*PRIVATE KEY-----/gi;
+      const CARD_CANDIDATE_REGEX = /\\b(?:\\d[ -]*?){13,19}\\b/g;
+
+      function sanitizeEmail(email, strat) {
+        if (strat === 'redact') return '[REDACTED_EMAIL]';
+        if (strat === 'hash') return 'email_' + fnv1a(email).substring(0, 8);
+        if (strat === 'synthetic') {
+          return 'user_' + fnv1a(email).substring(0, 6) + '@example.com';
+        }
+        const atIdx = email.indexOf('@');
+        if (atIdx <= 1) return '*@' + email.slice(atIdx + 1);
+        const user = email.slice(0, atIdx);
+        const domain = email.slice(atIdx + 1);
+        const masked = user.length <= 2 
+          ? (user[0] + '*') 
+          : (user[0] + '*'.repeat(Math.min(user.length - 2, 4)) + user[user.length - 1]);
+        return masked + '@' + domain;
+      }
+
+      function sanitizePhone(phone, strat) {
+        if (strat === 'redact') return '[REDACTED_PHONE]';
+        if (strat === 'hash') return 'phone_' + fnv1a(phone).substring(0, 8);
+        if (strat === 'synthetic') {
+          const num = parseInt(fnv1a(phone).substring(0, 4), 16) % 10000;
+          return '+1-555-01' + ('000' + num).slice(-2);
+        }
+        const digits = phone.replace(/\\D/g, '');
+        const last4 = digits.slice(-4);
+        return '***-***-' + (last4 || '0000');
+      }
+
+      function sanitizeCreditCard(card, strat) {
+        if (strat === 'redact') return '[REDACTED_CARD]';
+        if (strat === 'hash') return 'card_' + fnv1a(card).substring(0, 8);
+        if (strat === 'synthetic') return '4111-1111-1111-1111';
+        const digits = card.replace(/\\D/g, '');
+        const last4 = digits.slice(-4);
+        return '****-****-****-' + (last4 || '0000');
+      }
+
+      function sanitizeSsn(ssn, strat) {
+        if (strat === 'redact') return '[REDACTED_SSN]';
+        if (strat === 'hash') return 'ssn_' + fnv1a(ssn).substring(0, 8);
+        if (strat === 'synthetic') return '999-00-0000';
+        const last4 = ssn.slice(-4);
+        return '***-**-' + last4;
+      }
+
+      function sanitizeIp(ip, strat) {
+        if (strat === 'redact') return '[REDACTED_IP]';
+        if (strat === 'hash') return 'ip_' + fnv1a(ip).substring(0, 8);
+        if (strat === 'synthetic') {
+          const byteVal = (parseInt(fnv1a(ip).substring(0, 2), 16) % 250) + 1;
+          return '10.0.0.' + byteVal;
+        }
+        if (ip.includes('.')) {
+          const parts = ip.split('.');
+          return parts[0] + '.' + parts[1] + '.*.*';
+        }
+        return '2001:db8::*';
+      }
+
+      function sanitizeSecret(secret, strat, label) {
+        const lbl = label || 'SECRET';
+        if (strat === 'redact') return '[REDACTED_' + lbl + ']';
+        if (strat === 'hash') return lbl.toLowerCase() + '_' + fnv1a(secret).substring(0, 8);
+        if (strat === 'synthetic') return 'synth_' + lbl.toLowerCase() + '_' + fnv1a(secret).substring(0, 6);
+        if (secret.length <= 8) return '********';
+        return secret.slice(0, 3) + '...[REDACTED]';
+      }
+
+      function anonymizeCore(input, strat, rules) {
+        const report = {
+          totalFieldsScanned: 0,
+          totalSanitized: 0,
+          countsByCategory: {},
+          categoriesDetected: []
+        };
+
+        function recordDetection(category) {
+          report.totalSanitized++;
+          report.countsByCategory[category] = (report.countsByCategory[category] || 0) + 1;
+          if (!report.categoriesDetected.includes(category)) {
+            report.categoriesDetected.push(category);
+          }
+        }
+
+        function sanitizeString(val, keyName) {
+          report.totalFieldsScanned++;
+          let result = val;
+
+          if (rules.keyNames && keyName && CREDENTIAL_KEY_REGEX.test(keyName)) {
+            if (typeof val === 'string' && val.length > 0) {
+              recordDetection('Credentials & Key Names');
+              return sanitizeSecret(val, strat, 'SECRET');
+            }
+          }
+
+          if (rules.credentials && PRIVATE_KEY_REGEX.test(result)) {
+            result = result.replace(PRIVATE_KEY_REGEX, function() {
+              recordDetection('Private Keys');
+              return sanitizeSecret('key', strat, 'PRIVATE_KEY');
+            });
+          }
+
+          if (rules.credentials && JWT_REGEX.test(result)) {
+            result = result.replace(JWT_REGEX, function(jwt) {
+              recordDetection('JWT Tokens');
+              if (strat === 'mask') {
+                return jwt.slice(0, 8) + '...[REDACTED_JWT]';
+              }
+              return sanitizeSecret(jwt, strat, 'JWT');
+            });
+          }
+
+          if (rules.credentials && BEARER_REGEX.test(result)) {
+            result = result.replace(BEARER_REGEX, function(bearer) {
+              recordDetection('Bearer Tokens');
+              if (strat === 'mask') {
+                return 'Bearer ' + bearer.slice(7, 11) + '...[REDACTED]';
+              }
+              return sanitizeSecret(bearer, strat, 'TOKEN');
+            });
+          }
+
+          if (rules.creditCards) {
+            result = result.replace(CARD_CANDIDATE_REGEX, function(match) {
+              if (isLuhnValid(match)) {
+                recordDetection('Credit Cards');
+                return sanitizeCreditCard(match, strat);
+              }
+              return match;
+            });
+          }
+
+          if (rules.nationalIds && SSN_REGEX.test(result)) {
+            result = result.replace(SSN_REGEX, function(ssn) {
+              recordDetection('National IDs (SSN)');
+              return sanitizeSsn(ssn, strat);
+            });
+          }
+
+          if (rules.emails && EMAIL_REGEX.test(result)) {
+            result = result.replace(EMAIL_REGEX, function(email) {
+              recordDetection('Email Addresses');
+              return sanitizeEmail(email, strat);
+            });
+          }
+
+          if (rules.phones && PHONE_REGEX.test(result)) {
+            result = result.replace(PHONE_REGEX, function(phone) {
+              if (/^\\d{4}-\\d{2}-\\d{2}$/.test(phone.trim())) return phone;
+              recordDetection('Phone Numbers');
+              return sanitizePhone(phone, strat);
+            });
+          }
+
+          if (rules.ipAddresses) {
+            if (IPV4_REGEX.test(result)) {
+              result = result.replace(IPV4_REGEX, function(ip) {
+                recordDetection('IP Addresses');
+                return sanitizeIp(ip, strat);
+              });
+            }
+            if (IPV6_REGEX.test(result)) {
+              result = result.replace(IPV6_REGEX, function(ip) {
+                recordDetection('IP Addresses');
+                return sanitizeIp(ip, strat);
+              });
+            }
+          }
+
+          if (rules.keyNames && keyName && SENSITIVE_KEY_REGEX.test(keyName) && result === val) {
+            if (typeof val === 'string' && val.length > 0) {
+              recordDetection('Credentials & Key Names');
+              return sanitizeSecret(val, strat, 'SECRET');
+            }
+          }
+
+          return result;
+        }
+
+        function walk(node, parentKey) {
+          if (node === null || node === undefined) return node;
+          if (typeof node === 'string') return sanitizeString(node, parentKey);
+          if (typeof node === 'number' || typeof node === 'boolean') {
+            report.totalFieldsScanned++;
+            if (rules.keyNames && parentKey && SENSITIVE_KEY_REGEX.test(parentKey)) {
+              recordDetection('Credentials & Key Names');
+              return strat === 'redact' ? 0 : (strat === 'synthetic' ? 9999 : 0);
+            }
+            return node;
+          }
+          if (Array.isArray(node)) {
+            return node.map(function(item) { return walk(item, parentKey); });
+          }
+          if (typeof node === 'object') {
+            const copy = {};
+            for (const k of Object.keys(node)) {
+              copy[k] = walk(node[k], k);
+            }
+            return copy;
+          }
+          return node;
+        }
+
+        return {
+          data: walk(input),
+          report: report
+        };
+      }
+
+      function getRulesFromUI() {
+        return {
+          credentials: anonRuleCredentials ? anonRuleCredentials.checked : true,
+          emails: anonRuleEmails ? anonRuleEmails.checked : true,
+          phones: anonRulePhones ? anonRulePhones.checked : true,
+          creditCards: anonRuleCreditCards ? anonRuleCreditCards.checked : true,
+          nationalIds: anonRuleNationalIds ? anonRuleNationalIds.checked : true,
+          ipAddresses: anonRuleIpAddresses ? anonRuleIpAddresses.checked : true,
+          keyNames: anonRuleKeyNames ? anonRuleKeyNames.checked : true
+        };
+      }
+
+      function renderAnonymizePreview() {
+        if (!anonymizePreview) return;
+        const sourceData = getEffectiveData();
+        if (sourceData === null || sourceData === undefined) {
+          anonymizePreview.value = JSON.stringify({ notice: 'No active data available to anonymize. Run a query first or load a source.' }, null, 2);
+          if (anonymizeBadge) anonymizeBadge.textContent = '🛡️ 0 items sanitized';
+          if (anonymizeStats) anonymizeStats.textContent = 'Strategy: ' + activeStrategy;
+          return;
+        }
+
+        const rules = getRulesFromUI();
+        currentAnonymizeResult = anonymizeCore(sourceData, activeStrategy, rules);
+
+        let previewText = '';
+        try {
+          previewText = JSON.stringify(currentAnonymizeResult.data, null, 2);
+        } catch (e) {
+          previewText = String(currentAnonymizeResult.data);
+        }
+        anonymizePreview.value = previewText;
+
+        const count = currentAnonymizeResult.report.totalSanitized;
+        if (anonymizeBadge) {
+          anonymizeBadge.textContent = '🛡️ ' + count + ' item' + (count === 1 ? '' : 's') + ' sanitized';
+        }
+        if (anonymizeStats) {
+          const stratNames = {
+            mask: 'Format Masking',
+            redact: 'Semantic Redaction',
+            synthetic: 'Consistent Synthetic',
+            hash: 'Hashed Values'
+          };
+          const cats = currentAnonymizeResult.report.categoriesDetected.join(', ');
+          anonymizeStats.textContent = (stratNames[activeStrategy] || activeStrategy) + ' • ' + count + ' sanitized' + (cats ? (' (' + cats + ')') : '');
+        }
+      }
+
+      function openAnonymizerModal() {
+        if (anonymizerModal) {
+          anonymizerModal.style.display = 'flex';
+          renderAnonymizePreview();
+        }
+      }
+
+      function closeAnonymizerModal() {
+        if (anonymizerModal) {
+          anonymizerModal.style.display = 'none';
+        }
+      }
+
+      if (anonymizeBtn) {
+        anonymizeBtn.onclick = function() {
+          openAnonymizerModal();
+        };
+      }
+
+      if (closeAnonymizerModalBtn) closeAnonymizerModalBtn.onclick = closeAnonymizerModal;
+      if (dismissAnonymizerBtn) dismissAnonymizerBtn.onclick = closeAnonymizerModal;
+
+      if (anonymizerModal) {
+        anonymizerModal.addEventListener('click', function(e) {
+          if (e.target === anonymizerModal) closeAnonymizerModal();
+        });
+      }
+
+      if (anonStrategyTabs) {
+        anonStrategyTabs.addEventListener('click', function(e) {
+          const btn = e.target.closest('button');
+          if (!btn) return;
+          const strat = btn.getAttribute('data-strategy');
+          if (!strat) return;
+          activeStrategy = strat;
+          const allBtns = anonStrategyTabs.querySelectorAll('button');
+          allBtns.forEach(function(b) {
+            if (b.classList) b.classList.toggle('active', b === btn);
+          });
+          renderAnonymizePreview();
+        });
+      }
+
+      const ruleCheckboxes = [
+        anonRuleCredentials,
+        anonRuleEmails,
+        anonRulePhones,
+        anonRuleCreditCards,
+        anonRuleNationalIds,
+        anonRuleIpAddresses,
+        anonRuleKeyNames
+      ];
+      for (let rIdx = 0; rIdx < ruleCheckboxes.length; rIdx++) {
+        const cb = ruleCheckboxes[rIdx];
+        if (cb) {
+          cb.addEventListener('change', renderAnonymizePreview);
+        }
+      }
+
+      if (applyAnonymizedBtn) {
+        applyAnonymizedBtn.onclick = function() {
+          if (!currentAnonymizeResult || currentAnonymizeResult.data === undefined) return;
+          currentResultData = currentAnonymizeResult.data;
+          let formattedJson = '';
+          try {
+            formattedJson = JSON.stringify(currentResultData, null, 2);
+          } catch (e) {
+            formattedJson = String(currentResultData);
+          }
+          currentResultText = formattedJson;
+          if (resultJsonEditor) {
+            resultJsonEditor.setValue(formattedJson);
+            if (resultJsonEditorWrapper) resultJsonEditorWrapper.style.display = 'block';
+            if (resultPre) resultPre.style.display = 'none';
+          } else if (resultPre) {
+            resultPre.textContent = formattedJson;
+            resultPre.classList.remove('empty', 'error');
+          }
+          closeAnonymizerModal();
+        };
+      }
+
+      if (copyAnonymizedBtn) {
+        copyAnonymizedBtn.onclick = function() {
+          if (!anonymizePreview || !anonymizePreview.value) return;
+          navigator.clipboard.writeText(anonymizePreview.value).then(function() {
+            copyAnonymizedBtn.textContent = '✓ Copied';
+            setTimeout(function() { copyAnonymizedBtn.textContent = '📋 Copy Sanitized'; }, 1200);
+          });
+        };
+      }
+
+      if (openAnonymizedInEditorBtn) {
+        openAnonymizedInEditorBtn.onclick = function() {
+          if (!anonymizePreview || !anonymizePreview.value) return;
+          vscode.postMessage({
+            type: 'openInEditor',
+            text: anonymizePreview.value,
+            language: 'json'
+          });
+        };
+      }
+
+      if (sendToAiAnonymizedBtn) {
+        sendToAiAnonymizedBtn.onclick = function() {
+          if (!anonymizePreview || !anonymizePreview.value) return;
+          if (typeof toggleAiDrawer === 'function') {
+            toggleAiDrawer(true);
+          }
+          if (aiPrompt) {
+            const snippet = anonymizePreview.value.slice(0, 1000);
+            aiPrompt.value = aiPrompt.value 
+              ? (aiPrompt.value + '\\n\\n' + snippet)
+              : ('Sanitized data structure:\\n' + snippet + '\\n\\nFilter or transform this data:');
+            aiPrompt.focus();
+          }
+          closeAnonymizerModal();
+        };
+      }
+
+      window.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape' && anonymizerModal && anonymizerModal.style.display !== 'none') {
+          closeAnonymizerModal();
+        }
+      });
+
+      return {
+        open: openAnonymizerModal,
+        close: closeAnonymizerModal,
+        render: renderAnonymizePreview,
+        anonymizeCore: anonymizeCore
+      };
+    }
+
+    const anonymizerController = setupAnonymizerUI();
 
     function initResultJsonEditor() {
       if (!codeMirrorLoaded || typeof CodeMirror === 'undefined' || !resultJsonEditorTextarea || resultJsonEditor) {
@@ -5419,6 +5966,8 @@ export function getQueryEditorHtml(
         { kind: 'keyword', text: 'console', displayText: 'console : built-in' },
         { kind: 'keyword', text: 'req', displayText: 'req : HTTP request (query, body, headers, method)' },
         { kind: 'keyword', text: 'res', displayText: 'res : HTTP response controller (status, setHeader, json)' },
+        { kind: 'keyword', text: 'anonymize', displayText: 'anonymize(data, options?) : sanitize sensitive data / PII' },
+        { kind: 'keyword', text: 'maskPII', displayText: 'maskPII(data) : mask credentials, emails, phones, cards' },
         { kind: 'keyword', text: 'test', displayText: 'test(name, fn) : declare test case' },
         { kind: 'keyword', text: 'it', displayText: 'it(name, fn) : declare test case' },
         { kind: 'keyword', text: 'expect', displayText: 'expect(actual) : test assertion matcher' },
@@ -7633,6 +8182,17 @@ export function getQueryEditorHtml(
     }
 
     const SNIPPET_LIBRARY = [
+      {
+        id: 'anonymize_pii',
+        title: 'Anonymize & Mask Sensitive Data (PII)',
+        category: 'privacy',
+        categoryLabel: 'Privacy & Security',
+        description: 'Sanitize emails, credentials, tokens, phone numbers, and cards with format-preserving masking',
+        code: [
+          '// Anonymize sensitive fields with format-preserving masking',
+          'anonymize(data, { strategy: "mask" })'
+        ].join(String.fromCharCode(10))
+      },
       {
         id: 'test_contract',
         title: 'API Contract Test Suite (test & expect)',

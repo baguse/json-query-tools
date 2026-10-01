@@ -5,8 +5,9 @@ import { resolveTemplateVariables } from './config';
 import { stripJsoncComments } from './jsonc';
 import { getPrimaryUri } from './helpers';
 import { createTestEnvironment, TestSuiteResult, TestCaseResult, TestAssertionError } from './testRunner';
+import { anonymize, maskPII, anonymizeWithReport } from './anonymizer';
 
-export { stripJsoncComments, createTestEnvironment, TestSuiteResult, TestCaseResult, TestAssertionError };
+export { stripJsoncComments, createTestEnvironment, TestSuiteResult, TestCaseResult, TestAssertionError, anonymize, maskPII, anonymizeWithReport };
 export type TestSuiteCallback = (suite: TestSuiteResult) => void;
 
 export function stringify(value: unknown): string {
@@ -301,6 +302,9 @@ export function evaluateExpression(
   const hasAssertAlias = aliases.includes('assert');
   const hasReqAlias = aliases.includes('req');
   const hasResAlias = aliases.includes('res');
+  const hasAnonymizeAlias = aliases.includes('anonymize');
+  const hasMaskPIIAlias = aliases.includes('maskPII');
+  const hasAnonymizeWithReportAlias = aliases.includes('anonymizeWithReport');
 
   const extraParamNames: string[] = [];
   const extraParamValues: any[] = [];
@@ -340,6 +344,18 @@ export function evaluateExpression(
   if (!hasResAlias) {
     extraParamNames.push('res');
     extraParamValues.push(createDefaultMockResponseContext());
+  }
+  if (!hasAnonymizeAlias) {
+    extraParamNames.push('anonymize');
+    extraParamValues.push(anonymize);
+  }
+  if (!hasMaskPIIAlias) {
+    extraParamNames.push('maskPII');
+    extraParamValues.push(maskPII);
+  }
+  if (!hasAnonymizeWithReportAlias) {
+    extraParamNames.push('anonymizeWithReport');
+    extraParamValues.push(anonymizeWithReport);
   }
 
   const isAwait = /\bawait\b/.test(resolvedExpr);

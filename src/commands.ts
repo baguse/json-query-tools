@@ -26,6 +26,7 @@ import { fetchUrlWithDetails, parseHeaders } from './fetcher';
 import { getTemplateVariables } from './config';
 import { formatData, getFileExtension, getFormatFilters, getLanguageId } from './export';
 import { generateContract, ContractTarget } from './typeGen';
+import { sanitizeForAi, anonymize } from './anonymizer';
 import { JsonDiffProvider, showJsonDiff } from './diff';
 import {
   formatBytes,
@@ -1866,6 +1867,9 @@ export async function commandOpenQueryEditor(
             if (Array.isArray(primaryData)) {
               sample = primaryData.slice(0, 2);
             }
+            try {
+              sample = sanitizeForAi(sample);
+            } catch { /* ignore fallback */ }
             dataSample = JSON.stringify(sample).substring(0, 1000);
           }
         } catch (e) { /* ignore */ }
