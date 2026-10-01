@@ -298,6 +298,72 @@ async function runMockServerTests() {
     await new Promise(resolve => firstServer.close(resolve));
   }
 
+  // Test Case 7: Method enforcement & Custom HTTP request methods
+  try {
+    console.log('  ✓ Test Case 7: Method enforcement (405 Method Not Allowed) and Custom Request Method');
+    const METHOD_PORT = 3991;
+
+    // 7a. Configured for POST only
+    await manager.start({
+      port: METHOD_PORT,
+      endpoint: '/api/submit',
+      method: 'POST'
+    });
+    manager.updatePayload({ received: true });
+
+    // Valid POST request
+    const postRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: METHOD_PORT,
+      path: '/api/submit',
+      method: 'POST'
+    });
+    assert.strictEqual(postRes.statusCode, 200);
+    assert.deepStrictEqual(postRes.body, { received: true });
+
+    // Invalid GET request -> should return 405 Method Not Allowed with Allow header
+    const getRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: METHOD_PORT,
+      path: '/api/submit',
+      method: 'GET'
+    });
+    assert.strictEqual(getRes.statusCode, 405);
+    assert.strictEqual(getRes.headers['allow'], 'POST');
+    assert.strictEqual(getRes.body.error, 'Method Not Allowed');
+
+    // 7b. Configured with Custom Method (e.g. 'QUERY')
+    const CUSTOM_PORT = 3992;
+    await manager.start({
+      port: CUSTOM_PORT,
+      endpoint: '/api/graphql-custom',
+      method: 'QUERY'
+    });
+    manager.updatePayload({ customMethod: 'OK' });
+
+    // Valid QUERY request
+    const queryRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: CUSTOM_PORT,
+      path: '/api/graphql-custom',
+      method: 'QUERY'
+    });
+    assert.strictEqual(queryRes.statusCode, 200);
+    assert.deepStrictEqual(queryRes.body, { customMethod: 'OK' });
+
+    // Invalid POST request -> should return 405 Method Not Allowed with Allow: QUERY
+    const invalidPostRes = await httpRequest({
+      hostname: '127.0.0.1',
+      port: CUSTOM_PORT,
+      path: '/api/graphql-custom',
+      method: 'POST'
+    });
+    assert.strictEqual(invalidPostRes.statusCode, 405);
+    assert.strictEqual(invalidPostRes.headers['allow'], 'QUERY');
+  } finally {
+    await manager.stop();
+  }
+
   console.log('\n✅ All Instant Local Mock Server tests passed successfully!\n');
 }
 

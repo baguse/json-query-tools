@@ -1603,6 +1603,19 @@ export function getQueryEditorHtml(
           <input type="text" id="mockEndpointInput" value="/api" style="width: 90px; padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px;">
         </label>
         <label style="display: inline-flex; align-items: center; gap: 4px;">
+          <span>Method:</span>
+          <select id="mockMethodSelect" style="padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px;">
+            <option value="ALL">ALL (Any)</option>
+            <option value="GET">GET</option>
+            <option value="POST">POST</option>
+            <option value="PUT">PUT</option>
+            <option value="PATCH">PATCH</option>
+            <option value="DELETE">DELETE</option>
+            <option value="CUSTOM">Custom...</option>
+          </select>
+          <input type="text" id="mockCustomMethodInput" placeholder="METHOD" style="display: none; width: 65px; padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px; text-transform: uppercase;">
+        </label>
+        <label style="display: inline-flex; align-items: center; gap: 4px;">
           <span>Mode:</span>
           <select id="mockModeSelect" style="padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px;">
             <option value="static">Static Snapshot</option>
@@ -1788,7 +1801,9 @@ export function getQueryEditorHtml(
               <option value="DELETE">DELETE</option>
               <option value="HEAD">HEAD</option>
               <option value="OPTIONS">OPTIONS</option>
+              <option value="CUSTOM">Custom...</option>
             </select>
+            <input type="text" id="urlCustomMethod" placeholder="METHOD" style="display: none; width: 100%; margin-top: 4px; padding: 3px 6px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; font-size: 11px; text-transform: uppercase;">
           </div>
           <div class="form-group" style="flex: 1;">
             <label for="urlEndpoint">URL</label>
@@ -2262,6 +2277,8 @@ export function getQueryEditorHtml(
     const closeMockPanelBtn = document.getElementById('closeMockPanelBtn');
     const mockPortInput = document.getElementById('mockPortInput');
     const mockEndpointInput = document.getElementById('mockEndpointInput');
+    const mockMethodSelect = document.getElementById('mockMethodSelect');
+    const mockCustomMethodInput = document.getElementById('mockCustomMethodInput');
     const mockModeSelect = document.getElementById('mockModeSelect');
     const mockAutoFilterToggle = document.getElementById('mockAutoFilterToggle');
     const mockLatencySelect = document.getElementById('mockLatencySelect');
@@ -8562,10 +8579,25 @@ export function getQueryEditorHtml(
 
       if (mockPortInput) mockPortInput.disabled = isRunning;
       if (mockEndpointInput) mockEndpointInput.disabled = isRunning;
+      if (mockMethodSelect) mockMethodSelect.disabled = isRunning;
+      if (mockCustomMethodInput) mockCustomMethodInput.disabled = isRunning;
 
       if (state && isRunning) {
         if (state.port && mockPortInput) mockPortInput.value = state.port;
         if (state.endpoint && mockEndpointInput) mockEndpointInput.value = state.endpoint;
+        if (state.method && mockMethodSelect) {
+          const m = state.method.toUpperCase();
+          if (['ALL', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(m)) {
+            mockMethodSelect.value = m;
+            if (mockCustomMethodInput) mockCustomMethodInput.style.display = 'none';
+          } else {
+            mockMethodSelect.value = 'CUSTOM';
+            if (mockCustomMethodInput) {
+              mockCustomMethodInput.value = m;
+              mockCustomMethodInput.style.display = 'inline-block';
+            }
+          }
+        }
         if (state.mode && mockModeSelect) mockModeSelect.value = state.mode;
         if (state.autoFilter !== undefined && mockAutoFilterToggle) mockAutoFilterToggle.checked = Boolean(state.autoFilter);
         if (state.latencyMs !== undefined && mockLatencySelect) mockLatencySelect.value = String(state.latencyMs);
@@ -8582,6 +8614,20 @@ export function getQueryEditorHtml(
         if (savedPort && mockPortInput) mockPortInput.value = savedPort;
         const savedEndpoint = localStorage.getItem('jsonQueryTools.mockEndpoint');
         if (savedEndpoint && mockEndpointInput) mockEndpointInput.value = savedEndpoint;
+        const savedMethod = localStorage.getItem('jsonQueryTools.mockMethod') || 'ALL';
+        const savedCustomMethod = localStorage.getItem('jsonQueryTools.mockCustomMethod') || '';
+        if (mockMethodSelect) {
+          if (['ALL', 'GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(savedMethod)) {
+            mockMethodSelect.value = savedMethod;
+            if (mockCustomMethodInput) mockCustomMethodInput.style.display = 'none';
+          } else {
+            mockMethodSelect.value = 'CUSTOM';
+            if (mockCustomMethodInput) {
+              mockCustomMethodInput.value = savedCustomMethod || savedMethod;
+              mockCustomMethodInput.style.display = 'inline-block';
+            }
+          }
+        }
         const savedMode = localStorage.getItem('jsonQueryTools.mockMode');
         if (savedMode && mockModeSelect) mockModeSelect.value = savedMode;
         const savedAutoFilter = localStorage.getItem('jsonQueryTools.mockAutoFilter');
@@ -8605,6 +8651,22 @@ export function getQueryEditorHtml(
           if (ep && !ep.startsWith('/')) ep = '/' + ep;
           mockEndpointInput.value = ep || '/api';
           localStorage.setItem('jsonQueryTools.mockEndpoint', mockEndpointInput.value);
+        });
+      }
+      if (mockMethodSelect) {
+        mockMethodSelect.addEventListener('change', function() {
+          const isCustom = mockMethodSelect.value === 'CUSTOM';
+          if (mockCustomMethodInput) {
+            mockCustomMethodInput.style.display = isCustom ? 'inline-block' : 'none';
+            if (isCustom) mockCustomMethodInput.focus();
+          }
+          localStorage.setItem('jsonQueryTools.mockMethod', mockMethodSelect.value);
+        });
+      }
+      if (mockCustomMethodInput) {
+        mockCustomMethodInput.addEventListener('input', function() {
+          mockCustomMethodInput.value = mockCustomMethodInput.value.toUpperCase();
+          localStorage.setItem('jsonQueryTools.mockCustomMethod', mockCustomMethodInput.value);
         });
       }
       if (mockModeSelect) {
@@ -8650,6 +8712,10 @@ export function getQueryEditorHtml(
           const port = parseInt(mockPortInput ? mockPortInput.value : '3000', 10) || 3000;
           let endpoint = (mockEndpointInput ? mockEndpointInput.value : '/api').trim();
           if (!endpoint.startsWith('/')) endpoint = '/' + endpoint;
+          const selectedMethod = mockMethodSelect ? mockMethodSelect.value : 'ALL';
+          const method = selectedMethod === 'CUSTOM'
+            ? ((mockCustomMethodInput ? mockCustomMethodInput.value.trim().toUpperCase() : '') || 'CUSTOM')
+            : selectedMethod;
           const mode = mockModeSelect ? mockModeSelect.value : 'static';
           const autoFilter = mockAutoFilterToggle ? mockAutoFilterToggle.checked : true;
           const latencyMs = parseInt(mockLatencySelect ? mockLatencySelect.value : '0', 10) || 0;
@@ -8663,6 +8729,7 @@ export function getQueryEditorHtml(
             config: {
               port: port,
               endpoint: endpoint,
+              method: method,
               mode: mode,
               autoFilter: autoFilter,
               latencyMs: latencyMs,
@@ -8705,7 +8772,19 @@ export function getQueryEditorHtml(
           const url = (activeMockServerState && activeMockServerState.url)
             ? activeMockServerState.url
             : ('http://localhost:' + (mockPortInput ? mockPortInput.value : '3000') + (mockEndpointInput ? mockEndpointInput.value : '/api'));
-          const curlCmd = 'curl -i -X GET "' + url + '"';
+          const selectedMethod = mockMethodSelect ? mockMethodSelect.value : 'ALL';
+          const effectiveMethod = (activeMockServerState && activeMockServerState.method)
+            ? activeMockServerState.method
+            : (selectedMethod === 'CUSTOM' ? ((mockCustomMethodInput ? mockCustomMethodInput.value.trim().toUpperCase() : '') || 'CUSTOM') : selectedMethod);
+          
+          let curlCmd = 'curl -i';
+          if (effectiveMethod && effectiveMethod !== 'ALL' && effectiveMethod !== 'GET') {
+            curlCmd += ' -X ' + effectiveMethod;
+          }
+          curlCmd += ' "' + url + '"';
+          if (['POST', 'PUT', 'PATCH'].includes(effectiveMethod)) {
+            curlCmd += ' -H "Content-Type: application/json" -d "{}"';
+          }
           navigator.clipboard.writeText(curlCmd).then(function() {
             copyMockCurlBtn.textContent = '✓ Copied';
             setTimeout(function() { copyMockCurlBtn.textContent = '📋 cURL'; }, 1200);
@@ -10630,6 +10709,7 @@ export function getQueryEditorHtml(
     const urlSourceId = document.getElementById('urlSourceId');
     const urlAlias = document.getElementById('urlAlias');
     const urlMethod = document.getElementById('urlMethod');
+    const urlCustomMethod = document.getElementById('urlCustomMethod');
     const urlEndpoint = document.getElementById('urlEndpoint');
     const urlHeaders = document.getElementById('urlHeaders');
     const urlBody = document.getElementById('urlBody');
@@ -10702,10 +10782,37 @@ export function getQueryEditorHtml(
       urlHeaders.addEventListener('input', updateHeadersBadge);
     }
 
+    function getEffectiveUrlMethod() {
+      if (!urlMethod) return 'GET';
+      if (urlMethod.value === 'CUSTOM') {
+        return (urlCustomMethod ? urlCustomMethod.value.trim().toUpperCase() : '') || 'GET';
+      }
+      return urlMethod.value;
+    }
+
+    function setUrlModalMethod(method) {
+      const m = (method || 'GET').toUpperCase();
+      if (['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS'].includes(m)) {
+        if (urlMethod) urlMethod.value = m;
+        if (urlCustomMethod) {
+          urlCustomMethod.value = '';
+          urlCustomMethod.style.display = 'none';
+        }
+      } else {
+        if (urlMethod) urlMethod.value = 'CUSTOM';
+        if (urlCustomMethod) {
+          urlCustomMethod.value = m;
+          urlCustomMethod.style.display = 'block';
+        }
+      }
+      toggleBodyGroup();
+    }
+
     function toggleBodyGroup() {
       if (!urlMethod) return;
-      const method = urlMethod.value;
-      const supportsBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
+      const methodVal = urlMethod.value;
+      const effective = methodVal === 'CUSTOM' ? (urlCustomMethod ? urlCustomMethod.value.trim().toUpperCase() : '') : methodVal;
+      const supportsBody = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(effective) || (methodVal === 'CUSTOM' && !['GET', 'HEAD', 'OPTIONS'].includes(effective));
       if (tabBtnBody) {
         tabBtnBody.style.display = supportsBody ? 'inline-flex' : 'none';
       }
@@ -11018,7 +11125,21 @@ export function getQueryEditorHtml(
     }
 
     if (urlMethod) {
-      urlMethod.addEventListener('change', toggleBodyGroup);
+      urlMethod.addEventListener('change', function() {
+        const isCustom = urlMethod.value === 'CUSTOM';
+        if (urlCustomMethod) {
+          urlCustomMethod.style.display = isCustom ? 'block' : 'none';
+          if (isCustom) urlCustomMethod.focus();
+        }
+        toggleBodyGroup();
+      });
+    }
+
+    if (urlCustomMethod) {
+      urlCustomMethod.addEventListener('input', function() {
+        urlCustomMethod.value = urlCustomMethod.value.toUpperCase();
+        toggleBodyGroup();
+      });
     }
 
     function showUrlModalAlert(text, isSuccess) {
@@ -11274,7 +11395,7 @@ export function getQueryEditorHtml(
         if (urlModalTitle) urlModalTitle.textContent = 'Edit URL Data Source (' + (source.alias || 'data') + ')';
         if (urlSourceId) urlSourceId.value = source.id || '';
         if (urlAlias) urlAlias.value = source.alias || 'data';
-        if (urlMethod) urlMethod.value = source.method || 'GET';
+        setUrlModalMethod(source.method || 'GET');
         if (urlEndpoint) urlEndpoint.value = source.url || '';
         if (urlHeaders) {
           if (typeof source.headers === 'object' && source.headers !== null) {
@@ -11295,7 +11416,7 @@ export function getQueryEditorHtml(
           suggestedAlias = 'apiData' + counter;
         }
         if (urlAlias) urlAlias.value = suggestedAlias;
-        if (urlMethod) urlMethod.value = 'GET';
+        setUrlModalMethod('GET');
         if (urlEndpoint) urlEndpoint.value = '';
         if (urlHeaders) urlHeaders.value = '';
         if (urlBody) urlBody.value = '';
@@ -11346,7 +11467,7 @@ export function getQueryEditorHtml(
         clearUrlModalAlert();
         clearUrlPreview();
         const url = (urlEndpoint?.value || '').trim();
-        const method = urlMethod ? urlMethod.value : 'GET';
+        const method = getEffectiveUrlMethod();
         const headers = urlHeaders ? urlHeaders.value : '';
         const body = urlBody ? urlBody.value : '';
 
@@ -11383,7 +11504,7 @@ export function getQueryEditorHtml(
         clearUrlModalAlert();
         const alias = (urlAlias?.value || '').trim();
         const url = (urlEndpoint?.value || '').trim();
-        const method = urlMethod ? urlMethod.value : 'GET';
+        const method = getEffectiveUrlMethod();
         const headers = urlHeaders ? urlHeaders.value : '';
         const body = urlBody ? urlBody.value : '';
         const id = urlSourceId?.value || undefined;
@@ -11467,7 +11588,7 @@ export function getQueryEditorHtml(
         }
 
         if (urlEndpoint) urlEndpoint.value = parsed.url;
-        if (urlMethod) urlMethod.value = parsed.method || 'GET';
+        setUrlModalMethod(parsed.method || 'GET');
         if (urlHeaders) urlHeaders.value = parsed.headersString || '';
         if (urlBody) urlBody.value = parsed.body || '';
 
@@ -11511,7 +11632,7 @@ export function getQueryEditorHtml(
         clearUrlModalAlert();
 
         const url = (urlEndpoint ? urlEndpoint.value : '').trim();
-        const method = urlMethod ? urlMethod.value : 'GET';
+        const method = getEffectiveUrlMethod();
         const headers = urlHeaders ? urlHeaders.value : '';
         const body = urlBody ? urlBody.value : '';
 

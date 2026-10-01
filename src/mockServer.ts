@@ -133,6 +133,7 @@ export class MockServerManager {
   private config: MockServerConfig = {
     port: DEFAULT_MOCK_PORT,
     endpoint: DEFAULT_MOCK_ENDPOINT,
+    method: 'ALL',
     mode: 'static',
     autoFilter: true,
     latencyMs: 0,
@@ -173,6 +174,7 @@ export class MockServerManager {
       port: this.activePort,
       endpoint: this.config.endpoint,
       url: this.activeUrl,
+      method: (this.config.method || 'ALL').toUpperCase(),
       mode: this.config.mode,
       autoFilter: this.config.autoFilter,
       latencyMs: this.config.latencyMs,
@@ -215,6 +217,13 @@ export class MockServerManager {
       endpoint = '/' + endpoint;
     }
     this.config.endpoint = endpoint;
+
+    // Normalize method
+    let method = (this.config.method || 'ALL').trim().toUpperCase();
+    if (!method) {
+      method = 'ALL';
+    }
+    this.config.method = method;
 
     if (evaluator) {
       this.dynamicEvaluator = evaluator;
@@ -316,7 +325,12 @@ export class MockServerManager {
     // 1. CORS headers
     if (this.config.cors) {
       res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD');
+      const standardMethods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'];
+      const expMethod = (this.config.method || 'ALL').toUpperCase();
+      if (expMethod !== 'ALL' && expMethod !== '*' && expMethod !== 'ANY' && !standardMethods.includes(expMethod)) {
+        standardMethods.push(expMethod);
+      }
+      res.setHeader('Access-Control-Allow-Methods', standardMethods.join(', '));
       res.setHeader('Access-Control-Allow-Headers', '*');
       res.setHeader('Access-Control-Expose-Headers', '*');
     }
@@ -358,6 +372,7 @@ export class MockServerManager {
         endpoint: this.config.endpoint,
         url: this.activeUrl,
         mode: this.config.mode,
+        method: this.config.method || 'ALL',
         requestCount: this.requestCount
       };
       this.sendJsonResponse(res, 200, rootInfo);
@@ -375,6 +390,27 @@ export class MockServerManager {
       };
       this.sendJsonResponse(res, 404, notFoundData);
       this.recordLog(req, reqMethod, reqPath, query, 404, startTime);
+      return;
+    }
+
+    // 6.5. Method validation
+    const expectedMethod = (this.config.method || 'ALL').toUpperCase();
+    const isMethodAllowed =
+      expectedMethod === 'ALL' ||
+      expectedMethod === '*' ||
+      expectedMethod === 'ANY' ||
+      reqMethod === expectedMethod;
+
+    if (!isMethodAllowed) {
+      res.setHeader('Allow', expectedMethod);
+      const methodNotAllowedData = {
+        error: 'Method Not Allowed',
+        message: `HTTP Method ${reqMethod} is not allowed on ${reqPath}. Expected ${expectedMethod}`,
+        expectedMethod,
+        receivedMethod: reqMethod
+      };
+      this.sendJsonResponse(res, 405, methodNotAllowedData);
+      this.recordLog(req, reqMethod, reqPath, query, 405, startTime);
       return;
     }
 

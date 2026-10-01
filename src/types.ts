@@ -23,7 +23,7 @@ export interface BoundUrl {
   id: string;
   alias: string;
   url: string;
-  method: HttpMethod;
+  method: HttpMethod | string;
   headers: Record<string, string>;
   body?: string;
   lastFetched?: number;
@@ -137,6 +137,7 @@ export interface PipelineExecutionResult {
 export interface MockServerConfig {
   port: number;
   endpoint: string;
+  method?: string; // 'ALL' | 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | custom method
   mode: 'static' | 'dynamic';
   autoFilter: boolean;
   latencyMs: number;
@@ -160,6 +161,7 @@ export interface MockServerState {
   port: number;
   endpoint: string;
   url: string;
+  method: string;
   mode: 'static' | 'dynamic';
   autoFilter: boolean;
   latencyMs: number;
