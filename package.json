@@ -114,7 +114,8 @@
     "build": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=out/extension.js --format=cjs --sourcemap",
     "watch": "npm run build -- --watch",
     "package": "vsce package",
-    "test": "node scripts/run-tests.js"
+    "test": "node scripts/run-tests.js",
+    "changelog": "node scripts/generate-changelog.js"
   },
 
   "devDependencies": {
