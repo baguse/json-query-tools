@@ -1421,6 +1421,9 @@ export function getQueryEditorHtml(
       <button id="modeQueryBtn" class="editor-mode-tab active" type="button" title="Query Transformation Editor (JavaScript expression)">
         <span>⚡</span> Query
       </button>
+      <button id="modeSqlBtn" class="editor-mode-tab" type="button" title="SQL Query Editor (Query JSON with SQL: SELECT, WHERE, GROUP BY, JOIN...)">
+        <span>🗄️</span> SQL
+      </button>
       <button id="modePipelineBtn" class="editor-mode-tab" type="button" title="Interactive Data Pipeline (Chain multi-step transformations)">
         <span>⛓️</span> Pipeline <span id="pipelineStepCountBadge" class="tests-count-badge" style="display: none;">0</span>
       </button>
@@ -1535,6 +1538,46 @@ export function getQueryEditorHtml(
     </div>
     <button id="importQuery" class="secondary" title="Import a .js, .ts, or .txt file as the query expression" style="margin-left: auto;">📤 Import File</button>
     <button id="exportQuery" class="secondary" title="Export current query to a file" style="margin-left: 8px;">📥 Export File</button>
+  </div>
+
+  <!-- Dedicated SQL Query Toolbar -->
+  <div id="sqlToolbar" class="row" style="gap: 10px; flex-wrap: wrap; align-items: center; display: none;">
+    <button id="runSqlBtn" class="primary" style="display: inline-flex; align-items: center; gap: 5px;" title="Execute SQL Query (Ctrl+Enter)">▶ Run SQL</button>
+    <button id="saveSqlBtn" class="secondary" title="Save SQL query to local storage">★ Save SQL</button>
+    <button id="beautifySqlBtn" class="secondary" title="Format SQL query with keywords uppercase and clean indentation">✨ Beautify</button>
+    <button id="clearSqlBtn" class="secondary" title="Clear SQL editor buffer">🗑 Clear</button>
+    <select id="sqlSnippetSelect" style="padding: 6px 10px; border: 1px solid var(--vscode-input-border, #3e3e42); border-radius: 3px; background: var(--vscode-input-background, #3c3c3c); color: var(--vscode-input-foreground, #cccccc); font-size: 11px; cursor: pointer; font-family: inherit;" title="Insert SQL query template">
+      <option value="" disabled selected>💡 SQL Snippets...</option>
+      <optgroup label="Selection &amp; Filtering">
+        <option value="sql_select_all">SELECT * FROM data</option>
+        <option value="sql_select_cols">SELECT Specific Columns &amp; Aliases</option>
+        <option value="sql_nested_props">SELECT Nested Properties (user.address.city)</option>
+        <option value="sql_where_filter">WHERE Filter with AND / OR</option>
+        <option value="sql_where_in_between">WHERE IN &amp; BETWEEN Ranges</option>
+        <option value="sql_where_like">WHERE LIKE Pattern Matching (% pattern _)</option>
+      </optgroup>
+      <optgroup label="Aggregation &amp; Grouping">
+        <option value="sql_group_by_count">GROUP BY &amp; COUNT Occurrences</option>
+        <option value="sql_group_by_having">GROUP BY with HAVING Filter</option>
+        <option value="sql_summary_stats">Summary Aggregates (COUNT, SUM, AVG, MIN, MAX)</option>
+      </optgroup>
+      <optgroup label="Sorting &amp; Pagination">
+        <option value="sql_order_limit">ORDER BY &amp; LIMIT Top N</option>
+        <option value="sql_pagination">LIMIT with OFFSET Pagination</option>
+        <option value="sql_distinct">SELECT DISTINCT Values</option>
+      </optgroup>
+      <optgroup label="Multi-Source Joins">
+        <option value="sql_inner_join">INNER JOIN Two Sources (users + orders)</option>
+        <option value="sql_left_join">LEFT JOIN (Preserve Unmatched Rows)</option>
+      </optgroup>
+      <optgroup label="Expressions &amp; Functions">
+        <option value="sql_case_when">CASE WHEN Conditional Labeling</option>
+        <option value="sql_string_functions">String Functions (UPPER, CONCAT, TRIM)</option>
+        <option value="sql_math_functions">Math Functions (ROUND, FLOOR, ABS)</option>
+      </optgroup>
+    </select>
+    <button id="importSqlQueryBtn" class="secondary" title="Import SQL query from a file (.sql)" style="margin-left: auto;">📤 Import SQL</button>
+    <button id="exportSqlQueryBtn" class="secondary" title="Export SQL query to a file (.sql)" style="margin-left: 8px;">📥 Export SQL</button>
   </div>
 
   <!-- Dedicated Pipeline Toolbar -->
@@ -2419,6 +2462,15 @@ export function getQueryEditorHtml(
 
     const editorModeBar = document.getElementById('editorModeBar');
     const modeQueryBtn = document.getElementById('modeQueryBtn');
+    const modeSqlBtn = document.getElementById('modeSqlBtn');
+    const sqlToolbar = document.getElementById('sqlToolbar');
+    const runSqlBtn = document.getElementById('runSqlBtn');
+    const saveSqlBtn = document.getElementById('saveSqlBtn');
+    const beautifySqlBtn = document.getElementById('beautifySqlBtn');
+    const clearSqlBtn = document.getElementById('clearSqlBtn');
+    const sqlSnippetSelect = document.getElementById('sqlSnippetSelect');
+    const importSqlQueryBtn = document.getElementById('importSqlQueryBtn');
+    const exportSqlQueryBtn = document.getElementById('exportSqlQueryBtn');
     const modeTestsBtn = document.getElementById('modeTestsBtn');
     const testsCountBadge = document.getElementById('testsCountBadge');
     const queryToolbar = document.getElementById('queryToolbar');
@@ -2781,6 +2833,14 @@ export function getQueryEditorHtml(
             isPipeline: true,
             steps: pipelineSteps,
             previewStepId: previewStepId
+          });
+        } else if (activeEditorMode === 'sql') {
+          sqlCode = getRawEditorValue();
+          localStorage.setItem('jsonQueryTools.sqlQuery', sqlCode);
+          vscode.postMessage({
+            type: 'updateLivePollExpr',
+            expr: sqlCode,
+            mode: 'sql'
           });
         } else {
           vscode.postMessage({
@@ -3592,6 +3652,11 @@ export function getQueryEditorHtml(
               jsModeScript.src = cdn.base + '/mode/javascript/javascript.js';
               jsModeScript.setAttribute('nonce', '${n}');
               jsModeScript.onload = () => {
+                const sqlModeScript = document.createElement('script');
+                sqlModeScript.src = cdn.base + '/mode/sql/sql.js';
+                sqlModeScript.setAttribute('nonce', '${n}');
+                document.head.appendChild(sqlModeScript);
+
                 const commentAddonScript = document.createElement('script');
                 commentAddonScript.src = cdn.base + '/addon/comment/comment.js';
                 commentAddonScript.setAttribute('nonce', '${n}');
@@ -5993,6 +6058,430 @@ export function getQueryEditorHtml(
       return vars;
     }
 
+    function findSqlTableAliases(sqlText) {
+      var aliases = {};
+      var tables = [];
+      if (!sqlText || typeof sqlText !== 'string') return { aliases: aliases, tables: tables };
+
+      var SQL_RESERVED = {
+        'SELECT': true, 'FROM': true, 'WHERE': true, 'JOIN': true, 'INNER': true, 'LEFT': true,
+        'RIGHT': true, 'FULL': true, 'CROSS': true, 'NATURAL': true, 'ON': true, 'USING': true,
+        'GROUP': true, 'BY': true, 'HAVING': true, 'ORDER': true, 'LIMIT': true, 'OFFSET': true,
+        'UNION': true, 'INTERSECT': true, 'EXCEPT': true, 'AS': true, 'AND': true, 'OR': true,
+        'NOT': true, 'IN': true, 'IS': true, 'NULL': true, 'LIKE': true, 'BETWEEN': true,
+        'CASE': true, 'WHEN': true, 'THEN': true, 'ELSE': true, 'END': true, 'SET': true,
+        'VALUES': true, 'INTO': true, 'ASC': true, 'DESC': true, 'DISTINCT': true, 'ALL': true
+      };
+
+      var cleanSql = '';
+      var inSingle = false;
+      var inDouble = false;
+      var inLineComm = false;
+      var inBlockComm = false;
+      var CHAR_LF = String.fromCharCode(10);
+      var CHAR_CR = String.fromCharCode(13);
+      var CHAR_BS = String.fromCharCode(92);
+      var CHAR_SQ = String.fromCharCode(39);
+      var CHAR_DQ = String.fromCharCode(34);
+      var CHAR_BT = String.fromCharCode(96);
+      for (var ci = 0; ci < sqlText.length; ci++) {
+        var c = sqlText[ci];
+        var nxt = ci + 1 < sqlText.length ? sqlText[ci + 1] : '';
+        if (inLineComm) {
+          if (c === CHAR_LF || c === CHAR_CR) { inLineComm = false; cleanSql += ' '; }
+          continue;
+        }
+        if (inBlockComm) {
+          if (c === '*' && nxt === '/') { inBlockComm = false; ci++; cleanSql += ' '; }
+          continue;
+        }
+        if (inSingle) {
+          if (c === CHAR_BS) { ci++; }
+          else if (c === CHAR_SQ) { inSingle = false; }
+          continue;
+        }
+        if (inDouble) {
+          if (c === CHAR_BS) { ci++; }
+          else if (c === CHAR_DQ) { inDouble = false; }
+          continue;
+        }
+        if (c === '-' && nxt === '-') { inLineComm = true; ci++; continue; }
+        if (c === '/' && nxt === '/') { inLineComm = true; ci++; continue; }
+        if (c === '/' && nxt === '*') { inBlockComm = true; ci++; continue; }
+        if (c === CHAR_SQ) { inSingle = true; continue; }
+        if (c === CHAR_DQ) { inDouble = true; continue; }
+        if (c === CHAR_BT) { continue; }
+        cleanSql += c;
+      }
+
+      var tokens = [];
+      var tokenRegex = /([a-zA-Z_][a-zA-Z0-9_\.]*)|([,;()])/g;
+      var match;
+      while ((match = tokenRegex.exec(cleanSql)) !== null) {
+        tokens.push({ text: match[1] || match[2], isPunct: Boolean(match[2]) });
+      }
+
+      for (var i = 0; i < tokens.length; i++) {
+        var tokUpper = tokens[i].text.toUpperCase();
+        if (tokUpper === 'FROM' || tokUpper === 'JOIN') {
+          var j = i + 1;
+          while (j < tokens.length) {
+            var tableName = tokens[j].text;
+            var tableUpper = tableName.toUpperCase();
+            if (SQL_RESERVED[tableUpper] || tokens[j].isPunct) {
+              break;
+            }
+            if (tables.indexOf(tableName) === -1) {
+              tables.push(tableName);
+            }
+            j++;
+
+            var alias = null;
+            if (j < tokens.length && tokens[j].text.toUpperCase() === 'AS') {
+              j++;
+              if (j < tokens.length && !tokens[j].isPunct && !SQL_RESERVED[tokens[j].text.toUpperCase()]) {
+                alias = tokens[j].text;
+                j++;
+              }
+            } else if (j < tokens.length && !tokens[j].isPunct && !SQL_RESERVED[tokens[j].text.toUpperCase()]) {
+              alias = tokens[j].text;
+              j++;
+            }
+
+            if (alias) {
+              aliases[alias] = tableName;
+              aliases[alias.toLowerCase()] = tableName;
+            }
+            aliases[tableName] = tableName;
+            aliases[tableName.toLowerCase()] = tableName;
+
+            if (tokUpper === 'FROM' && j < tokens.length && tokens[j].text === ',') {
+              j++;
+            } else {
+              break;
+            }
+          }
+        }
+      }
+
+      if (tables.length === 0) {
+        tables.push('data');
+        aliases['data'] = 'data';
+      }
+
+      return { aliases: aliases, tables: tables };
+    }
+
+    function getTableSchema(tableName) {
+      if (!currentSchema || typeof currentSchema !== 'object') return null;
+
+      // 1. Direct match on composite schema property
+      if (currentSchema.type === 'object' && currentSchema.properties) {
+        if (currentSchema.properties[tableName]) {
+          return schemaForProp(currentSchema.properties[tableName]);
+        }
+        var lower = tableName.toLowerCase();
+        for (var pKey in currentSchema.properties) {
+          if (pKey.toLowerCase() === lower) {
+            return schemaForProp(currentSchema.properties[pKey]);
+          }
+        }
+      }
+
+      // 2. Default table 'data'
+      if (tableName.toLowerCase() === 'data') {
+        var init = getInitialDataSchema();
+        if (init) return init;
+      }
+
+      // 3. Sub-property on data (e.g. data = { users: [...] } and query is FROM users)
+      var dataSchema = getInitialDataSchema();
+      if (dataSchema && dataSchema.type === 'object' && dataSchema.properties) {
+        if (dataSchema.properties[tableName]) {
+          return schemaForProp(dataSchema.properties[tableName]);
+        }
+        var lowerT = tableName.toLowerCase();
+        for (var dKey in dataSchema.properties) {
+          if (dKey.toLowerCase() === lowerT) {
+            return schemaForProp(dataSchema.properties[dKey]);
+          }
+        }
+      }
+
+      // 4. Dotted path traversal (e.g. FROM data.users or FROM response.items)
+      if (tableName.indexOf('.') !== -1) {
+        var parts = tableName.split('.');
+        var cur = currentSchema;
+        var found = true;
+        for (var i = 0; i < parts.length; i++) {
+          var p = parts[i];
+          if (cur && cur.type === 'object' && cur.properties) {
+            var nextProp = cur.properties[p];
+            if (!nextProp) {
+              var pLower = p.toLowerCase();
+              for (var k in cur.properties) {
+                if (k.toLowerCase() === pLower) {
+                  nextProp = cur.properties[k];
+                  break;
+                }
+              }
+            }
+            if (nextProp) {
+              cur = schemaForProp(nextProp);
+            } else {
+              found = false;
+              break;
+            }
+          } else {
+            found = false;
+            break;
+          }
+        }
+        if (found && cur) {
+          return cur;
+        }
+
+        if (dataSchema && dataSchema.type === 'object' && dataSchema.properties) {
+          cur = dataSchema;
+          found = true;
+          for (var j = 0; j < parts.length; j++) {
+            var pj = parts[j];
+            if (cur && cur.type === 'object' && cur.properties) {
+              var nxt = cur.properties[pj];
+              if (!nxt) {
+                var pjLower = pj.toLowerCase();
+                for (var dk in cur.properties) {
+                  if (dk.toLowerCase() === pjLower) {
+                    nxt = cur.properties[dk];
+                    break;
+                  }
+                }
+              }
+              if (nxt) {
+                cur = schemaForProp(nxt);
+              } else {
+                found = false;
+                break;
+              }
+            } else {
+              found = false;
+              break;
+            }
+          }
+          if (found && cur) {
+            return cur;
+          }
+        }
+      }
+
+      // 5. Bound sources check
+      if (typeof currentSources === 'object' && Array.isArray(currentSources)) {
+        for (var s = 0; s < currentSources.length; s++) {
+          var src = currentSources[s];
+          if (src && src.alias && src.alias.toLowerCase() === tableName.toLowerCase()) {
+            if (currentSchema.properties && currentSchema.properties[src.alias]) {
+              return schemaForProp(currentSchema.properties[src.alias]);
+            }
+          }
+        }
+      }
+
+      return currentSchema;
+    }
+
+    function getRowSchema(tableSchema) {
+      if (!tableSchema) return null;
+      if (tableSchema.type === 'array' && tableSchema.items) {
+        return tableSchema.items.properties ? tableSchema.items : schemaForProp(tableSchema.items);
+      }
+      if (tableSchema.items && !tableSchema.properties) {
+        return tableSchema.items.properties ? tableSchema.items : schemaForProp(tableSchema.items);
+      }
+      return tableSchema;
+    }
+
+    function buildSqlMemberCompletions(receiverChain, fullDocText) {
+      if (!receiverChain) return [];
+      var clean = cleanChain(receiverChain).replace(/[.]$/, '');
+      if (!clean) return [];
+
+      var parts = clean.split('.');
+      var root = parts[0];
+      var rootLower = root.toLowerCase();
+
+      var parsed = findSqlTableAliases(fullDocText);
+      var aliases = parsed.aliases;
+      var tables = parsed.tables;
+
+      var targetTable = aliases[root] || aliases[rootLower];
+      if (!targetTable) {
+        if (tables.indexOf(root) !== -1) {
+          targetTable = root;
+        } else {
+          for (var t = 0; t < tables.length; t++) {
+            if (tables[t].toLowerCase() === rootLower) {
+              targetTable = tables[t];
+              break;
+            }
+          }
+        }
+      }
+
+      if (!targetTable) {
+        // Fallback: If only 1 table exists or root is 'd'/'data'
+        if (tables.length === 1 && (rootLower === 'd' || rootLower === tables[0].toLowerCase())) {
+          targetTable = tables[0];
+        } else if (rootLower === 'd' || rootLower === 'data') {
+          targetTable = 'data';
+        } else if (typeof currentSources === 'object' && Array.isArray(currentSources)) {
+          for (var i = 0; i < currentSources.length; i++) {
+            var s = currentSources[i];
+            if (s && s.alias && s.alias.toLowerCase() === rootLower) {
+              targetTable = s.alias;
+              break;
+            }
+          }
+        }
+      }
+
+      if (!targetTable) {
+        var dataSchema = getInitialDataSchema();
+        if (dataSchema && dataSchema.type === 'object' && dataSchema.properties && dataSchema.properties[root]) {
+          var part = schemaForProp(dataSchema.properties[root]);
+          if (part && part.type === 'array' && part.items) {
+            part = part.items.properties ? part.items : schemaForProp(part.items);
+          }
+          for (var pIdx = 1; pIdx < parts.length; pIdx++) {
+            var p = parts[pIdx];
+            if (part && part.type === 'object' && part.properties && part.properties[p]) {
+              part = schemaForProp(part.properties[p]);
+              if (part && part.type === 'array' && part.items) {
+                part = part.items.properties ? part.items : schemaForProp(part.items);
+              }
+            } else {
+              part = null;
+              break;
+            }
+          }
+          return buildObjectFieldCompletions(part);
+        }
+        return [];
+      }
+
+      var tableSchema = getTableSchema(targetTable);
+      if (!tableSchema) return [];
+
+      var currentPart = getRowSchema(tableSchema);
+
+      for (var pIdx = 1; pIdx < parts.length; pIdx++) {
+        var prop = parts[pIdx];
+        if (currentPart && currentPart.type === 'object' && currentPart.properties && currentPart.properties[prop]) {
+          currentPart = schemaForProp(currentPart.properties[prop]);
+          if (currentPart && currentPart.type === 'array' && currentPart.items) {
+            currentPart = currentPart.items.properties ? currentPart.items : schemaForProp(currentPart.items);
+          }
+        } else {
+          currentPart = null;
+          break;
+        }
+      }
+
+      if (!currentPart) return [];
+      return buildObjectFieldCompletions(currentPart);
+    }
+
+    function buildSqlTopLevelCompletions(fullDocText) {
+      var list = [];
+      var seen = {};
+
+      function add(item) {
+        if (item && item.text && !seen[item.text]) {
+          seen[item.text] = true;
+          list.push(item);
+        }
+      }
+
+      var parsed = findSqlTableAliases(fullDocText);
+      var aliases = parsed.aliases;
+      var tables = parsed.tables;
+
+      // 1. Table aliases in query
+      for (var alias in aliases) {
+        var tbl = aliases[alias];
+        if (alias !== tbl && alias === alias.toLowerCase()) {
+          add({ kind: 'variable', text: alias, displayText: alias + ' : alias for ' + tbl, className: 'cm-variable-2' });
+        }
+      }
+
+      // 2. Tables / sources
+      for (var t = 0; t < tables.length; t++) {
+        var tb = tables[t];
+        add({ kind: 'keyword', text: tb, displayText: tb + ' : table', className: 'cm-def' });
+      }
+      if (!seen['data']) {
+        add({ kind: 'keyword', text: 'data', displayText: 'data : active JSON table', className: 'cm-def' });
+      }
+      if (typeof currentSources === 'object' && Array.isArray(currentSources)) {
+        for (var s = 0; s < currentSources.length; s++) {
+          var src = currentSources[s];
+          if (src && src.alias) {
+            add({ kind: 'keyword', text: src.alias, displayText: src.alias + ' : bound source', className: 'cm-def' });
+          }
+        }
+      }
+
+      // 3. Columns from referenced tables
+      var inspectTables = tables.length > 0 ? tables : ['data'];
+      for (var it = 0; it < inspectTables.length; it++) {
+        var tName = inspectTables[it];
+        var tSchema = getTableSchema(tName);
+        var rSchema = getRowSchema(tSchema);
+        if (rSchema && rSchema.type === 'object' && rSchema.properties) {
+          for (var colName in rSchema.properties) {
+            var prop = rSchema.properties[colName];
+            var typeStr = Array.isArray(prop.type) ? prop.type.join(' | ') : propTypeOf(prop);
+            add({
+              kind: 'field',
+              text: colName,
+              displayText: colName + ' : ' + typeStr + ' (' + tName + ')',
+              className: 'cm-property'
+            });
+          }
+        }
+      }
+
+      // 4. SQL Functions
+      var fns = [
+        { text: 'COUNT(*)', displayText: 'COUNT(*) : count rows' },
+        { text: 'COUNT()', displayText: 'COUNT(col) : count non-null' },
+        { text: 'SUM()', displayText: 'SUM(col) : sum numbers' },
+        { text: 'AVG()', displayText: 'AVG(col) : average' },
+        { text: 'MIN()', displayText: 'MIN(col) : minimum' },
+        { text: 'MAX()', displayText: 'MAX(col) : maximum' },
+        { text: 'ROUND()', displayText: 'ROUND(col, decimals?)' },
+        { text: 'UPPER()', displayText: 'UPPER(str)' },
+        { text: 'LOWER()', displayText: 'LOWER(str)' },
+        { text: 'LENGTH()', displayText: 'LENGTH(str)' },
+        { text: 'COALESCE()', displayText: 'COALESCE(a, b, ...)' }
+      ];
+      for (var f = 0; f < fns.length; f++) {
+        add({ kind: 'function', text: fns[f].text, displayText: fns[f].displayText, className: 'cm-builtin' });
+      }
+
+      // 5. SQL Keywords
+      var kws = [
+        'SELECT', 'DISTINCT', 'FROM', 'WHERE', 'JOIN', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN',
+        'FULL JOIN', 'CROSS JOIN', 'ON', 'AS', 'GROUP BY', 'HAVING', 'ORDER BY', 'ASC', 'DESC',
+        'LIMIT', 'OFFSET', 'AND', 'OR', 'NOT', 'IN', 'BETWEEN', 'LIKE', 'IS NULL', 'IS NOT NULL',
+        'CASE', 'WHEN', 'THEN', 'ELSE', 'END'
+      ];
+      for (var k = 0; k < kws.length; k++) {
+        add({ kind: 'keyword', text: kws[k], displayText: kws[k], className: 'cm-keyword' });
+      }
+
+      return list;
+    }
+
     function buildTopLevelCompletions(callbackBindings) {
       const completions = [
         { kind: 'keyword', text: 'data', displayText: 'data : input JSON data' },
@@ -6891,6 +7380,11 @@ export function getQueryEditorHtml(
           i++;
           continue;
         }
+        if (ch === '-' && next === '-') {
+          inLineComment = true;
+          i++;
+          continue;
+        }
         if (ch === '/' && next === '*') {
           inBlockComment = true;
           i++;
@@ -7086,9 +7580,22 @@ export function getQueryEditorHtml(
             return null;
           }
           const fullDocText = cm.getValue ? cm.getValue() : '';
+          const isSqlMode = (typeof activeEditorMode !== 'undefined' && activeEditorMode === 'sql') || /^\s*SELECT\b/i.test(fullDocText);
 
           const extracted = extractChainForAutocomplete(line, pos, cm, cursor.line);
-          if (!extracted) return null;
+          if (!extracted) {
+            if (isSqlMode) {
+              const topCompletions = buildSqlTopLevelCompletions(fullDocText);
+              if (topCompletions && topCompletions.length > 0) {
+                return {
+                  list: topCompletions,
+                  from: CodeMirror.Pos(cursor.line, pos),
+                  to: CodeMirror.Pos(cursor.line, pos)
+                };
+              }
+            }
+            return null;
+          }
 
           const chain = extracted.chain;
           const callbackBindings = extracted.callbackBindings || {};
@@ -7106,47 +7613,55 @@ export function getQueryEditorHtml(
           let completions = [];
 
           if (chain.includes('.')) {
-            const inferred = inferTypeFromChain(receiverChain, callbackBindings, fullDocText);
-            const receiverType = normalizeType(inferred.typeName);
-
-            if (receiverType === 'environment') {
-              completions = buildEnvCompletions();
-            } else if (receiverType === 'req') {
-              completions = buildReqCompletions();
-            } else if (receiverType === 'res') {
-              completions = buildResCompletions();
-            } else if (receiverType === 'Math') {
-              completions = buildMathCompletions();
-            } else if (receiverType === 'JSON') {
-              completions = buildJsonCompletions();
-            } else if (receiverType === 'Object') {
-              completions = buildObjectConstructorCompletions();
-            } else if (receiverType === 'Array') {
-              completions = buildArrayConstructorCompletions();
-            } else if (receiverType === 'console') {
-              completions = buildConsoleCompletions();
-            } else if (receiverType === 'assert') {
-              completions = buildAssertCompletions();
-            } else if (receiverType === 'expect') {
-              completions = buildExpectCompletions();
-            } else if (receiverType === TYPE_OBJECT) {
-              completions = buildObjectFieldCompletions(inferred.schemaPart);
-              completions.push(...buildMethodCompletions(TYPE_OBJECT, inferred.schemaPart));
-            } else if (receiverType === TYPE_ARRAY) {
-              completions = buildMethodCompletions(TYPE_ARRAY, inferred.schemaPart);
-            } else if (receiverType === TYPE_STRING) {
-              completions = buildMethodCompletions(TYPE_STRING, inferred.schemaPart);
-            } else if (receiverType === TYPE_NUMBER) {
-              completions = buildMethodCompletions(TYPE_NUMBER, inferred.schemaPart);
-            } else if (receiverType === TYPE_BOOLEAN) {
-              completions = buildMethodCompletions(TYPE_BOOLEAN, inferred.schemaPart);
+            if (isSqlMode) {
+              completions = buildSqlMemberCompletions(receiverChain, fullDocText);
             } else {
-              // unknown / any (e.g. blabla.)
-              completions = buildAnyFallbackCompletions(receiverChain, fullDocText);
+              const inferred = inferTypeFromChain(receiverChain, callbackBindings, fullDocText);
+              const receiverType = normalizeType(inferred.typeName);
+
+              if (receiverType === 'environment') {
+                completions = buildEnvCompletions();
+              } else if (receiverType === 'req') {
+                completions = buildReqCompletions();
+              } else if (receiverType === 'res') {
+                completions = buildResCompletions();
+              } else if (receiverType === 'Math') {
+                completions = buildMathCompletions();
+              } else if (receiverType === 'JSON') {
+                completions = buildJsonCompletions();
+              } else if (receiverType === 'Object') {
+                completions = buildObjectConstructorCompletions();
+              } else if (receiverType === 'Array') {
+                completions = buildArrayConstructorCompletions();
+              } else if (receiverType === 'console') {
+                completions = buildConsoleCompletions();
+              } else if (receiverType === 'assert') {
+                completions = buildAssertCompletions();
+              } else if (receiverType === 'expect') {
+                completions = buildExpectCompletions();
+              } else if (receiverType === TYPE_OBJECT) {
+                completions = buildObjectFieldCompletions(inferred.schemaPart);
+                completions.push(...buildMethodCompletions(TYPE_OBJECT, inferred.schemaPart));
+              } else if (receiverType === TYPE_ARRAY) {
+                completions = buildMethodCompletions(TYPE_ARRAY, inferred.schemaPart);
+              } else if (receiverType === TYPE_STRING) {
+                completions = buildMethodCompletions(TYPE_STRING, inferred.schemaPart);
+              } else if (receiverType === TYPE_NUMBER) {
+                completions = buildMethodCompletions(TYPE_NUMBER, inferred.schemaPart);
+              } else if (receiverType === TYPE_BOOLEAN) {
+                completions = buildMethodCompletions(TYPE_BOOLEAN, inferred.schemaPart);
+              } else {
+                // unknown / any (e.g. blabla.)
+                completions = buildAnyFallbackCompletions(receiverChain, fullDocText);
+              }
             }
           } else {
-            // Top-level identifiers
-            completions = buildTopLevelCompletions(callbackBindings);
+            if (isSqlMode) {
+              completions = buildSqlTopLevelCompletions(fullDocText);
+            } else {
+              // Top-level identifiers
+              completions = buildTopLevelCompletions(callbackBindings);
+            }
           }
 
           // Deduplicate completions
@@ -7260,8 +7775,10 @@ export function getQueryEditorHtml(
         console.warn('Failed to load acorn, syntax validation disabled:', err.message);
       });
 
-    let activeEditorMode = 'query'; // 'query' | 'tests'
+    let activeEditorMode = 'query'; // 'query' | 'sql' | 'tests' | 'pipeline'
     let queryCode = '';
+    const DEFAULT_SQL_QUERY = 'SELECT * FROM data LIMIT 100;';
+    let sqlCode = localStorage.getItem('jsonQueryTools.sqlQuery') || DEFAULT_SQL_QUERY;
     const DEFAULT_TEST_SUITE = [
       "// Test Suite for JSON Data",
       "// Available Globals: test, it, expect, assert, data, result, raw",
@@ -7314,6 +7831,9 @@ export function getQueryEditorHtml(
       // 1. Save state of the mode we are leaving
       if (activeEditorMode === 'query') {
         queryCode = getRawEditorValue();
+      } else if (activeEditorMode === 'sql') {
+        sqlCode = getRawEditorValue();
+        localStorage.setItem('jsonQueryTools.sqlQuery', sqlCode);
       } else if (activeEditorMode === 'tests') {
         testCode = getRawEditorValue();
         localStorage.setItem('jsonQueryTools.testSuiteCode', testCode);
@@ -7330,11 +7850,13 @@ export function getQueryEditorHtml(
 
       // 3. Update Mode Buttons
       if (modeQueryBtn) modeQueryBtn.classList.toggle('active', newMode === 'query');
+      if (modeSqlBtn) modeSqlBtn.classList.toggle('active', newMode === 'sql');
       if (modePipelineBtn) modePipelineBtn.classList.toggle('active', newMode === 'pipeline');
       if (modeTestsBtn) modeTestsBtn.classList.toggle('active', newMode === 'tests');
 
       // 4. Update Toolbars & Pipeline Ribbons
       if (queryToolbar) queryToolbar.style.display = newMode === 'query' ? 'flex' : 'none';
+      if (sqlToolbar) sqlToolbar.style.display = newMode === 'sql' ? 'flex' : 'none';
       if (pipelineToolbar) pipelineToolbar.style.display = newMode === 'pipeline' ? 'flex' : 'none';
       if (testsToolbar) testsToolbar.style.display = newMode === 'tests' ? 'flex' : 'none';
 
@@ -7347,6 +7869,9 @@ export function getQueryEditorHtml(
         if (newMode === 'query' && queryToolbar) {
           const importQBtn = document.getElementById('importQuery');
           if (importQBtn) queryToolbar.insertBefore(lp, importQBtn);
+        } else if (newMode === 'sql' && sqlToolbar) {
+          const importSqlBtn = document.getElementById('importSqlQueryBtn');
+          if (importSqlBtn) sqlToolbar.insertBefore(lp, importSqlBtn);
         } else if (newMode === 'pipeline' && pipelineToolbar) {
           const exportPQBtn = document.getElementById('exportPipelineToQueryBtn');
           if (exportPQBtn) pipelineToolbar.insertBefore(lp, exportPQBtn);
@@ -7369,6 +7894,13 @@ export function getQueryEditorHtml(
         if (editorKeyboardHint) {
           editorKeyboardHint.innerHTML = 'Press <kbd>Ctrl+Enter</kbd> to run pipeline | <kbd>Ctrl+S</kbd> to save | Click stage pills above to inspect/edit';
         }
+      } else if (newMode === 'sql') {
+        setEditorValue(sqlCode);
+        if (editor && editor.clearHistory) editor.clearHistory();
+        if (exprTextarea) exprTextarea.placeholder = 'SELECT * FROM data WHERE ... GROUP BY ... ORDER BY ... LIMIT 100;';
+        if (editorKeyboardHint) {
+          editorKeyboardHint.innerHTML = 'Press <kbd>Ctrl+Enter</kbd> to run SQL | <kbd>Ctrl+Shift+E</kbd> to switch mode | <kbd>Ctrl+S</kbd> to save';
+        }
       } else if (newMode === 'tests') {
         setEditorValue(testCode);
         if (editor && editor.clearHistory) editor.clearHistory();
@@ -7387,6 +7919,14 @@ export function getQueryEditorHtml(
         }
       }
 
+      if (editor && typeof editor.setOption === 'function') {
+        if (newMode === 'sql') {
+          editor.setOption('mode', 'text/x-sql');
+        } else {
+          editor.setOption('mode', 'javascript');
+        }
+      }
+
       if (editor) {
         editor.refresh();
         editor.focus();
@@ -7395,11 +7935,25 @@ export function getQueryEditorHtml(
 
     function toggleEditorMode() {
       if (activeEditorMode === 'query') {
+        switchEditorMode('sql');
+      } else if (activeEditorMode === 'sql') {
         switchEditorMode('pipeline');
       } else if (activeEditorMode === 'pipeline') {
         switchEditorMode('tests');
       } else {
         switchEditorMode('query');
+      }
+    }
+
+    function saveSql() {
+      sqlCode = getRawEditorValue();
+      localStorage.setItem('jsonQueryTools.sqlQuery', sqlCode);
+      if (saveSqlBtn) {
+        const orig = saveSqlBtn.textContent;
+        saveSqlBtn.textContent = '✓ Saved';
+        setTimeout(() => {
+          saveSqlBtn.textContent = orig;
+        }, 1500);
       }
     }
 
@@ -7470,6 +8024,9 @@ export function getQueryEditorHtml(
       const expr = getEditorValue();
       clearSyntaxError();
       if (!expr) return;
+      if ((typeof activeEditorMode !== 'undefined' && activeEditorMode === 'sql') || /^\s*SELECT\b/i.test(expr)) {
+        return;
+      }
       if (typeof acorn === 'undefined' || !editor) return;
       try {
         acorn.parse(expr, {
@@ -7488,8 +8045,33 @@ export function getQueryEditorHtml(
       }
     }
     
+    function runSql() {
+      const expr = getEditorValue();
+      if (!expr) {
+        resultPre.textContent = 'Error: SQL query is empty';
+        resultPre.className = 'error';
+        if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+        if (resultInfo) resultInfo.textContent = '';
+        lastBenchmark = null;
+        return;
+      }
+      clearSyntaxError();
+      clearConsoleOutput();
+      setLoading(true);
+      resultPre.textContent = 'Executing SQL...';
+      resultPre.className = '';
+      if (benchmarkMeter) benchmarkMeter.style.display = 'none';
+      if (resultInfo) resultInfo.textContent = '';
+      lastBenchmark = null;
+      vscode.postMessage({ type: 'run', expr, mode: 'sql', save: true });
+    }
+
     function runExpression() {
       const expr = getEditorValue();
+      if (activeEditorMode === 'sql' || (expr && /^\s*SELECT\b/i.test(expr))) {
+        runSql();
+        return;
+      }
       if (!expr) {
         resultPre.textContent = 'Error: Expression is empty';
         resultPre.className = 'error';
@@ -7593,6 +8175,10 @@ export function getQueryEditorHtml(
         savePipeline();
         return;
       }
+      if (activeEditorMode === 'sql') {
+        saveSql();
+        return;
+      }
       const expr = getEditorValue();
       if (!expr) {
         return;
@@ -7612,6 +8198,20 @@ export function getQueryEditorHtml(
     function beautifyExpression() {
       const expr = getEditorValue();
       if (!expr) return;
+      
+      if (activeEditorMode === 'sql') {
+        const formatted = simpleSqlBeautify(expr);
+        setEditorValue(formatted);
+        if (editor) editor.focus();
+        if (beautifySqlBtn) {
+          const originalText = beautifySqlBtn.textContent;
+          beautifySqlBtn.textContent = '✓ Beautified';
+          setTimeout(() => {
+            beautifySqlBtn.textContent = originalText;
+          }, 1500);
+        }
+        return;
+      }
       
       try {
         let formatted;
@@ -7760,6 +8360,83 @@ export function getQueryEditorHtml(
       return result;
     }
 
+    function simpleSqlBeautify(sql) {
+      if (!sql || !sql.trim()) return sql;
+      var majorClauses = [
+        'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'HAVING', 'ORDER BY',
+        'LIMIT', 'OFFSET', 'INNER JOIN', 'LEFT JOIN', 'RIGHT JOIN',
+        'FULL JOIN', 'CROSS JOIN', 'JOIN'
+      ];
+      var sqlKeywords = {
+        'SELECT': 1, 'DISTINCT': 1, 'FROM': 1, 'WHERE': 1, 'AND': 1, 'OR': 1, 'NOT': 1,
+        'GROUP': 1, 'BY': 1, 'HAVING': 1, 'ORDER': 1, 'ASC': 1, 'DESC': 1, 'LIMIT': 1, 'OFFSET': 1,
+        'JOIN': 1, 'INNER': 1, 'LEFT': 1, 'RIGHT': 1, 'FULL': 1, 'CROSS': 1, 'ON': 1, 'AS': 1,
+        'LIKE': 1, 'ILIKE': 1, 'IN': 1, 'BETWEEN': 1, 'IS': 1, 'NULL': 1, 'TRUE': 1, 'FALSE': 1,
+        'CASE': 1, 'WHEN': 1, 'THEN': 1, 'ELSE': 1, 'END': 1, 'COUNT': 1, 'SUM': 1, 'AVG': 1, 'MIN': 1, 'MAX': 1,
+        'COALESCE': 1, 'ROUND': 1, 'UPPER': 1, 'LOWER': 1, 'CONCAT': 1
+      };
+      var tokens = [];
+      var pos = 0;
+      var len = sql.length;
+      while (pos < len) {
+        var ch = sql[pos];
+        if (ch === "'" || ch === '"' || ch === String.fromCharCode(96)) {
+          var quote = ch;
+          var str = ch;
+          pos++;
+          while (pos < len && sql[pos] !== quote) {
+            if (sql[pos] === '\\\\' && pos + 1 < len) {
+              str += sql[pos++];
+            }
+            str += sql[pos++];
+          }
+          if (pos < len) str += sql[pos++];
+          tokens.push({ type: 'str', text: str });
+          continue;
+        }
+        var code = '';
+        while (pos < len && sql[pos] !== "'" && sql[pos] !== '"' && sql[pos] !== String.fromCharCode(96)) {
+          code += sql[pos++];
+        }
+        tokens.push({ type: 'code', text: code });
+      }
+      var normalized = '';
+      for (var t = 0; t < tokens.length; t++) {
+        var tok = tokens[t];
+        if (tok.type === 'str') {
+          normalized += tok.text;
+        } else {
+          normalized += tok.text.replace(/\\b([a-zA-Z_]+)\\b/g, function(match) {
+            var u = match.toUpperCase();
+            return sqlKeywords[u] ? u : match;
+          });
+        }
+      }
+      normalized = normalized
+        .replace(/\\bGROUP\\s+BY\\b/gi, 'GROUP BY')
+        .replace(/\\bORDER\\s+BY\\b/gi, 'ORDER BY')
+        .replace(/\\bINNER\\s+JOIN\\b/gi, 'INNER JOIN')
+        .replace(/\\bLEFT\\s+(?:OUTER\\s+)?JOIN\\b/gi, 'LEFT JOIN')
+        .replace(/\\bRIGHT\\s+(?:OUTER\\s+)?JOIN\\b/gi, 'RIGHT JOIN')
+        .replace(/\\bFULL\\s+(?:OUTER\\s+)?JOIN\\b/gi, 'FULL JOIN')
+        .replace(/\\bCROSS\\s+JOIN\\b/gi, 'CROSS JOIN');
+      for (var c = 0; c < majorClauses.length; c++) {
+        var clause = majorClauses[c];
+        var regex = new RegExp('\\\\s*\\\\b(' + clause + ')\\\\b\\\\s*', 'gi');
+        normalized = normalized.replace(regex, '\\n$1 ');
+      }
+      normalized = normalized.replace(/\\n(WHERE|HAVING)\\s+([\\s\\S]*?)(?=\\n[A-Z]+|\\s*$)/g, function(match, clause, body) {
+        var indented = body.replace(/\\s*\\b(AND|OR)\\b\\s*/g, '\\n  $1 ');
+        return '\\n' + clause + ' ' + indented.trim();
+      });
+      return normalized
+        .split('\\n')
+        .map(function(line) { return line.trimEnd(); })
+        .filter(function(line, i, arr) { return line.trim() !== '' || (i > 0 && arr[i - 1].trim() !== ''); })
+        .join('\\n')
+        .trim();
+    }
+
     document.getElementById('boundFilesContainer').addEventListener('click', (e) => {
       const target = e.target;
       if (target.id === 'addFile') {
@@ -7848,11 +8525,38 @@ export function getQueryEditorHtml(
     if (modeQueryBtn) {
       modeQueryBtn.onclick = () => switchEditorMode('query');
     }
+    if (modeSqlBtn) {
+      modeSqlBtn.onclick = () => switchEditorMode('sql');
+    }
     if (modePipelineBtn) {
       modePipelineBtn.onclick = () => switchEditorMode('pipeline');
     }
     if (modeTestsBtn) {
       modeTestsBtn.onclick = () => switchEditorMode('tests');
+    }
+
+    if (runSqlBtn) {
+      runSqlBtn.onclick = () => runSql();
+    }
+    if (saveSqlBtn) {
+      saveSqlBtn.onclick = () => saveSql();
+    }
+    if (beautifySqlBtn) {
+      beautifySqlBtn.onclick = () => beautifyExpression();
+    }
+    if (clearSqlBtn) {
+      clearSqlBtn.onclick = () => {
+        setEditorValue('');
+        sqlCode = '';
+        localStorage.removeItem('jsonQueryTools.sqlQuery');
+        if (editor) editor.focus();
+      };
+    }
+    if (importSqlQueryBtn) {
+      importSqlQueryBtn.onclick = () => vscode.postMessage({ type: 'importSqlQuery' });
+    }
+    if (exportSqlQueryBtn) {
+      exportSqlQueryBtn.onclick = () => vscode.postMessage({ type: 'exportSqlQuery', expr: getRawEditorValue() });
     }
     if (addPipelineStepBtn) {
       addPipelineStepBtn.onclick = () => addPipelineStep();
@@ -8001,6 +8705,16 @@ export function getQueryEditorHtml(
           previewStepId: previewStepId
         };
       }
+      if (activeEditorMode === 'sql') {
+        sqlCode = getRawEditorValue();
+        localStorage.setItem('jsonQueryTools.sqlQuery', sqlCode);
+        return {
+          type: 'startLivePoll',
+          intervalMs: intervalMs,
+          mode: 'sql',
+          expr: sqlCode
+        };
+      }
       return {
         type: 'startLivePoll',
         intervalMs: intervalMs,
@@ -8138,6 +8852,38 @@ export function getQueryEditorHtml(
           updateTestCountBadge();
         }
         testSnippetSelect.value = '';
+      });
+    }
+
+    const SQL_SNIPPETS = {
+      sql_select_all: 'SELECT * FROM data;',
+      sql_select_cols: 'SELECT id, name, price FROM data WHERE price > 0;',
+      sql_nested_props: 'SELECT name, profile.city AS city, profile.country AS country FROM data;',
+      sql_where_filter: "SELECT * FROM data WHERE status = 'active' AND age >= 21;",
+      sql_where_in_between: "SELECT * FROM data WHERE category IN ('Electronics', 'Computers') AND price BETWEEN 50 AND 500;",
+      sql_where_like: "SELECT * FROM data WHERE email LIKE '%@gmail.com';",
+      sql_group_by_count: 'SELECT category, COUNT(*) AS count, AVG(price) AS avg_price FROM data GROUP BY category ORDER BY count DESC;',
+      sql_group_by_having: 'SELECT department, COUNT(*) AS total_staff FROM data GROUP BY department HAVING COUNT(*) >= 3;',
+      sql_summary_stats: 'SELECT COUNT(*) AS total_items, SUM(amount) AS grand_total, AVG(amount) AS average_amount, MIN(amount) AS minimum, MAX(amount) AS maximum FROM data;',
+      sql_order_limit: 'SELECT * FROM data ORDER BY created_at DESC LIMIT 10;',
+      sql_pagination: 'SELECT * FROM data ORDER BY id ASC LIMIT 20 OFFSET 40;',
+      sql_distinct: 'SELECT DISTINCT department, status FROM data ORDER BY department ASC;',
+      sql_inner_join: 'SELECT u.name, o.orderId, o.amount FROM users u INNER JOIN orders o ON u.id = o.userId;',
+      sql_left_join: 'SELECT u.name, o.orderId, o.amount FROM users u LEFT JOIN orders o ON u.id = o.userId;',
+      sql_case_when: "SELECT name, salary, CASE WHEN salary >= 100000 THEN 'High' WHEN salary >= 70000 THEN 'Medium' ELSE 'Entry' END AS salary_band FROM data;",
+      sql_string_functions: "SELECT UPPER(name) AS name_caps, CONCAT(first_name, ' ', last_name) AS full_name, LENGTH(bio) AS bio_len FROM data;",
+      sql_math_functions: 'SELECT name, price, ROUND(price * 1.1, 2) AS price_with_tax, FLOOR(price) AS floor_price FROM data;'
+    };
+
+    if (sqlSnippetSelect) {
+      sqlSnippetSelect.addEventListener('change', () => {
+        const val = sqlSnippetSelect.value;
+        if (!val) return;
+        const code = SQL_SNIPPETS[val];
+        if (code) {
+          setEditorValue(code);
+        }
+        sqlSnippetSelect.value = '';
       });
     }
 
@@ -9830,6 +10576,8 @@ export function getQueryEditorHtml(
               runTests();
             } else if (activeEditorMode === 'pipeline') {
               runPipeline();
+            } else if (activeEditorMode === 'sql') {
+              runSql();
             } else {
               runExpression();
             }
@@ -9840,6 +10588,8 @@ export function getQueryEditorHtml(
               runTests();
             } else if (activeEditorMode === 'pipeline') {
               runPipeline();
+            } else if (activeEditorMode === 'sql') {
+              runSql();
             } else {
               runExpression();
             }
@@ -9879,10 +10629,12 @@ export function getQueryEditorHtml(
               runTests();
             } else if (activeEditorMode === 'pipeline') {
               runPipeline();
+            } else if (activeEditorMode === 'sql') {
+              runSql();
             } else {
               runExpression();
             }
-          } else if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+          } else if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
             e.preventDefault();
             saveExpression();
           }
@@ -9969,6 +10721,15 @@ export function getQueryEditorHtml(
         updateTestCountBadge(code);
         if (activeEditorMode !== 'tests') {
           switchEditorMode('tests');
+        } else {
+          setEditorValue(code);
+        }
+      } else if (msg.type === 'insertSql') {
+        const code = String(msg.sqlExpr || '');
+        sqlCode = code;
+        localStorage.setItem('jsonQueryTools.sqlQuery', code);
+        if (activeEditorMode !== 'sql') {
+          switchEditorMode('sql');
         } else {
           setEditorValue(code);
         }

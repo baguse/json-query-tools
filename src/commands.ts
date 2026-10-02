@@ -9,7 +9,8 @@ import { MockServerManager } from './mockServer';
 import { executePipeline, exportPipelineToSingleQuery } from './pipeline';
 import { getHistory, pushHistory, serializeHistoryJson, parseHistoryJson, saveImportedHistory } from './history';
 import { evaluateExpression, evaluateTestSuiteAgainstSources, pickInitialTargetUri, readJsonFromUri, stringify, checkForMaliciousExpression, StdoutEntry, TestSuiteResult } from './evaluator';
-export { evaluateExpression };
+import { executeSql, formatSql, parseSql } from './sql';
+export { evaluateExpression, executeSql, formatSql, parseSql };
 
 let consoleOutputChannel: vscode.OutputChannel | undefined;
 
@@ -750,6 +751,7 @@ export async function commandOpenQueryEditor(
   let currentPipelineSteps: PipelineStep[] = [];
   let currentPollIsPipeline = false;
   let currentPipelinePreviewStepId: string | undefined;
+  let currentPollMode = 'query';
 
   async function runQueryOrTests(
     expr: string,
@@ -758,8 +760,51 @@ export async function commandOpenQueryEditor(
     queryExpr?: string,
     saveToHistory = false,
     isPollTick = false,
-    pollCount?: number
+    pollCount?: number,
+    mode = 'query'
   ) {
+    if (mode === 'sql') {
+      const rawDataMap = await buildDataMap();
+      const dataMap: Record<string, unknown> = {
+        ...rawDataMap,
+        data: rawDataMap['data'],
+        raw: rawDataMap['data'] !== undefined ? rawDataMap['data'] : rawDataMap
+      };
+      const startTime = performance.now();
+      let result: any;
+      try {
+        result = executeSql(dataMap, expr);
+      } catch (sqlErr: any) {
+        panel.webview.postMessage({ type: 'result', error: `SQL execution error: ${sqlErr?.message || sqlErr}` });
+        return;
+      }
+      const durationMs = Math.round((performance.now() - startTime) * 10) / 10;
+      lastResultData = result;
+      hasEvaluatedResult = true;
+      mockServerManager.updatePayload(result);
+
+      if (saveToHistory) {
+        await pushHistory(context, `-- SQL\n${expr}`);
+        sendHistory();
+      }
+
+      const isStreaming = Array.isArray(result) && result.length >= STREAMING_THRESHOLD;
+      const text = isStreaming ? '' : stringify(result);
+      const byteSize = isStreaming ? 0 : Buffer.byteLength(text, 'utf-8');
+      await sendResultStreaming(text, result, durationMs, byteSize, undefined, false);
+
+      if (isPollTick) {
+        panel.webview.postMessage({
+          type: 'pollTick',
+          pollCount,
+          timestamp: Date.now(),
+          durationMs,
+          byteSize
+        });
+      }
+      return;
+    }
+
     const rawDataMap = await buildDataMap();
 
     // If running tests targeted against query result, ensure query result is available
@@ -1367,12 +1412,13 @@ export async function commandOpenQueryEditor(
       } else if (msg.type === 'use') {
 
         panel.webview.postMessage({ type: 'insert', expr: String(msg.expr || '') });
-      } else if (msg.type === 'run' || msg.type === 'runConfirmed' || msg.type === 'runTests') {
+      } else if (msg.type === 'run' || msg.type === 'runConfirmed' || msg.type === 'runTests' || msg.type === 'runSql') {
         const expr = String(msg.expr || '');
+        const isSql = msg.mode === 'sql' || msg.type === 'runSql';
         const isTestMode = msg.type === 'runTests' || Boolean(msg.isTestMode);
         const testTarget = String(msg.target || 'source'); // 'source', 'all', or 'result'
 
-        if (msg.type === 'run' || msg.type === 'runTests') {
+        if ((msg.type === 'run' || msg.type === 'runTests') && !isSql) {
           const warning = checkForMaliciousExpression(expr);
           if (warning) {
             panel.webview.postMessage({ type: 'securityWarning', warning, expr, isTestMode, target: testTarget });
@@ -1382,15 +1428,17 @@ export async function commandOpenQueryEditor(
 
         currentPollExpr = expr;
         currentPollIsTestMode = isTestMode;
+        currentPollMode = isSql ? 'sql' : (isTestMode ? 'tests' : 'query');
         currentPollTestTarget = testTarget;
         currentPollQueryExpr = msg.queryExpr ? String(msg.queryExpr) : undefined;
 
-        await runQueryOrTests(expr, isTestMode, testTarget, msg.queryExpr, Boolean(msg.save));
+        await runQueryOrTests(expr, isTestMode, testTarget, msg.queryExpr, Boolean(msg.save), false, undefined, currentPollMode);
       } else if (msg.type === 'startLivePoll') {
         const intervalMs = Math.max(1000, Number(msg.intervalMs) || 5000);
         currentPollExpr = String(msg.expr || '');
         currentPollIsTestMode = Boolean(msg.isTestMode);
         currentPollIsPipeline = Boolean(msg.isPipeline);
+        currentPollMode = msg.mode === 'sql' ? 'sql' : (currentPollIsPipeline ? 'pipeline' : (currentPollIsTestMode ? 'tests' : 'query'));
         if (Array.isArray(msg.steps)) currentPipelineSteps = msg.steps;
         currentPipelinePreviewStepId = msg.previewStepId;
         currentPollTestTarget = String(msg.target || 'source');
@@ -1409,7 +1457,8 @@ export async function commandOpenQueryEditor(
                 currentPollQueryExpr,
                 false,
                 true,
-                count
+                count,
+                currentPollMode
               );
             }
           } catch (pollErr: any) {
@@ -1439,6 +1488,7 @@ export async function commandOpenQueryEditor(
         currentPollExpr = String(msg.expr || '');
         currentPollIsTestMode = Boolean(msg.isTestMode);
         currentPollIsPipeline = Boolean(msg.isPipeline);
+        currentPollMode = msg.mode === 'sql' ? 'sql' : (currentPollIsPipeline ? 'pipeline' : (currentPollIsTestMode ? 'tests' : 'query'));
         if (Array.isArray(msg.steps)) currentPipelineSteps = msg.steps;
         currentPipelinePreviewStepId = msg.previewStepId;
         currentPollTestTarget = String(msg.target || 'source');
@@ -1654,6 +1704,33 @@ export async function commandOpenQueryEditor(
           const content = Buffer.from(String(msg.expr || ''), 'utf-8');
           await vscode.workspace.fs.writeFile(uri, content);
           vscode.window.showInformationMessage('Test suite exported to: ' + uri.fsPath);
+        }
+      } else if (msg.type === 'importSqlQuery') {
+        const uris = await vscode.window.showOpenDialog({
+          canSelectMany: false,
+          openLabel: 'Import SQL Query',
+          filters: { 'SQL Files': ['sql', 'txt'], 'All Files': ['*'] }
+        });
+        if (uris && uris[0]) {
+          const content = await vscode.workspace.fs.readFile(uris[0]);
+          const textContent = Buffer.from(content).toString('utf-8');
+          panel.webview.postMessage({ type: 'insertSql', sqlExpr: textContent });
+          vscode.window.showInformationMessage('Loaded SQL query from: ' + path.basename(uris[0].fsPath));
+        }
+      } else if (msg.type === 'exportSqlQuery') {
+        const defaultName = generateTimestampFileName('query.sql');
+        const defaultUri = getDefaultSaveUri({ defaultName, primaryUri: getPrimaryUri(boundFiles) });
+        
+        const uri = await vscode.window.showSaveDialog({
+          defaultUri,
+          saveLabel: 'Export SQL Query',
+          filters: { 'SQL Files': ['sql', 'txt'], 'All Files': ['*'] }
+        });
+        
+        if (uri) {
+          const content = Buffer.from(String(msg.expr || ''), 'utf-8');
+          await vscode.workspace.fs.writeFile(uri, content);
+          vscode.window.showInformationMessage('SQL query exported to: ' + uri.fsPath);
         }
       } else if (msg.type === 'runPipeline') {
         const steps: PipelineStep[] = Array.isArray(msg.steps) ? msg.steps : [];

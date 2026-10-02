@@ -553,6 +553,162 @@ async function runAutocompleteTests() {
 
   console.log('  ✓ HTTP Request (req) and Response (res) autocomplete and type inference passed');
 
+  // 10. SQL Table Aliases and Autocomplete Hints
+  assert.ok(typeof sandbox.findSqlTableAliases === 'function', 'sandbox should define findSqlTableAliases');
+  assert.ok(typeof sandbox.buildSqlMemberCompletions === 'function', 'sandbox should define buildSqlMemberCompletions');
+  assert.ok(typeof sandbox.buildSqlTopLevelCompletions === 'function', 'sandbox should define buildSqlTopLevelCompletions');
+
+  // Test alias extraction from SQL queries
+  const sqlQuery1 = 'select d.name from data d;';
+  const aliases1 = sandbox.findSqlTableAliases(sqlQuery1);
+  assert.strictEqual(aliases1.aliases['d'], 'data', 'Should map alias "d" to "data"');
+  assert.strictEqual(aliases1.aliases['data'], 'data', 'Should map "data" to "data"');
+
+  const sqlQuery2 = 'SELECT d.name FROM data AS d WHERE d.age > 20;';
+  const aliases2 = sandbox.findSqlTableAliases(sqlQuery2);
+  assert.strictEqual(aliases2.aliases['d'], 'data', 'Should map "AS d" to "data"');
+
+  const sqlQuery3 = 'SELECT u.name, o.id FROM users u INNER JOIN orders o ON u.id = o.userId;';
+  const aliases3 = sandbox.findSqlTableAliases(sqlQuery3);
+  assert.strictEqual(aliases3.aliases['u'], 'users', 'Should map alias "u" to "users"');
+  assert.strictEqual(aliases3.aliases['o'], 'orders', 'Should map alias "o" to "orders"');
+
+  // Set up schema with data, users, and orders
+  sandbox.currentSchema = {
+    type: 'object',
+    properties: {
+      data: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'primitive', valueType: 'number' },
+            name: { type: 'primitive', valueType: 'string' },
+            email: { type: 'primitive', valueType: 'string' },
+            address: {
+              type: 'object',
+              properties: {
+                city: { type: 'primitive', valueType: 'string' },
+                zip: { type: 'primitive', valueType: 'string' }
+              }
+            }
+          }
+        }
+      },
+      users: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            userId: { type: 'primitive', valueType: 'number' },
+            username: { type: 'primitive', valueType: 'string' }
+          }
+        }
+      },
+      orders: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            orderId: { type: 'primitive', valueType: 'number' },
+            total: { type: 'primitive', valueType: 'number' }
+          }
+        }
+      }
+    }
+  };
+
+  // Test SQL member completions on alias: d.
+  const dCompletions = sandbox.buildSqlMemberCompletions('d', 'select d. from data d;');
+  const dTexts = dCompletions.map(c => c.text);
+  assert.ok(dTexts.includes('id'), 'd. completions must include "id"');
+  assert.ok(dTexts.includes('name'), 'd. completions must include "name"');
+  assert.ok(dTexts.includes('email'), 'd. completions must include "email"');
+  assert.ok(dTexts.includes('address'), 'd. completions must include "address"');
+
+  // Test SQL member completions on table directly: data.
+  const dataCompletions = sandbox.buildSqlMemberCompletions('data', 'select data. from data;');
+  const dataTexts = dataCompletions.map(c => c.text);
+  assert.ok(dataTexts.includes('name'), 'data. completions must include "name"');
+  assert.ok(dataTexts.includes('email'), 'data. completions must include "email"');
+
+  // Test SQL member completions on nested property: d.address.
+  const addrCompletions = sandbox.buildSqlMemberCompletions('d.address', 'select d.address. from data d;');
+  const addrTexts = addrCompletions.map(c => c.text);
+  assert.ok(addrTexts.includes('city'), 'd.address. completions must include "city"');
+  assert.ok(addrTexts.includes('zip'), 'd.address. completions must include "zip"');
+
+  // Test join alias completions: u. and o.
+  const joinDoc = 'SELECT u.name, o. from users u LEFT JOIN orders o ON u.userId = o.userId';
+  const uCompletions = sandbox.buildSqlMemberCompletions('u', joinDoc);
+  const uTexts = uCompletions.map(c => c.text);
+  assert.ok(uTexts.includes('username'), 'u. completions must include "username"');
+
+  const oCompletions = sandbox.buildSqlMemberCompletions('o', joinDoc);
+  const oTexts = oCompletions.map(c => c.text);
+  assert.ok(oTexts.includes('total'), 'o. completions must include "total"');
+
+  // Test SQL top-level completions
+  const sqlTop = sandbox.buildSqlTopLevelCompletions('select from data d;');
+  const sqlTopTexts = sqlTop.map(c => c.text);
+  assert.ok(sqlTopTexts.includes('SELECT'), 'Top-level SQL completions must include "SELECT"');
+  assert.ok(sqlTopTexts.includes('FROM'), 'Top-level SQL completions must include "FROM"');
+  assert.ok(sqlTopTexts.includes('COUNT(*)'), 'Top-level SQL completions must include "COUNT(*)"');
+  assert.ok(sqlTopTexts.includes('d'), 'Top-level SQL completions must include alias "d"');
+  assert.ok(sqlTopTexts.includes('name'), 'Top-level SQL completions must include column "name"');
+
+  // Test SQL member completions on nested array source: FROM data.users u
+  sandbox.currentSchema.properties.data = {
+    type: 'object',
+    properties: {
+      status: { type: 'primitive', valueType: 'string' },
+      users: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            memberId: { type: 'primitive', valueType: 'number' },
+            memberName: { type: 'primitive', valueType: 'string' }
+          }
+        }
+      },
+      response: {
+        type: 'object',
+        properties: {
+          items: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                sku: { type: 'primitive', valueType: 'string' },
+                price: { type: 'primitive', valueType: 'number' }
+              }
+            }
+          }
+        }
+      }
+    }
+  };
+
+  const dottedDoc = 'SELECT u. from data.users u;';
+  const dottedUCompletions = sandbox.buildSqlMemberCompletions('u', dottedDoc);
+  const dottedUTexts = dottedUCompletions.map(c => c.text);
+  assert.ok(dottedUTexts.includes('memberId'), 'u. in "FROM data.users u" must suggest "memberId"');
+  assert.ok(dottedUTexts.includes('memberName'), 'u. in "FROM data.users u" must suggest "memberName"');
+
+  const deepDottedDoc = 'SELECT i. from response.items i;';
+  const deepICompletions = sandbox.buildSqlMemberCompletions('i', deepDottedDoc);
+  const deepITexts = deepICompletions.map(c => c.text);
+  assert.ok(deepITexts.includes('sku'), 'i. in "FROM response.items i" must suggest "sku"');
+  assert.ok(deepITexts.includes('price'), 'i. in "FROM response.items i" must suggest "price"');
+
+  // Verify Acorn suppression in SQL mode
+  assert.ok(htmlSource.includes("activeEditorMode === 'sql'"), 'html.ts must check activeEditorMode === "sql"');
+  assert.ok(htmlSource.includes('validateExpressionSyntax'), 'html.ts must define validateExpressionSyntax');
+  assert.ok(htmlSource.includes('text/x-sql'), 'html.ts should switch CodeMirror mode to text/x-sql in SQL mode');
+
+  console.log('  ✓ SQL alias resolution, dot-completions (d.), nested properties, joins, and Acorn bypass passed');
+
   console.log('\nAll autocomplete tests passed successfully!');
 }
 
